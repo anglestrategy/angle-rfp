@@ -1,0 +1,53 @@
+{
+  "services": [
+    {
+      "id": "1",
+      "name": "Brand Strategy",
+      "category": "strategy",
+      "keywords": ["brand", "strategy", "positioning", "identity", "branding"],
+      "description": "PLACEHOLDER - User will provide actual agency services"
+    },
+    {
+      "id": "2",
+      "name": "Video Production",
+      "category": "videoProduction",
+      "keywords": ["video", "filming", "production", "shoot", "cinematography", "videography"]
+    },
+    {
+      "id": "3",
+      "name": "Motion Graphics",
+      "category": "motionGraphics",
+      "keywords": ["motion graphics", "animation", "motion design", "animated", "2d animation", "3d animation"]
+    },
+    {
+      "id": "4",
+      "name": "Social Media Management",
+      "category": "socialMedia",
+      "keywords": ["social media", "community management", "social content", "instagram", "facebook", "twitter", "linkedin"]
+    },
+    {
+      "id": "5",
+      "name": "Content Creation",
+      "category": "contentCreation",
+      "keywords": ["content", "copywriting", "writing", "blog", "articles", "editorial"]
+    },
+    {
+      "id": "6",
+      "name": "Web Development",
+      "category": "webDevelopment",
+      "keywords": ["website", "web development", "web design", "landing page", "responsive", "frontend", "backend"]
+    },
+    {
+      "id": "7",
+      "name": "SEO & Analytics",
+      "category": "digitalMarketing",
+      "keywords": ["SEO", "search optimization", "analytics", "tracking", "metrics", "google analytics"]
+    },
+    {
+      "id": "8",
+      "name": "Paid Advertising",
+      "category": "digitalMarketing",
+      "keywords": ["paid ads", "advertising", "PPC", "google ads", "facebook ads", "media buying", "ad campaigns"]
+    }
+  ]
+}

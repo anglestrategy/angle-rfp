@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2026-02-04",
+  "description": "Financial potential scoring weights based on client priority order",
+  "weights": {
+    "scopeMagnitude": {
+      "weight": 0.20,
+      "description": "How big is the project (scope of work)?",
+      "priority": 1
+    },
+    "agencyServiceAlignment": {
+      "weight": 0.15,
+      "description": "Percentage of agency services vs non-agency services. Higher percentage brings more revenue.",
+      "priority": 2
+    },
+    "outputQuantities": {
+      "weight": 0.12,
+      "description": "Listed quantities in scope of work. High quantities indicate higher spend possibility.",
+      "priority": 3
+    },
+    "outputTypes": {
+      "weight": 0.12,
+      "description": "Types of outputs: video > motion graphics > visuals > content only",
+      "priority": 4
+    },
+    "companySize": {
+      "weight": 0.10,
+      "description": "How big is the client/company?",
+      "priority": 5
+    },
+    "brandPopularity": {
+      "weight": 0.08,
+      "description": "How popular is the brand?",
+      "priority": 6
+    },
+    "holdingGroup": {
+      "weight": 0.07,
+      "description": "Does the client belong to a larger holding group? How large?",
+      "priority": 7
+    },
+    "entityType": {
+      "weight": 0.06,
+      "description": "Private entity (better budget) vs governmental entity (usually less budget)",
+      "priority": 8
+    },
+    "mediaSpendData": {
+      "weight": 0.05,
+      "description": "Accessible media/ad spend reports indicating financial readiness to spend",
+      "priority": 9
+    },
+    "socialMediaPresence": {
+      "weight": 0.03,
+      "description": "Active presence on social media platforms and activity level",
+      "priority": 10
+    },
+    "contentTypesPublished": {
+      "weight": 0.02,
+      "description": "Types of content client publishes: video (high spend) > images > text (low spend)",
+      "priority": 11
+    }
+  },
+  "scoringRanges": {
+    "low": {
+      "min": 0,
+      "max": 40,
+      "label": "Low Financial Potential - High Risk",
+      "recommendation": "Consider declining or requesting significant upfront payment"
+    },
+    "moderate": {
+      "min": 40,
+      "max": 66,
+      "label": "Moderate Financial Potential - Proceed with Caution",
+      "recommendation": "Acceptable with clear payment terms and milestone-based billing"
+    },
+    "good": {
+      "min": 66,
+      "max": 86,
+      "label": "Good Financial Potential - Recommended",
+      "recommendation": "Strong opportunity, proceed with confidence"
+    },
+    "excellent": {
+      "min": 86,
+      "max": 100,
+      "label": "Excellent Financial Potential - High Priority",
+      "recommendation": "Prime opportunity, prioritize this RFP"
+    }
+  }
+}
