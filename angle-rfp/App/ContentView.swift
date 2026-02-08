@@ -131,6 +131,9 @@ struct ContentView: View {
     @State private var showSettings = false
     @State private var apiKeysConfigured = false
 
+    // Demo mode - set to true to bypass API and use mock data
+    private let useDemoMode = true
+
     @AppStorage("motionPreference") private var motionPreferenceRawValue = MotionPreference.balanced.rawValue
 
     private var selectedMotionPreference: MotionPreference {
@@ -182,7 +185,7 @@ struct ContentView: View {
                 AppHeader(
                     currentStep: activeStepIndex,
                     completedSteps: completedSteps,
-                    apiKeysConfigured: apiKeysConfigured,
+                    apiKeysConfigured: useDemoMode || apiKeysConfigured,
                     onSettingsTap: { showSettings = true }
                 )
 
@@ -591,6 +594,11 @@ struct ContentView: View {
     // MARK: - Analysis Process
 
     private func performAnalysis(documentURL: URL) {
+        if useDemoMode {
+            performMockAnalysis(documentName: documentURL.lastPathComponent)
+            return
+        }
+
         Task {
             let accessGranted = documentURL.startAccessingSecurityScopedResource()
             defer {
@@ -641,6 +649,165 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Demo Mode
+
+    private func performMockAnalysis(documentName: String) {
+        Task {
+            // Stage 1: Parsing
+            await updateStage(.parsing, progress: 0.1)
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            await updateProgress(0.25)
+
+            // Stage 2: Analyzing
+            await updateStage(.analyzing, progress: 0.3)
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            await updateProgress(0.55)
+
+            // Stage 3: Researching
+            await updateStage(.researching, progress: 0.6)
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            await updateProgress(0.8)
+
+            // Stage 4: Calculating
+            await updateStage(.calculating, progress: 0.85)
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await updateProgress(0.95)
+
+            // Stage 5: Complete
+            await updateStage(.complete, progress: 1.0)
+            try? await Task.sleep(nanoseconds: 300_000_000)
+
+            // Transition to dashboard with mock data
+            await MainActor.run {
+                withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
+                    self.extractedData = Self.mockRFPData
+                    self.clientInfo = Self.mockClientInfo
+                    self.appState = .dashboard(data: Self.mockRFPData, clientInfo: Self.mockClientInfo)
+                }
+            }
+        }
+    }
+
+    // MARK: - Mock Data
+
+    private static var mockRFPData: ExtractedRFPData {
+        ExtractedRFPData(
+            clientName: "Meridian Healthcare",
+            projectName: "2024 Brand Refresh & Digital Campaign",
+            projectDescription: "A comprehensive brand refresh initiative encompassing visual identity updates, digital presence overhaul, and an integrated marketing campaign targeting healthcare professionals and patients across multiple channels.",
+            scopeOfWork: """
+            The selected agency will be responsible for delivering a complete brand refresh including:
+
+            1. Brand Strategy Development - Comprehensive brand audit, competitive analysis, and strategic positioning recommendations
+            2. Visual Identity System - Logo refinement, color palette expansion, typography guidelines, and brand asset library
+            3. Digital Experience Design - Website redesign, mobile app UI/UX, and digital advertising templates
+            4. Campaign Creative - Concept development, storyboarding, and production of video content for TV and digital
+            5. Content Strategy - Editorial calendar, content pillars, and messaging framework for all channels
+            6. Social Media Assets - Platform-specific creative templates and animated content
+
+            The project will span 6 months with phased deliverables and regular client reviews.
+            """,
+            scopeAnalysis: ScopeAnalysis(
+                agencyServices: [
+                    "Brand Strategy",
+                    "Visual Identity Design",
+                    "Website Design",
+                    "Video Production",
+                    "Motion Graphics",
+                    "Content Strategy",
+                    "Social Media Creative"
+                ],
+                nonAgencyServices: [
+                    "Media Buying",
+                    "PR Distribution",
+                    "Website Development",
+                    "SEO Implementation"
+                ],
+                agencyServicePercentage: 0.72,
+                outputQuantities: OutputQuantities(
+                    videoProduction: 4,
+                    motionGraphics: 12,
+                    visualDesign: 50,
+                    contentOnly: 20
+                ),
+                outputTypes: [.video, .motionGraphics, .visuals, .content]
+            ),
+            financialPotential: FinancialPotential(
+                totalScore: 78,
+                recommendation: "Strong opportunity with excellent agency-service alignment. The client's enterprise size and national brand presence indicate substantial budget capacity. Video and motion graphics requirements align well with high-value deliverables.",
+                factors: [
+                    ScoringFactor(name: "Budget Indicators", weight: 0.25, score: 85, maxScore: 100, reasoning: "Enterprise client with national presence suggests strong budget"),
+                    ScoringFactor(name: "Scope Alignment", weight: 0.30, score: 72, maxScore: 100, reasoning: "72% of scope aligns with agency services"),
+                    ScoringFactor(name: "Client Profile", weight: 0.25, score: 80, maxScore: 100, reasoning: "Private healthcare company with established market position"),
+                    ScoringFactor(name: "Timeline Feasibility", weight: 0.20, score: 75, maxScore: 100, reasoning: "6-month timeline is reasonable for scope")
+                ],
+                formulaExplanation: "Score calculated using weighted factors: Budget (25%), Scope Alignment (30%), Client Profile (25%), Timeline (20%). Enterprise healthcare clients typically have budgets in the $500K-$2M range for projects of this scope."
+            ),
+            evaluationCriteria: """
+            Proposals will be evaluated based on the following criteria:
+
+            • Creative Excellence (30%) - Demonstrated ability to deliver innovative, award-winning creative work
+            • Strategic Thinking (25%) - Evidence of strategic approach and understanding of healthcare industry
+            • Team Experience (20%) - Relevant experience of proposed team members on similar projects
+            • Technical Capability (15%) - Production capabilities and technology infrastructure
+            • Value & Pricing (10%) - Competitive pricing aligned with scope and deliverables
+
+            Shortlisted agencies will be invited to present their proposals in person.
+            """,
+            requiredDeliverables: [
+                "Agency credentials and case studies (3-5 relevant examples)",
+                "Proposed team bios and org chart",
+                "Strategic approach and creative vision",
+                "Detailed project timeline with milestones",
+                "Itemized budget breakdown by phase",
+                "References from similar healthcare clients",
+                "Sample creative concepts (optional but encouraged)"
+            ],
+            importantDates: [
+                ImportantDate(title: "Intent to Respond", date: Date().addingTimeInterval(86400 * 5), dateType: .other, isCritical: false),
+                ImportantDate(title: "Questions Due", date: Date().addingTimeInterval(86400 * 10), dateType: .questionsDeadline, isCritical: false),
+                ImportantDate(title: "Proposal Deadline", date: Date().addingTimeInterval(86400 * 21), dateType: .proposalDeadline, isCritical: true),
+                ImportantDate(title: "Finalist Presentations", date: Date().addingTimeInterval(86400 * 35), dateType: .presentationDate, isCritical: true),
+                ImportantDate(title: "Award Decision", date: Date().addingTimeInterval(86400 * 42), dateType: .other, isCritical: false)
+            ],
+            submissionMethodRequirements: """
+            Submit proposals electronically to procurement@meridianhealthcare.com by 5:00 PM EST on the deadline date.
+
+            Format Requirements:
+            • PDF format, maximum 40 pages excluding appendices
+            • File size limit: 25MB
+            • Subject line: "RFP Response - Brand Refresh 2024 - [Agency Name]"
+
+            Physical samples or USB drives will not be accepted. Questions should be directed to Sarah Chen, Procurement Manager, at the email above.
+            """,
+            parsingWarnings: [],
+            completeness: 0.95
+        )
+    }
+
+    private static var mockClientInfo: ClientInformation {
+        ClientInformation(
+            name: "Meridian Healthcare",
+            companySize: .enterprise,
+            brandPopularity: .national,
+            entityType: .privateCompany,
+            holdingGroup: "Meridian Health Systems",
+            industry: "Healthcare / Hospital Networks",
+            socialMediaPresence: SocialMediaPresence(
+                hasPresence: true,
+                activityLevel: .high,
+                platforms: [.linkedin, .facebook, .instagram, .youtube],
+                contentTypes: [.video, .images]
+            ),
+            estimatedEmployees: 12000,
+            estimatedRevenue: "$2.8B annually",
+            mediaSpendIndicators: "Significant TV and digital advertising presence observed",
+            researchSources: ["LinkedIn", "Crunchbase", "Company Website", "News Articles"],
+            researchConfidence: 0.85,
+            researchDate: Date()
+        )
     }
 
     private func parseDocument(at url: URL) async throws -> ParseResult {

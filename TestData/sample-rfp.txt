@@ -1,0 +1,186 @@
+REQUEST FOR PROPOSAL (RFP)
+DIGITAL TRANSFORMATION INITIATIVE
+
+Project Name: Enterprise Digital Transformation & Cloud Migration
+Client: Global Tech Corporation
+Industry: Enterprise Technology Solutions
+Project Reference: RFP-2026-001
+
+==================================================
+PROJECT OVERVIEW
+==================================================
+
+Global Tech Corporation is seeking proposals from qualified agencies to support our comprehensive digital transformation initiative. This project involves modernizing our legacy systems, implementing cloud infrastructure, and developing custom enterprise applications to enhance operational efficiency.
+
+==================================================
+SCOPE OF WORK
+==================================================
+
+The successful vendor will be responsible for the following deliverables:
+
+1. BRAND STRATEGY & POSITIONING
+   - Develop comprehensive brand refresh strategy
+   - Create new brand positioning guidelines
+   - Design brand identity system
+
+2. VIDEO PRODUCTION (High Priority)
+   - Produce 15 training videos (3-5 minutes each)
+   - Create 8 executive presentations (video format)
+   - Develop 5 customer testimonial videos
+   - Total: 28 video deliverables
+
+3. MOTION GRAPHICS
+   - Design 20 animated explainer sequences
+   - Create 10 data visualization animations
+   - Develop 5 product demo animations
+
+4. SOCIAL MEDIA CONTENT
+   - Manage social media presence across LinkedIn, Twitter, Instagram
+   - Create 60 social media posts per month (12-month contract)
+   - Develop social media content calendar
+   - Community management and engagement
+
+5. WEB DEVELOPMENT
+   - Design and develop new corporate website
+   - Implement responsive design
+   - Integrate CMS for content management
+   - SEO optimization
+
+6. CONTENT CREATION
+   - Write 24 blog posts (2 per month)
+   - Create 12 white papers
+   - Develop 6 case studies
+   - Produce quarterly newsletter content
+
+7. TECHNICAL IMPLEMENTATION (Requires External Expertise)
+   - Cloud infrastructure migration (AWS/Azure)
+   - Legacy system integration with APIs
+   - Advanced AI/ML algorithm development
+   - Cybersecurity infrastructure setup
+
+==================================================
+EVALUATION CRITERIA
+==================================================
+
+Proposals will be evaluated based on the following weighted criteria:
+
+1. Technical Approach and Methodology (30%)
+   - Quality and feasibility of proposed solution
+   - Innovation and creativity in approach
+   - Understanding of project requirements
+
+2. Team Qualifications and Experience (25%)
+   - Team member expertise and certifications
+   - Relevant project portfolio
+   - Client references
+
+3. Cost and Value Proposition (25%)
+   - Total project cost
+   - Value for money
+   - Payment terms and schedule
+
+4. Timeline and Project Management (20%)
+   - Proposed timeline and milestones
+   - Project management methodology
+   - Risk management approach
+
+==================================================
+REQUIRED DELIVERABLES FOR SUBMISSION
+==================================================
+
+To be considered, proposals must include:
+
+1. Technical Proposal (PDF format, max 25MB)
+   - Executive summary
+   - Detailed technical approach
+   - Work breakdown structure
+   - Team composition and CVs
+
+2. Financial Proposal (Sealed, separate envelope)
+   - Detailed cost breakdown by deliverable
+   - Payment schedule proposal
+   - Terms and conditions
+
+3. Supporting Documentation
+   - Three (3) client references from similar projects
+   - Team member CVs and certifications
+   - Company profile and capabilities statement
+   - Project timeline (Gantt chart format)
+
+4. Past Performance Examples
+   - Portfolio of 3-5 similar projects
+   - Case studies demonstrating expertise
+
+==================================================
+IMPORTANT DATES
+==================================================
+
+RFP Release Date: January 10, 2026
+Questions & Answers Window Closes: January 15, 2026, 5:00 PM EST
+Technical Proposal Submission Deadline: January 28, 2026, 11:59 PM EST (CRITICAL)
+Financial Proposal Submission Deadline: February 4, 2026, 11:59 PM EST
+Vendor Presentations: February 18-20, 2026
+Contract Award (Expected): February 28, 2026
+Project Start Date: March 15, 2026
+
+==================================================
+SUBMISSION METHOD AND REQUIREMENTS
+==================================================
+
+Submission Portal: https://procurement.globaltechcorp.com
+File Format: PDF only, maximum 25MB per file
+Authentication Required: Vendors must register on portal to access submission interface
+
+Alternative Submission (if portal unavailable):
+Email: procurement@globaltechcorp.com
+Subject Line: "RFP-2026-001 - [Your Company Name]"
+
+Technical Proposals and Financial Proposals must be submitted separately.
+
+Contact Information:
+Sarah Johnson
+Procurement Manager
+Global Tech Corporation
+Email: sjohnson@globaltechcorp.com
+Phone: (555) 123-4567
+
+==================================================
+COMPANY INFORMATION
+==================================================
+
+Global Tech Corporation
+Founded: 1995
+Headquarters: San Francisco, CA
+Employees: 2,500 worldwide
+Industry: Enterprise Software Solutions
+Entity Type: Public Company (NASDAQ: GTECH)
+Parent Organization: Tech Holdings International (Fortune 500 company)
+
+Recent Recognition:
+- Forbes "Most Innovative Companies" 2025
+- Fortune "Best Companies to Work For" 2024-2025
+- Industry Leader in Cloud Solutions
+
+Social Media Presence:
+- LinkedIn: 50,000+ followers, very active (daily posts)
+- Twitter: 35,000+ followers, high engagement
+- Instagram: 15,000+ followers, regular content updates
+- YouTube: 10,000+ subscribers, video content library
+
+Recent Investments:
+- Series D Funding: $150M (2024)
+- Annual Marketing Budget: $25M estimated
+- Previous video production projects exceed $500K annually
+- Active media spend across digital channels
+
+==================================================
+END OF RFP DOCUMENT
+==================================================
+
+For questions, please contact the procurement office during the Q&A window.
+
+Global Tech Corporation is an equal opportunity employer committed to diversity and inclusion.
+
+Document Version: 1.0
+Issue Date: January 10, 2026
+Validity Period: 90 days from issue date
