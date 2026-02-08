@@ -82,18 +82,42 @@ struct DocumentUploadView: View {
                 Spacer()
 
                 // Bottom action
-                if hasReadyFiles {
-                    Button(action: beginAnalysis) {
-                        HStack(spacing: 10) {
-                            Text("Begin Analysis")
-                                .font(.custom("Urbanist", size: 16).weight(.semibold))
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 14, weight: .semibold))
+                HStack(spacing: 16) {
+                    // Demo button - always visible for testing
+                    Button(action: { onBeginAnalysis([URL(fileURLWithPath: "/demo/sample.pdf")]) }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 12))
+                            Text("Run Demo")
+                                .font(.custom("Urbanist", size: 14).weight(.medium))
                         }
+                        .foregroundColor(DesignSystem.Palette.Text.secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(DesignSystem.Palette.Background.surface)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                )
+                        )
                     }
-                    .buttonStyle(.accentGradient)
-                    .padding(.bottom, 40)
+                    .buttonStyle(.plain)
+
+                    if hasReadyFiles {
+                        Button(action: beginAnalysis) {
+                            HStack(spacing: 10) {
+                                Text("Begin Analysis")
+                                    .font(.custom("Urbanist", size: 16).weight(.semibold))
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                        }
+                        .buttonStyle(.accentGradient)
+                    }
                 }
+                .padding(.bottom, 40)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

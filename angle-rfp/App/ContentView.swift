@@ -654,38 +654,41 @@ struct ContentView: View {
     // MARK: - Demo Mode
 
     private func performMockAnalysis(documentName: String) {
-        Task {
+        Task { @MainActor in
             // Stage 1: Parsing
-            await updateStage(.parsing, progress: 0.1)
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            await updateProgress(0.25)
+            currentStage = .parsing
+            analysisProgress = 0.1
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            analysisProgress = 0.25
 
             // Stage 2: Analyzing
-            await updateStage(.analyzing, progress: 0.3)
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            await updateProgress(0.55)
+            currentStage = .analyzing
+            analysisProgress = 0.3
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            analysisProgress = 0.55
 
             // Stage 3: Researching
-            await updateStage(.researching, progress: 0.6)
-            try? await Task.sleep(nanoseconds: 700_000_000)
-            await updateProgress(0.8)
+            currentStage = .researching
+            analysisProgress = 0.6
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            analysisProgress = 0.8
 
             // Stage 4: Calculating
-            await updateStage(.calculating, progress: 0.85)
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            await updateProgress(0.95)
+            currentStage = .calculating
+            analysisProgress = 0.85
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            analysisProgress = 0.95
 
             // Stage 5: Complete
-            await updateStage(.complete, progress: 1.0)
+            currentStage = .complete
+            analysisProgress = 1.0
             try? await Task.sleep(nanoseconds: 300_000_000)
 
             // Transition to dashboard with mock data
-            await MainActor.run {
-                withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
-                    self.extractedData = Self.mockRFPData
-                    self.clientInfo = Self.mockClientInfo
-                    self.appState = .dashboard(data: Self.mockRFPData, clientInfo: Self.mockClientInfo)
-                }
+            withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
+                self.extractedData = Self.mockRFPData
+                self.clientInfo = Self.mockClientInfo
+                self.appState = .dashboard(data: Self.mockRFPData, clientInfo: Self.mockClientInfo)
             }
         }
     }
