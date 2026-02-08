@@ -18,9 +18,9 @@ struct angle_rfpApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 1180, minHeight: 760)
+                .frame(minWidth: 600, minHeight: 500)
         }
-        .defaultSize(width: 1360, height: 860)
+        .defaultSize(width: 1100, height: 700)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New Analysis") {

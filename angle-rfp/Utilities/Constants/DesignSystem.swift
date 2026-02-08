@@ -454,8 +454,8 @@ enum DesignSystem {
     }
 
     enum Layout {
-        static let minWindowWidth: CGFloat = 1180
-        static let minWindowHeight: CGFloat = 760
+        static let minWindowWidth: CGFloat = 600
+        static let minWindowHeight: CGFloat = 500
         static let shellInset: CGFloat = 20
         static let shellGap: CGFloat = 24
         static let rackWidth: CGFloat = 312
