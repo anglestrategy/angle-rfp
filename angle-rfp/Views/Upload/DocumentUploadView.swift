@@ -81,29 +81,17 @@ struct DocumentUploadView: View {
 
                 Spacer()
 
-                // Bottom action
-                HStack(spacing: 16) {
-                    // Demo button - always visible for testing
+                // Bottom action - Demo button always visible
+                VStack(spacing: 20) {
                     Button(action: { onBeginAnalysis([URL(fileURLWithPath: "/demo/sample.pdf")]) }) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 10) {
                             Image(systemName: "play.fill")
-                                .font(.system(size: 12))
+                                .font(.system(size: 14))
                             Text("Run Demo")
-                                .font(.custom("Urbanist", size: 14).weight(.medium))
+                                .font(.custom("Urbanist", size: 16).weight(.semibold))
                         }
-                        .foregroundColor(DesignSystem.Palette.Text.secondary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(DesignSystem.Palette.Background.surface)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
-                                )
-                        )
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.accentGradient)
 
                     if hasReadyFiles {
                         Button(action: beginAnalysis) {
