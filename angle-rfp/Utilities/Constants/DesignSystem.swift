@@ -591,6 +591,45 @@ extension Color {
     }
 }
 
+// MARK: - Editorial Card Styles
+
+struct EditorialCardModifier: ViewModifier {
+    var isHovered: Bool = false
+    var padding: CGFloat = 24
+
+    func body(content: Content) -> some View {
+        content
+            .padding(padding)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(DesignSystem.Palette.Background.elevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(
+                        Color.white.opacity(isHovered ? 0.12 : 0.06),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(
+                color: Color.black.opacity(0.3),
+                radius: isHovered ? 20 : 12,
+                x: 0,
+                y: isHovered ? 10 : 6
+            )
+            .animation(DesignSystem.Animation.standard, value: isHovered)
+    }
+}
+
+struct SectionHeaderStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(DesignSystem.Typography.overline())
+            .foregroundColor(DesignSystem.Palette.Text.tertiary)
+            .tracking(1.4)
+    }
+}
+
 // MARK: - Card Modifiers (legacy compatibility)
 
 struct GlassCardModifier: ViewModifier {
@@ -714,6 +753,33 @@ struct GhostButtonStyle: ButtonStyle {
     }
 }
 
+struct AccentGradientButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(DesignSystem.Typography.body(.semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, DesignSystem.Spacing.lg)
+            .padding(.vertical, DesignSystem.Spacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DesignSystem.Palette.Accent.gradient)
+                    .shadow(
+                        color: DesignSystem.Palette.Accent.primary.opacity(isHovered ? 0.4 : 0.2),
+                        radius: isHovered ? 16 : 8,
+                        x: 0,
+                        y: 4
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.97 : 1.0)
+            .animation(DesignSystem.Animation.micro, value: configuration.isPressed)
+            .onHover { hovering in
+                isHovered = hovering
+            }
+    }
+}
+
 extension View {
     func glassCard(isHovered: Bool = false, cornerRadius: CGFloat = 24, padding: CGFloat = 24) -> some View {
         modifier(GlassCardModifier(isHovered: isHovered, cornerRadius: cornerRadius, padding: padding))
@@ -721,6 +787,14 @@ extension View {
 
     func premiumCard(isHovered: Bool = false, padding: CGFloat = DesignSystem.Spacing.lg) -> some View {
         modifier(PremiumCardStyle(isHovered: isHovered, padding: padding))
+    }
+
+    func editorialCard(isHovered: Bool = false, padding: CGFloat = 24) -> some View {
+        modifier(EditorialCardModifier(isHovered: isHovered, padding: padding))
+    }
+
+    func sectionHeader() -> some View {
+        modifier(SectionHeaderStyle())
     }
 
     func cardStyle(hoverable: Bool = false) -> some View {
@@ -751,4 +825,8 @@ extension ButtonStyle where Self == SecondaryButtonStyle {
 
 extension ButtonStyle where Self == GhostButtonStyle {
     static var ghost: GhostButtonStyle { GhostButtonStyle() }
+}
+
+extension ButtonStyle where Self == AccentGradientButtonStyle {
+    static var accentGradient: AccentGradientButtonStyle { AccentGradientButtonStyle() }
 }
