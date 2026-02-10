@@ -629,8 +629,10 @@ struct ContentView: View {
                 }
             } catch {
                 await MainActor.run {
-                    parsingWarnings.append("Analysis failed: \(error.localizedDescription)")
-                    appState = .upload
+                    // Keep the user on the progress screen so the failure is visible (instead of snapping back to upload).
+                    parsingWarnings = Array(Set(parsingWarnings + ["Analysis failed: \(error.localizedDescription)"])).sorted()
+                    currentStage = .complete
+                    analysisProgress = max(analysisProgress, 0.12)
                 }
             }
         }
