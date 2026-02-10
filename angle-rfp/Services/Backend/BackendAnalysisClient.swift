@@ -560,6 +560,7 @@ final class BackendAnalysisClient {
     }
 
     private func resolvedBaseURL() -> URL? {
+#if DEBUG
         let envBase = ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
         if let envBase, let url = APIKeySetup.validatedBackendBaseURL(from: envBase) {
             return url
@@ -567,13 +568,14 @@ final class BackendAnalysisClient {
         if envBase != nil {
             AppLogger.shared.warning("BACKEND_BASE_URL is set but invalid; falling back to production backend.")
         }
+#endif
 
         let defaults = UserDefaults.standard
         let storedBase = defaults.string(forKey: Config.baseURLDefaultsKey)
         let productionURL = APIKeySetup.validatedBackendBaseURL(from: Config.productionBaseURL)
 
         // Production behavior:
-        // - Always use production backend unless BACKEND_BASE_URL is explicitly set.
+        // - Always use production backend.
         // - Ignore stored base URLs from older builds to prevent a common misconfiguration:
         //   users accidentally pasting their token into the URL field ("hostname not found").
         if let storedBase,
@@ -604,12 +606,14 @@ final class BackendAnalysisClient {
                 return trimmed
             }
         }
+#if DEBUG
         if let token = ProcessInfo.processInfo.environment[Config.tokenEnvKey] {
             let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return trimmed
             }
         }
+#endif
         return nil
     }
 

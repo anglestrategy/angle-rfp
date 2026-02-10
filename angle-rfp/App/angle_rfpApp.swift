@@ -46,6 +46,7 @@ struct angle_rfpApp: App {
 
     /// Configure backend token/base URL from environment variables if available.
     private func configureBackendIfNeeded() {
+#if DEBUG
         guard !APIKeySetup.hasBackendConfiguration() else {
             return
         }
@@ -65,6 +66,7 @@ struct angle_rfpApp: App {
         } catch {
             AppLogger.shared.error("Failed to store backend configuration", error: error)
         }
+#endif
     }
 }
 
