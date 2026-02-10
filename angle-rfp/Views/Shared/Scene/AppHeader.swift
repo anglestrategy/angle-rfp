@@ -16,15 +16,11 @@ struct AppHeader: View {
     private let stepTitles = ["Upload", "Parse", "Criteria", "Research", "Score", "Results"]
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Logo
-            Text("Angle")
-                .font(.custom("Urbanist", size: 22).weight(.bold))
+        HStack(spacing: 18) {
+            Text("angle/RFP")
+                .font(.custom("Urbanist", size: 16).weight(.semibold))
                 .foregroundColor(.white)
 
-            Spacer()
-
-            // Step indicator
             StepIndicator(
                 steps: stepTitles,
                 currentStep: currentStep,

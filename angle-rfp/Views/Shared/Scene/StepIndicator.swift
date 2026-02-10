@@ -13,71 +13,91 @@ struct StepIndicator: View {
     let completedSteps: Set<Int>
 
     var body: some View {
-        HStack(spacing: 8) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { index, title in
-                stepPill(index: index, title: title)
+        HStack(spacing: 10) {
+            ForEach(Array(steps.indices), id: \.self) { index in
+                HStack(spacing: 8) {
+                    stepDot(index: index)
+
+                    if index == currentStep {
+                        Text(steps[index])
+                            .font(.custom("Urbanist", size: 15).weight(.semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
+                }
+
+                if index < steps.count - 1 {
+                    connector(after: index)
+                }
             }
         }
     }
 
     @ViewBuilder
-    private func stepPill(index: Int, title: String) -> some View {
+    private func stepDot(index: Int) -> some View {
         let isActive = index == currentStep
         let isCompleted = completedSteps.contains(index)
-        let isFuture = index > currentStep
 
-        HStack(spacing: 6) {
+        let stroke: Color = {
+            if isActive {
+                return DesignSystem.Palette.Accent.primary
+            }
+            if isCompleted {
+                return DesignSystem.Palette.Accent.primary.opacity(0.6)
+            }
+            return DesignSystem.Palette.Line.soft
+        }()
+
+        let contentColor: Color = {
+            if isActive {
+                return DesignSystem.Palette.Accent.primary
+            }
+            if isCompleted {
+                return DesignSystem.Palette.Accent.primary.opacity(0.85)
+            }
+            return DesignSystem.Palette.Text.muted
+        }()
+
+        ZStack {
+            Circle()
+                .fill(DesignSystem.Palette.Background.base)
+                .overlay(
+                    Circle()
+                        .stroke(stroke, lineWidth: isActive ? 1.8 : 1.2)
+                )
+                .frame(width: 18, height: 18)
+
             if isCompleted {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundColor(contentColor)
+            } else {
+                Text("\(index + 1)")
+                    .font(.custom("Urbanist", size: 11).weight(.semibold))
+                    .foregroundColor(contentColor)
             }
-            Text(title)
-                .font(.custom("Urbanist", size: 12).weight(isActive ? .bold : .medium))
         }
-        .foregroundColor(stepTextColor(isActive: isActive, isCompleted: isCompleted, isFuture: isFuture))
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(
-            Capsule()
-                .fill(stepBackgroundColor(isActive: isActive, isCompleted: isCompleted))
-                .overlay(
-                    Capsule()
-                        .stroke(stepBorderColor(isActive: isActive), lineWidth: 1)
-                )
-        )
-        .shadow(
-            color: isActive ? DesignSystem.Palette.Accent.primary.opacity(0.3) : .clear,
-            radius: 8,
-            y: 2
-        )
+        .accessibilityLabel(accessibilityLabelForStep(index: index))
     }
 
-    private func stepTextColor(isActive: Bool, isCompleted: Bool, isFuture: Bool) -> Color {
-        if isActive {
-            return .white
-        } else if isCompleted {
-            return DesignSystem.Palette.Semantic.success
-        } else {
-            return DesignSystem.Palette.Text.muted
-        }
+    private func connector(after index: Int) -> some View {
+        let completed = index < currentStep
+        return Rectangle()
+            .fill(Color.white.opacity(completed ? 0.18 : 0.12))
+            .frame(width: 26, height: 1)
+            .clipShape(Capsule())
+            .accessibilityHidden(true)
     }
 
-    private func stepBackgroundColor(isActive: Bool, isCompleted: Bool) -> Color {
-        if isActive {
-            return DesignSystem.Palette.Accent.primary
-        } else if isCompleted {
-            return DesignSystem.Palette.Semantic.success.opacity(0.15)
-        } else {
-            return DesignSystem.Palette.Background.surface
+    private func accessibilityLabelForStep(index: Int) -> Text {
+        let title = steps.indices.contains(index) ? steps[index] : "Step \(index + 1)"
+        if index == currentStep {
+            return Text("Current step: \(title)")
         }
-    }
-
-    private func stepBorderColor(isActive: Bool) -> Color {
-        if isActive {
-            return .clear
-        } else {
-            return Color.white.opacity(0.06)
+        if completedSteps.contains(index) {
+            return Text("Completed step: \(title)")
         }
+        return Text("Upcoming step: \(title)")
     }
 }
 
