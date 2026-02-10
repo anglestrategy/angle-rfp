@@ -17,6 +17,7 @@ struct DocumentUploadView: View {
 
     let onQueueChanged: ([UploadQueueItem]) -> Void
     let onBeginAnalysis: ([URL]) -> Void
+    let onRunDemo: () -> Void
 
     private var docxType: UTType {
         UTType(filenameExtension: "docx") ?? .data
@@ -35,6 +36,14 @@ struct DocumentUploadView: View {
 
     private var hasReadyFiles: Bool {
         !readyURLs.isEmpty
+    }
+
+    private var showDemoButton: Bool {
+        #if DEBUG
+        return true
+        #else
+        return ProcessInfo.processInfo.environment["ANGLE_SHOW_DEMO_BUTTON"] == "1"
+        #endif
     }
 
     var body: some View {
@@ -81,17 +90,19 @@ struct DocumentUploadView: View {
 
                 Spacer()
 
-                // Bottom action - Demo button always visible
+                // Bottom actions
                 VStack(spacing: 20) {
-                    Button(action: { onBeginAnalysis([URL(fileURLWithPath: "/demo/sample.pdf")]) }) {
-                        HStack(spacing: 10) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 14))
-                            Text("Run Demo")
-                                .font(.custom("Urbanist", size: 16).weight(.semibold))
+                    if showDemoButton {
+                        Button(action: onRunDemo) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "play.fill")
+                                    .font(.system(size: 14))
+                                Text("Run Demo")
+                                    .font(.custom("Urbanist", size: 16).weight(.semibold))
+                            }
                         }
+                        .buttonStyle(.accentGradient)
                     }
-                    .buttonStyle(.accentGradient)
 
                     if hasReadyFiles {
                         Button(action: beginAnalysis) {
@@ -246,7 +257,8 @@ struct DocumentUploadView_Previews: PreviewProvider {
             uploadQueue: .constant([]),
             motionPreference: .constant(.balanced),
             onQueueChanged: { _ in },
-            onBeginAnalysis: { _ in }
+            onBeginAnalysis: { _ in },
+            onRunDemo: { }
         )
         .frame(width: 1180, height: 760)
     }

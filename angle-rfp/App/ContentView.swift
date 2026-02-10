@@ -195,7 +195,8 @@ struct ContentView: View {
                         uploadQueue: $uploadQueue,
                         motionPreference: motionPreferenceBinding,
                         onQueueChanged: { uploadQueue = $0 },
-                        onBeginAnalysis: beginAnalysis
+                        onBeginAnalysis: beginAnalysis,
+                        onRunDemo: runQuickDemo
                     )
 
                 case .analyzing:
@@ -224,10 +225,6 @@ struct ContentView: View {
         .environment(\.motionPreference, selectedMotionPreference)
         .onAppear {
             checkAPIKeyStatus()
-            if !backendConfigured && !useDemoMode {
-                // First-run UX: force the user to configure backend URL/token before analysis.
-                showSettings = true
-            }
         }
         .animation(.easeInOut(duration: 0.35), value: appState)
         .sheet(isPresented: $showSettings) {
@@ -475,7 +472,8 @@ struct ContentView: View {
                 uploadQueue: $uploadQueue,
                 motionPreference: motionPreferenceBinding,
                 onQueueChanged: { uploadQueue = $0 },
-                onBeginAnalysis: beginAnalysis
+                onBeginAnalysis: beginAnalysis,
+                onRunDemo: runQuickDemo
             )
 
         case .parse, .criteria, .research, .score:
@@ -562,6 +560,13 @@ struct ContentView: View {
         }
 
         performAnalysis(documentURL: url)
+    }
+
+    private func runQuickDemo() {
+        withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
+            appState = .analyzing(documentName: "Demo RFP")
+        }
+        performMockAnalysis(documentName: "Demo RFP")
     }
 
     private func cancelAnalysis() {
