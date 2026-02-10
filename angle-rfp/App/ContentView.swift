@@ -182,7 +182,9 @@ struct ContentView: View {
         VStack(spacing: 0) {
             AppHeader(
                 currentStep: activeStepIndex,
-                completedSteps: completedSteps
+                completedSteps: completedSteps,
+                apiKeysConfigured: backendConfigured || useDemoMode,
+                onSettingsTap: { showSettings = true }
             )
 
             // Scene content
@@ -222,6 +224,10 @@ struct ContentView: View {
         .environment(\.motionPreference, selectedMotionPreference)
         .onAppear {
             checkAPIKeyStatus()
+            if !backendConfigured && !useDemoMode {
+                // First-run UX: force the user to configure backend URL/token before analysis.
+                showSettings = true
+            }
         }
         .animation(.easeInOut(duration: 0.35), value: appState)
         .sheet(isPresented: $showSettings) {
@@ -545,6 +551,11 @@ struct ContentView: View {
 
     private func beginAnalysis(_ urls: [URL]) {
         guard let url = urls.first else { return }
+        guard backendConfigured || useDemoMode else {
+            parsingWarnings.append("Backend is not configured. Open Settings and enter backend URL + token.")
+            showSettings = true
+            return
+        }
 
         withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
             appState = .analyzing(documentName: url.lastPathComponent)

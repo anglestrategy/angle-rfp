@@ -142,7 +142,7 @@ public final class KeychainManager {
     )
 
     /// Service name for keychain items
-    private let service = Bundle.main.bundleIdentifier ?? "com.angle.rfp"
+    private let service: String
 
     /// Local authentication context
     private var authContext = LAContext()
@@ -150,10 +150,31 @@ public final class KeychainManager {
     // MARK: - Initialization
 
     private init() {
+        let environment = ProcessInfo.processInfo.environment
+        let isRunningTests = environment["XCTestConfigurationFilePath"] != nil
+        // Keep a stable Keychain service name independent of bundle identifier,
+        // so dev scripts and future bundle-id changes don't break key retrieval.
+        let baseService = "com.angle.rfp"
+        if isRunningTests {
+            // Prevent parallel test processes from clobbering each other (and avoid polluting real user keychain items).
+            let runID = Self.testRunIdentifier()
+            self.service = "\(baseService).tests.\(runID)"
+        } else {
+            self.service = baseService
+        }
+
         AppLogger.shared.info("KeychainManager initialized", metadata: [
             "service": service,
             "biometricsAvailable": isBiometricsAvailable()
         ])
+    }
+
+    private static func testRunIdentifier() -> String {
+        let environment = ProcessInfo.processInfo.environment
+        if let session = environment["XCTestSessionIdentifier"], !session.isEmpty {
+            return session
+        }
+        return "pid-\(ProcessInfo.processInfo.processIdentifier)"
     }
 
     // MARK: - Public API - String Values

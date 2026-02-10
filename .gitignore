@@ -148,3 +148,6 @@ backend/tsconfig.tsbuildinfo
 .env
 .env.local
 .env.*.local
+
+# Release artifacts
+dist/

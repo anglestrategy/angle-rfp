@@ -61,7 +61,7 @@ struct AppHeader: View {
             Circle()
                 .fill(DesignSystem.Palette.Semantic.warning)
                 .frame(width: 6, height: 6)
-            Text("Configure API Keys")
+            Text("Configure Backend")
                 .font(.custom("Urbanist", size: 11).weight(.semibold))
                 .foregroundColor(DesignSystem.Palette.Semantic.warning)
         }

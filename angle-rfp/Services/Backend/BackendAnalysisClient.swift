@@ -58,11 +58,16 @@ final class BackendAnalysisClient {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let pdfParser = PDFParsingService()
+    private let txtParser = TXTParsingService()
 
     private enum Config {
         static let baseURLDefaultsKey = "backend.baseURL"
         static let defaultBaseURL = "http://localhost:3000"
         static let defaultToken = "dev-angle-rfp-token"
+        /// If set to "1", the app will upload the file to the backend `/api/parse-document`.
+        /// Default is local parsing to avoid large uploads and reduce backend costs.
+        static let useBackendParsingEnv = "ANGLE_USE_BACKEND_PARSING"
     }
 
     init(session: URLSession = .shared) {
@@ -81,11 +86,22 @@ final class BackendAnalysisClient {
         var allWarnings: [String] = []
 
         onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.12, warnings: []))
-        let parsed = try await parseDocument(
-            analysisId: analysisId,
-            traceId: traceId,
-            documentURL: documentURL
-        )
+        let parsed: ParsedDocumentV1
+        if shouldUseBackendParsing() {
+            parsed = try await parseDocumentViaBackend(
+                analysisId: analysisId,
+                traceId: traceId,
+                documentURL: documentURL
+            )
+        } else {
+            parsed = try await parseDocumentLocally(
+                analysisId: analysisId,
+                documentURL: documentURL,
+                onProgress: { progress in
+                    onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.12 + 0.1 * progress, warnings: []))
+                }
+            )
+        }
         allWarnings.append(contentsOf: parsed.warnings)
         onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.22, warnings: parsed.warnings))
 
@@ -197,7 +213,7 @@ final class BackendAnalysisClient {
         )
     }
 
-    private func parseDocument(
+    private func parseDocumentViaBackend(
         analysisId: String,
         traceId: String,
         documentURL: URL
@@ -249,6 +265,209 @@ final class BackendAnalysisClient {
             throw BackendAnalysisClientError.httpError(statusCode: httpResponse.statusCode, message: "Parse request failed")
         }
         return try envelope.requireData()
+    }
+
+    private func shouldUseBackendParsing() -> Bool {
+        ProcessInfo.processInfo.environment[Config.useBackendParsingEnv] == "1"
+    }
+
+    private func parseDocumentLocally(
+        analysisId: String,
+        documentURL: URL,
+        onProgress: ((Double) -> Void)?
+    ) async throws -> ParsedDocumentV1 {
+        let ext = documentURL.pathExtension.lowercased()
+        let detectedFormat: String
+        let parser: DocumentParsingService
+
+        switch ext {
+        case "pdf":
+            detectedFormat = "pdf"
+            parser = pdfParser
+        case "txt":
+            detectedFormat = "txt"
+            parser = txtParser
+        case "docx":
+            // The upload UI currently rejects DOCX. Keep this explicit to avoid a confusing UX.
+            throw ParsingError.unsupportedFormat("DOCX")
+        default:
+            throw ParsingError.unsupportedFormat(ext.isEmpty ? "unknown" : ext.uppercased())
+        }
+
+        let accessGranted = documentURL.startAccessingSecurityScopedResource()
+        defer {
+            if accessGranted {
+                documentURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let parseResult = try await parser.parseDocument(at: documentURL, progressHandler: onProgress)
+
+        let maxChars = 2_000_000
+        let rawText = String(parseResult.text.prefix(maxChars)).trimmingCharacters(in: .whitespacesAndNewlines)
+        if rawText.isEmpty {
+            throw ParsingError.noTextFound
+        }
+
+        let primaryLanguage = detectPrimaryLanguage(rawText)
+        let sections = detectSections(in: rawText)
+
+        let sourceType: String
+        if detectedFormat == "pdf" {
+            sourceType = parseResult.ocrUsed ? "ocr" : "pdf_text"
+        } else {
+            sourceType = "txt"
+        }
+
+        let evidenceMap = buildEvidenceMap(from: rawText, sections: sections, sourceType: sourceType)
+        let warnings = parseResult.warnings.map { "\($0.level.rawValue): \($0.message)" }
+
+        let parseConfidence = estimateParseConfidence(
+            textLength: rawText.count,
+            sectionCount: sections.count,
+            warnings: warnings.count,
+            ocrUsed: parseResult.ocrUsed
+        )
+
+        let ocrStats = parseResult.ocrUsed
+            ? OcrStatsV1(used: true, pagesOcred: parseResult.pageCount ?? 0)
+            : nil
+
+        return ParsedDocumentV1(
+            schemaVersion: "1.0.0",
+            analysisId: analysisId,
+            detectedFormat: detectedFormat,
+            primaryLanguage: primaryLanguage,
+            rawText: rawText,
+            sections: sections,
+            tables: [],
+            evidenceMap: evidenceMap,
+            parseConfidence: parseConfidence,
+            ocrStats: ocrStats,
+            warnings: warnings
+        )
+    }
+
+    private func detectPrimaryLanguage(_ text: String) -> String {
+        let scalars = text.unicodeScalars
+        let arabicCount = scalars.filter { (0x0600...0x06FF).contains(Int($0.value)) }.count
+        let latinCount = scalars.filter { (0x0041...0x007A).contains(Int($0.value)) }.count
+
+        if arabicCount > 0 && latinCount > 0 {
+            return "mixed"
+        }
+        if arabicCount > 0 {
+            return "arabic"
+        }
+        return "english"
+    }
+
+    private func estimateParseConfidence(
+        textLength: Int,
+        sectionCount: Int,
+        warnings: Int,
+        ocrUsed: Bool
+    ) -> Double {
+        let lengthScore = min(Double(textLength) / 5000.0, 1.0) * 0.4
+        let sectionScore = min(Double(sectionCount) / 2.0, 1.0) * 0.25
+        let ocrPenalty = ocrUsed ? 0.03 : 0.0
+        let warningPenalty = min(Double(warnings) * 0.04, 0.25)
+        return max(0.0, min(1.0, 0.25 + lengthScore + sectionScore - warningPenalty - ocrPenalty))
+    }
+
+    private func detectSections(in text: String) -> [ParsedSectionV1] {
+        // Minimal section detection: enough to support exact-text extraction without heavy NLP.
+        let nextHeadingRegex = try? NSRegularExpression(
+            pattern: "\\n\\s*(?:[A-Z][^\\n]{1,60}:|\\d+\\.\\s+[A-Z]|[\\u0600-\\u06FF]{3,}\\s*[:：])",
+            options: []
+        )
+
+        func findSection(name: String, headingPattern: String, fallbackLength: Int) -> ParsedSectionV1? {
+            guard let headingRegex = try? NSRegularExpression(pattern: headingPattern, options: [.caseInsensitive]) else {
+                return nil
+            }
+
+            let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
+            guard let match = headingRegex.firstMatch(in: text, options: [], range: fullRange),
+                  let startRange = Range(match.range, in: text) else {
+                return nil
+            }
+
+            let startOffset = text.distance(from: text.startIndex, to: startRange.lowerBound)
+            let tailStart = startRange.upperBound
+            let tail = String(text[tailStart...])
+
+            var endOffset = min(text.count, startOffset + fallbackLength)
+            if let nextHeadingRegex,
+               let next = nextHeadingRegex.firstMatch(
+                in: tail,
+                options: [],
+                range: NSRange(tail.startIndex..<tail.endIndex, in: tail)
+               ),
+               let nextRange = Range(next.range, in: tail) {
+                let delta = tail.distance(from: tail.startIndex, to: nextRange.lowerBound)
+                endOffset = min(text.count, startOffset + (text.distance(from: startRange.lowerBound, to: tailStart)) + delta)
+            }
+
+            if endOffset <= startOffset {
+                endOffset = min(text.count, startOffset + fallbackLength)
+            }
+
+            return ParsedSectionV1(name: name, startOffset: startOffset, endOffset: endOffset)
+        }
+
+        var sections: [ParsedSectionV1] = []
+        if let scope = findSection(name: "scope_of_work", headingPattern: "(scope\\s+of\\s+work|نطاق\\s+العمل)", fallbackLength: 2000) {
+            sections.append(scope)
+        }
+        if let criteria = findSection(name: "evaluation_criteria", headingPattern: "(evaluation\\s+criteria|معايير\\s+التقييم)", fallbackLength: 1500) {
+            sections.append(criteria)
+        }
+
+        return sections.sorted(by: { $0.startOffset < $1.startOffset })
+    }
+
+    private func buildEvidenceMap(
+        from text: String,
+        sections: [ParsedSectionV1],
+        sourceType: String
+    ) -> [EvidenceMapItemV1] {
+        // Lightweight evidence map: anchor excerpts for discovered sections, plus a generic leading excerpt.
+        var out: [EvidenceMapItemV1] = []
+
+        func excerpt(start: Int, length: Int) -> (end: Int, value: String) {
+            let startIndex = text.index(text.startIndex, offsetBy: max(0, min(text.count, start)))
+            let endIndex = text.index(startIndex, offsetBy: max(0, min(length, text.count - start)))
+            let value = String(text[startIndex..<endIndex])
+            let end = start + value.count
+            return (end, value)
+        }
+
+        let leading = excerpt(start: 0, length: 260)
+        out.append(
+            EvidenceMapItemV1(
+                page: 1,
+                charStart: 0,
+                charEnd: leading.end,
+                excerpt: leading.value,
+                sourceType: sourceType
+            )
+        )
+
+        for section in sections {
+            let sec = excerpt(start: section.startOffset, length: 260)
+            out.append(
+                EvidenceMapItemV1(
+                    page: 1,
+                    charStart: section.startOffset,
+                    charEnd: sec.end,
+                    excerpt: sec.value,
+                    sourceType: sourceType
+                )
+            )
+        }
+
+        return out
     }
 
     private func postJSON<Body: Encodable, Output: Decodable>(

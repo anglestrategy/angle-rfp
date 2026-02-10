@@ -2,12 +2,31 @@ import type { NextRequest } from "next/server";
 import { makeError } from "@/lib/api/errors";
 
 function getConfiguredTokens(): string[] {
-  const raw = process.env.BACKEND_APP_TOKENS ?? "dev-angle-rfp-token";
+  const raw = process.env.BACKEND_APP_TOKENS;
+  const isProdLike = process.env.NODE_ENV === "production" || process.env.VERCEL === "1";
 
-  return raw
+  // Prevent accidentally deploying a backend that accepts a known dev token.
+  if (!raw) {
+    if (isProdLike) {
+      throw makeError(500, "server_misconfigured", "BACKEND_APP_TOKENS is required in production", "auth", {
+        retryable: false
+      });
+    }
+    return ["dev-angle-rfp-token"];
+  }
+
+  const configured = raw
     .split(",")
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
+
+  if (isProdLike && configured.includes("dev-angle-rfp-token")) {
+    throw makeError(500, "server_misconfigured", "dev-angle-rfp-token is not allowed in production BACKEND_APP_TOKENS", "auth", {
+      retryable: false
+    });
+  }
+
+  return configured;
 }
 
 export function parseBearerToken(headerValue: string | null): string | null {

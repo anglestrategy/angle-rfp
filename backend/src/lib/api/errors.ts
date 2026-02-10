@@ -9,6 +9,7 @@ export const ERROR_CODES = [
   "unsupported_format",
   "file_too_large",
   "partial_result",
+  "server_misconfigured",
   "internal_error"
 ] as const;
 

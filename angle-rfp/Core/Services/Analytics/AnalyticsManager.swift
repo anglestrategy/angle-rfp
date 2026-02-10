@@ -95,21 +95,28 @@ public final class AnalyticsManager {
         self._sessionID = UUID()
         self.sessionStartTime = Date()
 
-        // Set up storage location with error handling
-        if let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first {
+        let fileManager = FileManager.default
+        let environment = ProcessInfo.processInfo.environment
+        let isRunningTests = environment["XCTestConfigurationFilePath"] != nil
+
+        if isRunningTests {
+            // Tests can run in parallel across multiple processes. Use per-process temp storage to avoid flakiness.
+            let runID = Self.testRunIdentifier()
+            self.storageURL = fileManager.temporaryDirectory
+                .appendingPathComponent("com.angle.rfp.analytics.\(runID).json")
+
+            AppLogger.shared.info("Analytics initialized (test mode)", metadata: [
+                "sessionID": _sessionID.uuidString,
+                "storageURL": storageURL.path
+            ])
+        } else if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
             let analyticsDir = appSupport
                 .appendingPathComponent("com.angle.rfp", isDirectory: true)
                 .appendingPathComponent("Analytics", isDirectory: true)
 
             // Create directory if needed
             do {
-                try FileManager.default.createDirectory(
-                    at: analyticsDir,
-                    withIntermediateDirectories: true
-                )
+                try fileManager.createDirectory(at: analyticsDir, withIntermediateDirectories: true)
                 self.storageURL = analyticsDir.appendingPathComponent("events.json")
 
                 AppLogger.shared.info("Analytics initialized", metadata: [
@@ -117,24 +124,19 @@ public final class AnalyticsManager {
                     "storageURL": storageURL.path
                 ])
             } catch {
-                AppLogger.shared.error(
-                    "Failed to create analytics directory, using temp storage",
-                    error: error
-                )
-                self.storageURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("com.angle.rfp.analytics.json")
+                AppLogger.shared.error("Failed to create analytics directory, using temp storage", error: error)
+                self.storageURL = fileManager.temporaryDirectory.appendingPathComponent("com.angle.rfp.analytics.json")
             }
         } else {
             AppLogger.shared.critical("Failed to locate Application Support directory, using temp storage")
-            self.storageURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("com.angle.rfp.analytics.json")
+            self.storageURL = fileManager.temporaryDirectory.appendingPathComponent("com.angle.rfp.analytics.json")
         }
 
-        // Clean up old events on startup
-        cleanupOldEvents()
-
-        // Set up flush timer (every 5 minutes)
-        setupFlushTimer()
+        // Clean up + timers are disabled for tests (parallel test isolation + determinism).
+        if !isRunningTests {
+            cleanupOldEvents()
+            setupFlushTimer()
+        }
     }
 
     deinit {
@@ -455,6 +457,14 @@ public final class AnalyticsManager {
             self?.flushTimer?.invalidate()
             self?.flushTimer = nil
         }
+    }
+
+    private static func testRunIdentifier() -> String {
+        let environment = ProcessInfo.processInfo.environment
+        if let session = environment["XCTestSessionIdentifier"], !session.isEmpty {
+            return session
+        }
+        return "pid-\(ProcessInfo.processInfo.processIdentifier)"
     }
 }
 

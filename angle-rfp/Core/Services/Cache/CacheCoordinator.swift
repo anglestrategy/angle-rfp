@@ -121,18 +121,29 @@ public final class CacheCoordinator {
         memoryCache.countLimit = maxMemoryCount
         memoryCache.totalCostLimit = 50 * 1024 * 1024 // 50 MB
 
-        // Set up disk cache directory
-        let appSupport = FileManager.default.urls(
-            for: .cachesDirectory,
-            in: .userDomainMask
-        ).first!
+        // Set up disk cache directory.
+        //
+        // IMPORTANT: tests can run in parallel across multiple processes. If they share a single
+        // on-disk cache directory, they will clobber each other (clearAll/remove/evict) and become flaky.
+        let fileManager = FileManager.default
+        let environment = ProcessInfo.processInfo.environment
+        let isRunningTests = environment["XCTestConfigurationFilePath"] != nil
 
-        let cacheDir = appSupport
-            .appendingPathComponent("com.angle.rfp", isDirectory: true)
-            .appendingPathComponent("Cache", isDirectory: true)
+        let cacheRoot: URL
+        if isRunningTests {
+            let runID = Self.testRunIdentifier()
+            cacheRoot = fileManager.temporaryDirectory
+                .appendingPathComponent("com.angle.rfp.tests", isDirectory: true)
+                .appendingPathComponent(runID, isDirectory: true)
+        } else {
+            cacheRoot = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("com.angle.rfp", isDirectory: true)
+        }
+
+        let cacheDir = cacheRoot.appendingPathComponent("Cache", isDirectory: true)
 
         // Create directory
-        try? FileManager.default.createDirectory(
+        try? fileManager.createDirectory(
             at: cacheDir,
             withIntermediateDirectories: true
         )
@@ -366,6 +377,14 @@ public final class CacheCoordinator {
         let digest = SHA256.hash(data: inputData)
         let hash = digest.map { String(format: "%02x", $0) }.joined()
         return diskCacheURL.appendingPathComponent("\(hash).cache")
+    }
+
+    private static func testRunIdentifier() -> String {
+        let environment = ProcessInfo.processInfo.environment
+        if let session = environment["XCTestSessionIdentifier"], !session.isEmpty {
+            return session
+        }
+        return "pid-\(ProcessInfo.processInfo.processIdentifier)"
     }
 
     /// Evict old entries if cache is too large
