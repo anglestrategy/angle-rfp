@@ -277,11 +277,13 @@ public final class KeychainManager {
 
             // XCTest runs in a non-interactive context; fail fast instead of blocking on auth UI.
             let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            let context = LAContext()
             if isRunningTests {
-                query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+                context.interactionNotAllowed = true
             } else {
-                query[kSecUseOperationPrompt as String] = "Authenticate to access \(getKeyDisplayName(key))"
+                context.localizedReason = "Authenticate to access \(getKeyDisplayName(key))"
             }
+            query[kSecUseAuthenticationContext as String] = context
 
             var result: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &result)
