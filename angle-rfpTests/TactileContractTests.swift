@@ -28,7 +28,7 @@ final class TactileContractTests: XCTestCase {
         XCTAssertEqual(moduleState(for: .ingest, analysisStage: .parsing), .active)
         XCTAssertEqual(moduleState(for: .ingest, analysisStage: .researching), .complete)
         XCTAssertEqual(moduleState(for: .criteria, analysisStage: .researching), .active)
-        XCTAssertEqual(moduleState(for: .score, analysisStage: .calculating), .active)
+        XCTAssertEqual(moduleState(for: .score, analysisStage: .scoring), .active)
         XCTAssertEqual(moduleState(for: .synthesize, analysisStage: .complete), .complete)
     }
 

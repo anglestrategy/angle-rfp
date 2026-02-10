@@ -49,6 +49,7 @@ public final class KeychainManager {
     public enum KeychainKey {
         case claudeAPIKey
         case braveAPIKey
+        case backendAPIKey
         case encryptionKey
         /// Custom key with prefix
         case custom(String)
@@ -60,6 +61,8 @@ public final class KeychainManager {
                 return "com.angle.rfp.claude-api-key"
             case .braveAPIKey:
                 return "com.angle.rfp.brave-api-key"
+            case .backendAPIKey:
+                return "com.angle.rfp.backend-api-key"
             case .encryptionKey:
                 return "com.angle.rfp.encryption-key"
             case .custom(let key):
@@ -445,6 +448,8 @@ public final class KeychainManager {
             return "Claude API Key"
         case .braveAPIKey:
             return "Brave Search API Key"
+        case .backendAPIKey:
+            return "Backend API Key"
         case .encryptionKey:
             return "Encryption Key"
         case .custom:
@@ -475,5 +480,15 @@ extension KeychainManager {
     /// Set Brave API key
     public func setBraveAPIKey(_ key: String, requireBiometrics: Bool = false) throws {
         try set(key, forKey: .braveAPIKey, requireBiometrics: requireBiometrics)
+    }
+
+    /// Get backend API token
+    public func getBackendAPIKey() throws -> String {
+        try get(.backendAPIKey)
+    }
+
+    /// Set backend API token
+    public func setBackendAPIKey(_ key: String, requireBiometrics: Bool = false) throws {
+        try set(key, forKey: .backendAPIKey, requireBiometrics: requireBiometrics)
     }
 }
