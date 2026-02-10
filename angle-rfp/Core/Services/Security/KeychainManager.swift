@@ -242,13 +242,24 @@ public final class KeychainManager {
             }
             #endif
 
-            // Delete existing item first
-            SecItemDelete(query as CFDictionary)
-
-            // Add new item
+            // Add or update. `SecItemDelete + SecItemAdd` is significantly slower under contention.
+            // Using `SecItemUpdate` for duplicate items keeps the boundary tests deterministic.
             let status = SecItemAdd(query as CFDictionary, nil)
+            if status == errSecDuplicateItem {
+                let updateQuery = baseQuery(for: storageKey)
+                let attributesToUpdate: [String: Any] = [
+                    kSecValueData as String: data
+                ]
 
-            if status != errSecSuccess {
+                let updateStatus = SecItemUpdate(updateQuery as CFDictionary, attributesToUpdate as CFDictionary)
+                if updateStatus != errSecSuccess {
+                    AppLogger.shared.error("Failed to update keychain item", metadata: [
+                        "key": storageKey,
+                        "status": Int(updateStatus)
+                    ])
+                    throw mapKeychainError(updateStatus)
+                }
+            } else if status != errSecSuccess {
                 AppLogger.shared.error("Failed to store keychain item", metadata: [
                     "key": storageKey,
                     "status": Int(status)

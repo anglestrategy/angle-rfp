@@ -40,7 +40,7 @@ enum BackendAnalysisClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .backendNotConfigured:
-            return "Backend is not configured. Open Settings and enter backend URL + token."
+            return "Backend is not configured. Open Settings and enter your access token."
         case .invalidBaseURL:
             return "Backend base URL is invalid."
         case .invalidResponse:
@@ -68,6 +68,8 @@ final class BackendAnalysisClient {
         static let baseURLDefaultsKey = "backend.baseURL"
         static let baseURLEnvKey = "BACKEND_BASE_URL"
         static let tokenEnvKey = "BACKEND_APP_TOKEN"
+        /// Production backend base URL. This is safe to ship in the app; access is still gated by token.
+        static let productionBaseURL = "https://anglerfp.vercel.app"
         /// If set to "1", the app will upload the file to the backend `/api/parse-document`.
         /// Default is local parsing to avoid large uploads and reduce backend costs.
         static let useBackendParsingEnv = "ANGLE_USE_BACKEND_PARSING"
@@ -550,14 +552,7 @@ final class BackendAnalysisClient {
             throw BackendAnalysisClientError.backendNotConfigured
         }
 
-        let defaults = UserDefaults.standard
-        let base = defaults.string(forKey: Config.baseURLDefaultsKey)
-            ?? ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
-
-        guard let baseURL = APIKeySetup.validatedBackendBaseURL(from: base) else {
-            if base == nil || base?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
-                throw BackendAnalysisClientError.backendNotConfigured
-            }
+        guard let baseURL = resolvedBaseURL() else {
             throw BackendAnalysisClientError.invalidBaseURL
         }
 
@@ -565,10 +560,32 @@ final class BackendAnalysisClient {
     }
 
     private func resolvedBaseURL() -> URL? {
+        let envBase = ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
+        if let envBase, let url = APIKeySetup.validatedBackendBaseURL(from: envBase) {
+            return url
+        }
+        if envBase != nil {
+            AppLogger.shared.warning("BACKEND_BASE_URL is set but invalid; falling back to production backend.")
+        }
+
         let defaults = UserDefaults.standard
-        let base = defaults.string(forKey: Config.baseURLDefaultsKey)
-            ?? ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
-        return APIKeySetup.validatedBackendBaseURL(from: base)
+        let storedBase = defaults.string(forKey: Config.baseURLDefaultsKey)
+        if let storedBase {
+            if let url = APIKeySetup.validatedBackendBaseURL(from: storedBase) {
+                // Avoid accidentally shipping a config that points to localhost.
+                if url.host?.lowercased() == "localhost" || url.host == "127.0.0.1" {
+                    AppLogger.shared.warning("Stored backend base URL points to localhost; ignoring and using production backend.")
+                    defaults.removeObject(forKey: Config.baseURLDefaultsKey)
+                } else {
+                    return url
+                }
+            } else {
+                AppLogger.shared.warning("Stored backend base URL is invalid; removing and using production backend.")
+                defaults.removeObject(forKey: Config.baseURLDefaultsKey)
+            }
+        }
+
+        return APIKeySetup.validatedBackendBaseURL(from: Config.productionBaseURL)
     }
 
     private func resolvedToken() -> String? {

@@ -72,11 +72,17 @@ struct APIKeySetup {
             AppLogger.shared.info("Backend API token stored in Keychain")
         }
 
-        let trimmedURL = baseURL?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !trimmedURL.isEmpty {
-            let normalized = validatedBackendBaseURL(from: trimmedURL)?.absoluteString ?? trimmedURL
-            UserDefaults.standard.set(normalized, forKey: ConfigKeys.backendBaseURL)
-            AppLogger.shared.info("Backend base URL stored in user defaults")
+        // Only update base URL when explicitly provided (including empty string to clear).
+        if let baseURL {
+            let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmedURL.isEmpty {
+                UserDefaults.standard.removeObject(forKey: ConfigKeys.backendBaseURL)
+                AppLogger.shared.info("Backend base URL cleared from user defaults")
+            } else {
+                let normalized = validatedBackendBaseURL(from: trimmedURL)?.absoluteString ?? trimmedURL
+                UserDefaults.standard.set(normalized, forKey: ConfigKeys.backendBaseURL)
+                AppLogger.shared.info("Backend base URL stored in user defaults")
+            }
         }
     }
 
@@ -94,10 +100,9 @@ struct APIKeySetup {
         if isRunningTests {
             return false
         }
-        guard KeychainManager.shared.exists(.backendAPIKey) else {
+        guard let token = try? KeychainManager.shared.getBackendAPIKey() else {
             return false
         }
-        let baseURL = UserDefaults.standard.string(forKey: ConfigKeys.backendBaseURL)
-        return validatedBackendBaseURL(from: baseURL) != nil
+        return !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }

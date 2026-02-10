@@ -550,7 +550,7 @@ struct ContentView: View {
     private func beginAnalysis(_ urls: [URL]) {
         guard let url = urls.first else { return }
         guard backendConfigured || useDemoMode else {
-            parsingWarnings.append("Backend is not configured. Open Settings and enter backend URL + token.")
+            parsingWarnings.append("Backend is not configured. Open Settings and enter your access token.")
             showSettings = true
             return
         }
@@ -855,112 +855,46 @@ struct SettingsView: View {
     @Binding var motionPreference: MotionPreference
     let onDismiss: () -> Void
 
-    @State private var backendBaseURL = ""
     @State private var backendToken = ""
+    @State private var revealToken = false
     @State private var isSaving = false
     @State private var showSaveSuccess = false
+    @State private var showClearConfirm = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("Settings")
-                    .font(.custom("Urbanist", size: 28).weight(.bold))
-                    .foregroundColor(DesignSystem.Palette.Charcoal.c900)
-
-                Spacer()
-
-                Button(action: onDismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                        .padding(8)
-                        .background(Circle().fill(DesignSystem.Palette.Cream.base))
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(DesignSystem.Spacing.lg)
-
-            Divider()
-                .overlay(DesignSystem.Palette.Charcoal.c900.opacity(0.16))
+            header
 
             ScrollView {
-                VStack(alignment: .leading, spacing: DesignSystem.Spacing.xl) {
+                VStack(alignment: .leading, spacing: DesignSystem.Spacing.lg) {
                     settingsCard {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Motion")
-                                .font(.custom("Urbanist", size: 17).weight(.semibold))
-                                .foregroundColor(DesignSystem.Palette.Charcoal.c900)
-
-                            Picker("Motion Preference", selection: $motionPreference) {
-                                ForEach(MotionPreference.allCases) { preference in
-                                    Text(preference.title).tag(preference)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-
-                            Text(motionPreference.summary)
-                                .font(.custom("Urbanist", size: 12).weight(.medium))
-                                .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                        }
+                        tokenSection
                     }
 
                     settingsCard {
-                        VStack(alignment: .leading, spacing: 16) {
-                            Text("Backend Configuration")
-                                .font(.custom("Urbanist", size: 17).weight(.semibold))
-                                .foregroundColor(DesignSystem.Palette.Charcoal.c900)
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Backend Base URL")
-                                    .font(.custom("Urbanist", size: 12).weight(.medium))
-                                    .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                                TextField("https://your-backend.vercel.app", text: $backendBaseURL)
-                                    .textFieldStyle(.roundedBorder)
-                                    .autocorrectionDisabled()
-                            }
-
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Backend App Token")
-                                    .font(.custom("Urbanist", size: 12).weight(.medium))
-                                    .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                                SecureField("your-api-token", text: $backendToken)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
-                            HStack {
-                                if showSaveSuccess {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(DesignSystem.success)
-                                        Text("Saved")
-                                            .font(.custom("Urbanist", size: 12).weight(.semibold))
-                                            .foregroundColor(DesignSystem.success)
-                                    }
-                                }
-
-                                Spacer()
-
-                                Button(action: saveAPIKeys) {
-                                    if isSaving {
-                                        ProgressView()
-                                            .scaleEffect(0.8)
-                                    } else {
-                                        Text("Save Config")
-                                    }
-                                }
-                                .buttonStyle(.accent)
-                                .disabled(isSaving)
-                            }
-                        }
+                        motionSection
                     }
                 }
-                .padding(DesignSystem.Spacing.lg)
+                .padding(.horizontal, DesignSystem.Spacing.lg)
+                .padding(.vertical, DesignSystem.Spacing.lg)
             }
         }
-        .frame(width: 560, height: 420)
-        .background(DesignSystem.Palette.Cream.elevated)
+        .frame(width: 640, height: 520)
+        .background(DesignSystem.Palette.Background.base)
         .onAppear {
             loadExistingKeys()
+        }
+        .confirmationDialog(
+            "Clear access token?",
+            isPresented: $showClearConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Clear Token", role: .destructive) {
+                clearBackendToken()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the saved token from your Keychain. You can paste a new token anytime.")
         }
     }
 
@@ -970,10 +904,187 @@ struct SettingsView: View {
         }
     }
 
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Settings")
+                    .font(.custom("Urbanist", size: 22).weight(.bold))
+                    .foregroundColor(DesignSystem.Palette.Text.primary)
+
+                Text("Securely configure your access token and motion preference.")
+                    .font(.custom("Urbanist", size: 12).weight(.medium))
+                    .foregroundColor(DesignSystem.Palette.Text.tertiary)
+            }
+
+            Spacer()
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                    .frame(width: 32, height: 32)
+                    .background(
+                        Circle()
+                            .fill(DesignSystem.Palette.Background.surface)
+                            .overlay(
+                                Circle().stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, DesignSystem.Spacing.lg)
+        .padding(.vertical, DesignSystem.Spacing.md)
+        .background(
+            Rectangle()
+                .fill(DesignSystem.Palette.Background.base)
+                .overlay(
+                    Rectangle()
+                        .fill(Color.white.opacity(0.06))
+                        .frame(height: 1),
+                    alignment: .bottom
+                )
+        )
+    }
+
+    private var tokenSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Access Token")
+                        .font(.custom("Urbanist", size: 17).weight(.semibold))
+                        .foregroundColor(DesignSystem.Palette.Text.primary)
+
+                    Text("Paste the token you received. It is stored securely in your macOS Keychain.")
+                        .font(.custom("Urbanist", size: 12).weight(.medium))
+                        .foregroundColor(DesignSystem.Palette.Text.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Text("Cloud backend")
+                    .font(.custom("Urbanist", size: 11).weight(.semibold))
+                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.06))
+                    )
+            }
+
+            tokenField
+
+            HStack(alignment: .center) {
+                if showSaveSuccess {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(DesignSystem.success)
+                        Text("Saved")
+                            .font(.custom("Urbanist", size: 12).weight(.semibold))
+                            .foregroundColor(DesignSystem.success)
+                    }
+                } else {
+                    Text("You only need to do this once on this Mac.")
+                        .font(.custom("Urbanist", size: 12).weight(.medium))
+                        .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                }
+
+                Spacer()
+
+                Button(action: saveAPIKeys) {
+                    if isSaving {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Text("Save")
+                    }
+                }
+                .buttonStyle(.accent)
+                .disabled(isSaving || backendToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            HStack {
+                Button(role: .destructive) {
+                    showClearConfirm = true
+                } label: {
+                    Text("Clear Token")
+                        .font(.custom("Urbanist", size: 12).weight(.semibold))
+                        .foregroundColor(DesignSystem.Palette.Semantic.error)
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+            }
+        }
+    }
+
+    private var tokenField: some View {
+        HStack(spacing: 10) {
+            Group {
+                if revealToken {
+                    TextField("Paste token", text: $backendToken)
+                } else {
+                    SecureField("Paste token", text: $backendToken)
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(.custom("Urbanist", size: 13).weight(.medium))
+            .foregroundColor(DesignSystem.Palette.Text.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DesignSystem.Palette.Background.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                    )
+            )
+            .autocorrectionDisabled()
+
+            Button(action: { revealToken.toggle() }) {
+                Image(systemName: revealToken ? "eye.slash" : "eye")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(DesignSystem.Palette.Background.surface)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                            )
+                    )
+            }
+            .buttonStyle(.plain)
+            .help(revealToken ? "Hide token" : "Show token")
+        }
+    }
+
+    private var motionSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Motion")
+                .font(.custom("Urbanist", size: 17).weight(.semibold))
+                .foregroundColor(DesignSystem.Palette.Text.primary)
+
+            Picker("Motion Preference", selection: $motionPreference) {
+                ForEach(MotionPreference.allCases) { preference in
+                    Text(preference.title).tag(preference)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(motionPreference.summary)
+                .font(.custom("Urbanist", size: 12).weight(.medium))
+                .foregroundColor(DesignSystem.Palette.Text.secondary)
+        }
+    }
+
     private func loadExistingKeys() {
         let config = APIKeySetup.verifyBackendConfiguration()
         backendToken = config.token ?? ""
-        backendBaseURL = config.baseURL ?? ""
     }
 
     private func saveAPIKeys() {
@@ -983,7 +1094,8 @@ struct SettingsView: View {
             do {
                 try APIKeySetup.storeBackendConfiguration(
                     token: backendToken,
-                    baseURL: backendBaseURL
+                    // Ensure we do not persist a backend URL in the UI; production URL is built-in.
+                    baseURL: ""
                 )
 
                 await MainActor.run {
@@ -1000,6 +1112,16 @@ struct SettingsView: View {
                 }
                 AppLogger.shared.error("Failed to save backend configuration", error: error)
             }
+        }
+    }
+
+    private func clearBackendToken() {
+        do {
+            try KeychainManager.shared.delete(.backendAPIKey)
+            backendToken = ""
+            showSaveSuccess = false
+        } catch {
+            AppLogger.shared.error("Failed to clear backend token", error: error)
         }
     }
 }
