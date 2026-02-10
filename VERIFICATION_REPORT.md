@@ -16,7 +16,7 @@
 **Verification**:
 ```bash
 ✅ com.angle.rfp.api.claude: Found (sk-ant-api...)
-✅ com.angle.rfp.api.brave: Found (BRAVE_SEARCH_API_KEY_REDACTED)
+✅ com.angle.rfp.api.brave: Found ([REDACTED])
 ✅ Both API keys are stored successfully!
 ```
 
@@ -79,8 +79,8 @@ Configuration: Debug
 ## ✅ API Keys Stored Securely
 
 Both keys successfully stored in macOS Keychain:
-- **Claude API**: `sk-ant-api03-REDACTED` ✅
-- **Brave Search API**: `BRAVE_SEARCH_API_KEY_REDACTED` ✅
+- **Claude API**: `[REDACTED]` ✅
+- **Brave Search API**: `[REDACTED]` ✅
 
 ## ✅ Features Implemented (Phase 1)
 

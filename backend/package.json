@@ -9,6 +9,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "contracts:validate": "tsx scripts/validate-contracts.ts",
+    "secrets:scan": "tsx scripts/secret-scan.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

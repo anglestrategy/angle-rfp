@@ -143,3 +143,8 @@ backend/.env.development.local
 backend/.env.test.local
 backend/.env.production.local
 backend/tsconfig.tsbuildinfo
+
+# Env files (repo root)
+.env
+.env.local
+.env.*.local

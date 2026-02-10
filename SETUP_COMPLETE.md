@@ -13,13 +13,13 @@ Both API keys are now securely stored in macOS Keychain:
 
 ```
 ✅ Claude API Key
-   - Key: sk-ant-api03-REDACTED
+   - Key: [REDACTED] (starts with "sk-ant-")
    - Storage: com.angle.rfp.claude-api-key
    - Length: 108 characters
    - Format: Valid ✅
 
 ✅ Brave Search API Key
-   - Key: BRAVE_SEARCH_API_KEY_REDACTED
+   - Key: [REDACTED] (provided via BRAVE_SEARCH_API_KEY)
    - Storage: com.angle.rfp.brave-api-key
    - Length: 31 characters
    - Monthly Quota: 2,000 queries

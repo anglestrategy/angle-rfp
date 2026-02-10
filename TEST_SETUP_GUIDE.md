@@ -118,8 +118,8 @@ Three utility scripts are available in `scripts/`:
 ## Quick Reference
 
 ### API Keys Status
-- ✅ Claude API: `sk-ant-api03-REDACTED` (example)
-- ✅ Brave Search: `BRAVE_SEARCH_API_KEY_REDACTED` (example)
+- ✅ Claude API: `[REDACTED]` (starts with `sk-ant-`)
+- ✅ Brave Search: `[REDACTED]` (provided via `BRAVE_SEARCH_API_KEY`)
 
 ### Build Status
 - ✅ Source: Compiles successfully

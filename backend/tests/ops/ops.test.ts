@@ -72,10 +72,13 @@ describe("cost budget", () => {
 
 describe("log redaction", () => {
   test("redacts secrets and PII", () => {
-    const message = "Email user@example.com token Bearer abc.def.ghi phone +966 55 123 4567";
+    const message =
+      "Email user@example.com token Bearer abc.def.ghi phone +966 55 123 4567 claude sk-ant-1234567890abcdef brave BSA_test_token_1234567890";
     const redacted = redactLogText(message);
     expect(redacted).not.toContain("user@example.com");
     expect(redacted).not.toContain("abc.def.ghi");
+    expect(redacted).not.toContain("sk-ant-");
+    expect(redacted).not.toContain("BSA_test_token_1234567890");
     expect(redacted).toContain("[REDACTED]");
 
     const metadata = redactLogMetadata({
