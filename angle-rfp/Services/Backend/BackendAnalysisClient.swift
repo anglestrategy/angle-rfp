@@ -30,6 +30,7 @@ struct BackendAnalysisResult {
 }
 
 enum BackendAnalysisClientError: LocalizedError {
+    case backendNotConfigured
     case invalidBaseURL
     case invalidResponse
     case httpError(statusCode: Int, message: String)
@@ -38,6 +39,8 @@ enum BackendAnalysisClientError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .backendNotConfigured:
+            return "Backend is not configured. Open Settings and enter backend URL + token."
         case .invalidBaseURL:
             return "Backend base URL is invalid."
         case .invalidResponse:
@@ -63,8 +66,8 @@ final class BackendAnalysisClient {
 
     private enum Config {
         static let baseURLDefaultsKey = "backend.baseURL"
-        static let defaultBaseURL = "http://localhost:3000"
-        static let defaultToken = "dev-angle-rfp-token"
+        static let baseURLEnvKey = "BACKEND_BASE_URL"
+        static let tokenEnvKey = "BACKEND_APP_TOKEN"
         /// If set to "1", the app will upload the file to the backend `/api/parse-document`.
         /// Default is local parsing to avoid large uploads and reduce backend costs.
         static let useBackendParsingEnv = "ANGLE_USE_BACKEND_PARSING"
@@ -218,10 +221,8 @@ final class BackendAnalysisClient {
         traceId: String,
         documentURL: URL
     ) async throws -> ParsedDocumentV1 {
-        guard let baseURL = resolvedBaseURL() else {
-            throw BackendAnalysisClientError.invalidBaseURL
-        }
-        let endpoint = baseURL.appendingPathComponent("api/parse-document")
+        let config = try requireBackendConfiguration()
+        let endpoint = config.baseURL.appendingPathComponent("api/parse-document")
 
         let accessGranted = documentURL.startAccessingSecurityScopedResource()
         defer {
@@ -241,7 +242,7 @@ final class BackendAnalysisClient {
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
-        request.addValue("Bearer \(resolvedToken())", forHTTPHeaderField: "Authorization")
+        request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.addValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -475,15 +476,13 @@ final class BackendAnalysisClient {
         traceId: String,
         body: Body
     ) async throws -> ApiEnvelope<Output> {
-        guard let baseURL = resolvedBaseURL() else {
-            throw BackendAnalysisClientError.invalidBaseURL
-        }
+        let config = try requireBackendConfiguration()
         let cleanedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
-        let endpoint = baseURL.appendingPathComponent(cleanedPath)
+        let endpoint = config.baseURL.appendingPathComponent(cleanedPath)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = 120
-        request.addValue("Bearer \(resolvedToken())", forHTTPHeaderField: "Authorization")
+        request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -546,22 +545,46 @@ final class BackendAnalysisClient {
         }
     }
 
+    private func requireBackendConfiguration() throws -> (baseURL: URL, token: String) {
+        guard let token = resolvedToken() else {
+            throw BackendAnalysisClientError.backendNotConfigured
+        }
+
+        let defaults = UserDefaults.standard
+        let base = defaults.string(forKey: Config.baseURLDefaultsKey)
+            ?? ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
+
+        guard let baseURL = APIKeySetup.validatedBackendBaseURL(from: base) else {
+            if base == nil || base?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+                throw BackendAnalysisClientError.backendNotConfigured
+            }
+            throw BackendAnalysisClientError.invalidBaseURL
+        }
+
+        return (baseURL, token)
+    }
+
     private func resolvedBaseURL() -> URL? {
         let defaults = UserDefaults.standard
         let base = defaults.string(forKey: Config.baseURLDefaultsKey)
-            ?? ProcessInfo.processInfo.environment["BACKEND_BASE_URL"]
-            ?? Config.defaultBaseURL
-        return URL(string: base)
+            ?? ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
+        return APIKeySetup.validatedBackendBaseURL(from: base)
     }
 
-    private func resolvedToken() -> String {
-        if let token = try? KeychainManager.shared.get(.backendAPIKey), !token.isEmpty {
-            return token
+    private func resolvedToken() -> String? {
+        if let token = try? KeychainManager.shared.get(.backendAPIKey) {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
         }
-        if let token = ProcessInfo.processInfo.environment["BACKEND_APP_TOKEN"], !token.isEmpty {
-            return token
+        if let token = ProcessInfo.processInfo.environment[Config.tokenEnvKey] {
+            let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
         }
-        return Config.defaultToken
+        return nil
     }
 
     private func mapExtractedData(

@@ -591,12 +591,11 @@ struct ContentView: View {
     }
 
     private func handleExport(_ type: ExportType) {
-        print("Exporting as: \(type.rawValue)")
+        AppLogger.shared.debug("Export requested", metadata: ["type": type.rawValue])
     }
 
     private func checkAPIKeyStatus() {
-        let configuration = APIKeySetup.verifyBackendConfiguration()
-        backendConfigured = configuration.token != nil
+        backendConfigured = APIKeySetup.hasBackendConfiguration()
     }
 
     // MARK: - Analysis Process
@@ -915,7 +914,7 @@ struct SettingsView: View {
                                 Text("Backend Base URL")
                                     .font(.custom("Urbanist", size: 12).weight(.medium))
                                     .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                                TextField("http://localhost:3000", text: $backendBaseURL)
+                                TextField("https://your-backend.vercel.app", text: $backendBaseURL)
                                     .textFieldStyle(.roundedBorder)
                                     .autocorrectionDisabled()
                             }
@@ -924,7 +923,7 @@ struct SettingsView: View {
                                 Text("Backend App Token")
                                     .font(.custom("Urbanist", size: 12).weight(.medium))
                                     .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                                SecureField("dev-angle-rfp-token", text: $backendToken)
+                                SecureField("your-api-token", text: $backendToken)
                                     .textFieldStyle(.roundedBorder)
                             }
 
@@ -974,7 +973,7 @@ struct SettingsView: View {
     private func loadExistingKeys() {
         let config = APIKeySetup.verifyBackendConfiguration()
         backendToken = config.token ?? ""
-        backendBaseURL = config.baseURL ?? "http://localhost:3000"
+        backendBaseURL = config.baseURL ?? ""
     }
 
     private func saveAPIKeys() {
@@ -999,7 +998,7 @@ struct SettingsView: View {
                 await MainActor.run {
                     isSaving = false
                 }
-                print("Failed to save API keys: \(error)")
+                AppLogger.shared.error("Failed to save backend configuration", error: error)
             }
         }
     }

@@ -389,7 +389,7 @@ public final class CacheCoordinator {
 
     /// Evict old entries if cache is too large
     private func evictIfNeeded() throws {
-        try performDiskSync {
+        performDiskSync {
             // Get all cache files
             guard let files = try? FileManager.default.contentsOfDirectory(
                 at: diskCacheURL,
