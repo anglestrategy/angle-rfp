@@ -15,11 +15,11 @@ import Foundation
 /// This utility ensures that API keys, email addresses, file paths, and other
 /// sensitive data are not exposed in application logs.
 ///
-/// Example:
-/// ```swift
-/// let redacted = LogRedactor.redact("API key: sk-ant-1234567890")
-/// // Result: "API key: [REDACTED_API_KEY]"
-/// ```
+    /// Example:
+    /// ```swift
+    /// let redacted = LogRedactor.redact("API key: sk-ant-EXAMPLE")
+    /// // Result: "API key: [REDACTED_API_KEY]"
+    /// ```
 public enum LogRedactor {
 
     // MARK: - Public Interface

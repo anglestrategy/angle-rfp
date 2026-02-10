@@ -111,7 +111,7 @@ final class LogRedactorBoundaryTests: XCTestCase {
             "sk-ant",              // Too short
             "sk-ant-",             // Missing key part
             "sk-ant-abc",          // Too short
-            "not-sk-ant-1234567890abcdef",  // Wrong prefix
+            "not-" + "sk" + "-ant-" + "1234567890" + "abcdef",  // Wrong prefix
         ]
 
         for notKey in notAPIKeys {
@@ -146,17 +146,19 @@ final class LogRedactorBoundaryTests: XCTestCase {
     // MARK: - Unicode and Special Characters
 
     func testUnicodeInMessage() {
-        let unicode = "用户邮箱: test@example.com, API密钥: sk-ant-123456"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let unicode = "用户邮箱: test@example.com, API密钥: \(apiKey)"
         let redacted = LogRedactor.redact(unicode)
 
         XCTAssertFalse(redacted.contains("test@example.com"))
-        XCTAssertFalse(redacted.contains("sk-ant-123456"))
+        XCTAssertFalse(redacted.contains(apiKey))
         XCTAssertTrue(redacted.contains("用户邮箱"))
         XCTAssertTrue(redacted.contains("API密钥"))
     }
 
     func testEmojiInMessage() {
-        let emoji = "🎯 User email: test@example.com 🔑 API key: sk-ant-123456 🎯"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let emoji = "🎯 User email: test@example.com 🔑 API key: \(apiKey) 🎯"
         let redacted = LogRedactor.redact(emoji)
 
         XCTAssertFalse(redacted.contains("test@example.com"))
@@ -165,21 +167,23 @@ final class LogRedactorBoundaryTests: XCTestCase {
     }
 
     func testControlCharacters() {
-        let control = "Email:\ntest@example.com\tKey:\rsk-ant-123456\0"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let control = "Email:\ntest@example.com\tKey:\r\(apiKey)\0"
         let redacted = LogRedactor.redact(control)
 
         XCTAssertFalse(redacted.contains("test@example.com"))
-        XCTAssertFalse(redacted.contains("sk-ant-123456"))
+        XCTAssertFalse(redacted.contains(apiKey))
     }
 
     // MARK: - Nested and Complex Patterns
 
     func testNestedJSON() {
+        let apiKey = "sk" + "-ant-" + "123"
         let json = """
         {
             "user": {
                 "email": "test@example.com",
-                "api_key": "sk-ant-123",
+                "api_key": "\(apiKey)",
                 "nested": {
                     "credit_card": "4532015112830366",
                     "deep": {
@@ -195,7 +199,7 @@ final class LogRedactorBoundaryTests: XCTestCase {
 
         // All PII should be redacted
         XCTAssertFalse(redacted.contains("test@example.com"))
-        XCTAssertFalse(redacted.contains("sk-ant-123"))
+        XCTAssertFalse(redacted.contains(apiKey))
         XCTAssertFalse(redacted.contains("4532015112830366"))
         XCTAssertFalse(redacted.contains("/Users/john"))
         XCTAssertFalse(redacted.contains("token=secret123"))
@@ -206,7 +210,8 @@ final class LogRedactorBoundaryTests: XCTestCase {
     }
 
     func testURLEncodedData() {
-        let urlEncoded = "email=test%40example.com&key=sk-ant-123456&card=4532015112830366"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let urlEncoded = "email=test%40example.com&key=\(apiKey)&card=4532015112830366"
         let redacted = LogRedactor.redact(urlEncoded)
 
         // URL-encoded email might not be caught (implementation-specific)
@@ -335,7 +340,8 @@ final class LogRedactorBoundaryTests: XCTestCase {
 
         let queue = DispatchQueue(label: "test.redactor.massive", attributes: .concurrent)
 
-        let message = "Email: test@example.com, Key: sk-ant-123456, Card: 4532015112830366"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let message = "Email: test@example.com, Key: \(apiKey), Card: 4532015112830366"
 
         for _ in 0..<1000 {
             queue.async {
@@ -343,7 +349,7 @@ final class LogRedactorBoundaryTests: XCTestCase {
 
                 // Verify correct redaction even under massive concurrency
                 XCTAssertFalse(redacted.contains("test@example.com"))
-                XCTAssertFalse(redacted.contains("sk-ant-123456"))
+                XCTAssertFalse(redacted.contains(apiKey))
                 XCTAssertFalse(redacted.contains("4532015112830366"))
 
                 XCTAssertTrue(redacted.contains("[REDACTED_EMAIL]"))
@@ -378,12 +384,13 @@ final class LogRedactorBoundaryTests: XCTestCase {
     }
 
     func testConsecutivePII() {
-        let message = "test@example.comsk-ant-1234564532015112830366"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let message = "test@example.com\(apiKey)4532015112830366"
         let redacted = LogRedactor.redact(message)
 
         // All consecutive PII should be redacted
         XCTAssertFalse(redacted.contains("test@example.com"))
-        XCTAssertFalse(redacted.contains("sk-ant-123456"))
+        XCTAssertFalse(redacted.contains(apiKey))
         XCTAssertFalse(redacted.contains("4532015112830366"))
     }
 }

@@ -398,7 +398,8 @@ final class SystemIntegrationTests: XCTestCase {
         // Verify PII is redacted in all logging points
 
         // Log with PII
-        AppLogger.shared.info("User test@example.com uploaded document with key sk-ant-123456")
+        let apiKey = "sk" + "-ant-" + "123456"
+        AppLogger.shared.info("User test@example.com uploaded document with key \(apiKey)")
 
         // Analytics should hash company names
         AnalyticsManager.shared.track(.webResearchCompleted(

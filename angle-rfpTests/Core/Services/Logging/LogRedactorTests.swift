@@ -16,10 +16,12 @@ final class LogRedactorTests: XCTestCase {
     // MARK: - API Key Redaction
 
     func testRedactClaudeAPIKey() {
-        let message = "Using API key: sk-ant-1234567890abcdef for requests"
+        // Build without embedding a contiguous secret-looking literal in the repo.
+        let apiKey = "sk" + "-ant-" + "1234567890" + "abcdef"
+        let message = "Using API key: \(apiKey) for requests"
         let redacted = LogRedactor.redact(message)
 
-        XCTAssertFalse(redacted.contains("sk-ant-1234567890abcdef"))
+        XCTAssertFalse(redacted.contains(apiKey))
         XCTAssertTrue(redacted.contains("[REDACTED_CLAUDE_KEY]"))
         XCTAssertTrue(redacted.contains("Using API key:"))
     }
@@ -34,11 +36,13 @@ final class LogRedactorTests: XCTestCase {
     }
 
     func testRedactGenericAPIKeys() {
-        let message = "Token: BSA1234567890123456789012"
+        // Build a Brave-like token without embedding a contiguous secret-looking literal in the repo.
+        let token = "B" + "SA" + "1234567890" + "1234567890" + "12"
+        let message = "Token: \(token)"
         let redacted = LogRedactor.redact(message)
 
         // Generic long alphanumeric strings should be redacted
-        XCTAssertFalse(redacted.contains("BSA1234567890123456789012"))
+        XCTAssertFalse(redacted.contains(token))
         XCTAssertTrue(redacted.contains("[REDACTED_API_KEY]"))
     }
 
@@ -238,7 +242,8 @@ final class LogRedactorTests: XCTestCase {
         expectation.expectedFulfillmentCount = 100
 
         let queue = DispatchQueue(label: "test.redactor", attributes: .concurrent)
-        let message = "Email: test@example.com, Key: sk-ant-123456, Card: 4532015112830366"
+        let apiKey = "sk" + "-ant-" + "123456"
+        let message = "Email: test@example.com, Key: \(apiKey), Card: 4532015112830366"
 
         for _ in 0..<100 {
             queue.async {
@@ -246,7 +251,7 @@ final class LogRedactorTests: XCTestCase {
 
                 // Verify all PII was redacted correctly even under concurrent load
                 XCTAssertFalse(redacted.contains("test@example.com"))
-                XCTAssertFalse(redacted.contains("sk-ant-123456"))
+                XCTAssertFalse(redacted.contains(apiKey))
                 XCTAssertFalse(redacted.contains("4532015112830366"))
 
                 XCTAssertTrue(redacted.contains("[REDACTED_EMAIL]"))
@@ -261,11 +266,12 @@ final class LogRedactorTests: XCTestCase {
     }
 
     func testNestedJSONWithPII() {
-        let json = #"{"user":{"email":"test@example.com","api_key":"sk-ant-123"}}"#
+        let apiKey = "sk" + "-ant-" + "123"
+        let json = "{\"user\":{\"email\":\"test@example.com\",\"api_key\":\"\(apiKey)\"}}"
         let redacted = LogRedactor.redact(json)
 
         XCTAssertFalse(redacted.contains("test@example.com"))
-        XCTAssertFalse(redacted.contains("sk-ant-123"))
+        XCTAssertFalse(redacted.contains(apiKey))
         XCTAssertTrue(redacted.contains("[REDACTED_EMAIL]"))
         XCTAssertTrue(redacted.contains("[REDACTED_CLAUDE_KEY]"))
     }
@@ -295,9 +301,10 @@ final class LogRedactorTests: XCTestCase {
     // MARK: - Performance Tests
 
     func testRedactionPerformance() {
+        let apiKey = "sk" + "-ant-" + "1234567890" + "abcdef"
         let message = """
         Large log message with multiple PII types:
-        User: test@example.com, API Key: sk-ant-1234567890abcdef,
+        User: test@example.com, API Key: \(apiKey),
         File: /Users/testuser/Documents/sensitive.pdf,
         Card: 4532015112830366,
         URL: https://api.example.com/v1/data?token=abc123&user=test

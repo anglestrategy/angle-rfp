@@ -26,12 +26,12 @@ import LocalAuthentication
 ///
 /// Example Usage:
 /// ```swift
-/// // Store API key with biometric protection
-/// try KeychainManager.shared.set(
-///     "sk-ant-1234567890",
-///     forKey: .claudeAPIKey,
-///     requireBiometrics: true
-/// )
+    /// // Store API key with biometric protection
+    /// try KeychainManager.shared.set(
+    ///     "sk-ant-EXAMPLE",
+    ///     forKey: .claudeAPIKey,
+    ///     requireBiometrics: true
+    /// )
 ///
 /// // Retrieve API key (prompts for biometrics if protected)
 /// let apiKey = try KeychainManager.shared.get(.claudeAPIKey)
