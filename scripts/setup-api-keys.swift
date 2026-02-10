@@ -39,22 +39,36 @@ func storeInKeychain(key: String, value: String) throws {
 
 // Main execution
 do {
+    func requireEnv(_ name: String) throws -> String {
+        let value = (ProcessInfo.processInfo.environment[name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            throw NSError(
+                domain: "EnvError",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing required environment variable: \(name)"]
+            )
+        }
+        return value
+    }
+
+    let claudeKey = try requireEnv("CLAUDE_API_KEY")
+    let braveKey = try requireEnv("BRAVE_SEARCH_API_KEY")
+
     // Store Claude API key
-    try storeInKeychain(
-        key: "com.angle.rfp.claude-api-key",
-        value: "sk-ant-api03-REDACTED"
-    )
+    try storeInKeychain(key: "com.angle.rfp.claude-api-key", value: claudeKey)
 
     // Store Brave Search API key
-    try storeInKeychain(
-        key: "com.angle.rfp.brave-api-key",
-        value: "BRAVE_SEARCH_API_KEY_REDACTED"
-    )
+    try storeInKeychain(key: "com.angle.rfp.brave-api-key", value: braveKey)
 
     print("\n🎉 All API keys stored successfully in macOS Keychain!")
     print("Keys are encrypted and stored securely.")
+    print("\nTip: run like this:")
+    print("  CLAUDE_API_KEY='...' BRAVE_SEARCH_API_KEY='...' swift scripts/setup-api-keys.swift")
 
 } catch {
     print("❌ Error: \(error.localizedDescription)")
+    print("\nExpected env vars:")
+    print("  - CLAUDE_API_KEY")
+    print("  - BRAVE_SEARCH_API_KEY")
     exit(1)
 }
