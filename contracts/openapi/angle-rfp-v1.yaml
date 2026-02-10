@@ -1,0 +1,335 @@
+openapi: 3.1.0
+info:
+  title: angle/RFP API
+  version: 1.0.0
+  description: Contract-first API for the angle/RFP analysis pipeline.
+servers:
+  - url: https://api.angle-rfp.example.com
+paths:
+  /api/health:
+    get:
+      summary: Service health status
+      operationId: getHealth
+      responses:
+        "200":
+          description: Healthy response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/version:
+    get:
+      summary: API and schema versions
+      operationId: getVersion
+      responses:
+        "200":
+          description: Version response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/parse-document:
+    post:
+      summary: Parse uploaded RFP document
+      operationId: parseDocument
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/TraceId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [analysisId, file]
+              properties:
+                analysisId:
+                  type: string
+                  format: uuid
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Parsed document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/analyze-rfp:
+    post:
+      summary: Run multi-pass extraction
+      operationId: analyzeRfp
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/TraceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analysisId, parsedDocument]
+              properties:
+                analysisId:
+                  type: string
+                  format: uuid
+                parsedDocument:
+                  $ref: "#/components/schemas/ParsedDocumentV1"
+      responses:
+        "200":
+          description: Extracted RFP payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/analyze-scope:
+    post:
+      summary: Analyze scope against taxonomy
+      operationId: analyzeScope
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/TraceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analysisId, scopeOfWork, language]
+              properties:
+                analysisId:
+                  type: string
+                  format: uuid
+                scopeOfWork:
+                  type: string
+                language:
+                  type: string
+                  enum: [arabic, english, mixed]
+      responses:
+        "200":
+          description: Scope analysis payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/research-client:
+    post:
+      summary: Research client in bilingual mode
+      operationId: researchClient
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/TraceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analysisId, clientName, country]
+              properties:
+                analysisId:
+                  type: string
+                  format: uuid
+                clientName:
+                  type: string
+                clientNameArabic:
+                  type: string
+                country:
+                  type: string
+                  const: SA
+      responses:
+        "200":
+          description: Client research payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/calculate-score:
+    post:
+      summary: Calculate deterministic score
+      operationId: calculateScore
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/TraceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analysisId, extractedRfp, scopeAnalysis, clientResearch]
+              properties:
+                analysisId:
+                  type: string
+                  format: uuid
+                extractedRfp:
+                  $ref: "#/components/schemas/ExtractedRFPDataV1"
+                scopeAnalysis:
+                  $ref: "#/components/schemas/ScopeAnalysisV1"
+                clientResearch:
+                  $ref: "#/components/schemas/ClientResearchV1"
+      responses:
+        "200":
+          description: Financial score payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+  /api/export:
+    post:
+      summary: Export analysis report
+      operationId: exportAnalysis
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/TraceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [analysisId, report, format]
+              properties:
+                analysisId:
+                  type: string
+                  format: uuid
+                report:
+                  $ref: "#/components/schemas/AnalysisReportV1"
+                format:
+                  type: string
+                  enum: [pdf, email, link]
+      responses:
+        "200":
+          description: Export result payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiEnvelope"
+components:
+  parameters:
+    TraceId:
+      name: X-Trace-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+  schemas:
+    ApiEnvelope:
+      type: object
+      required:
+        [requestId, traceId, schemaVersion, durationMs, warnings, partialResult]
+      properties:
+        requestId:
+          type: string
+        traceId:
+          type: string
+        schemaVersion:
+          type: string
+          const: 1.0.0
+        durationMs:
+          type: integer
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+        partialResult:
+          type: boolean
+        data:
+          oneOf:
+            - $ref: "#/components/schemas/ParsedDocumentV1"
+            - $ref: "#/components/schemas/ExtractedRFPDataV1"
+            - $ref: "#/components/schemas/ScopeAnalysisV1"
+            - $ref: "#/components/schemas/ClientResearchV1"
+            - $ref: "#/components/schemas/FinancialScoreV1"
+            - $ref: "#/components/schemas/AnalysisReportV1"
+            - type: object
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            retryable:
+              type: boolean
+            stage:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+    ParsedDocumentV1:
+      type: object
+      required: [schemaVersion, analysisId, rawText]
+      properties:
+        schemaVersion:
+          type: string
+        analysisId:
+          type: string
+        rawText:
+          type: string
+    ExtractedRFPDataV1:
+      type: object
+      required: [schemaVersion, analysisId, clientName, projectName]
+      properties:
+        schemaVersion:
+          type: string
+        analysisId:
+          type: string
+        clientName:
+          type: string
+        projectName:
+          type: string
+    ScopeAnalysisV1:
+      type: object
+      required: [schemaVersion, analysisId, agencyServicePercentage, outsourcingPercentage]
+      properties:
+        schemaVersion:
+          type: string
+        analysisId:
+          type: string
+        agencyServicePercentage:
+          type: number
+        outsourcingPercentage:
+          type: number
+    ClientResearchV1:
+      type: object
+      required: [schemaVersion, analysisId, researchMetadata]
+      properties:
+        schemaVersion:
+          type: string
+        analysisId:
+          type: string
+        researchMetadata:
+          type: object
+    FinancialScoreV1:
+      type: object
+      required: [schemaVersion, analysisId, finalScore, recommendationBand]
+      properties:
+        schemaVersion:
+          type: string
+        analysisId:
+          type: string
+        finalScore:
+          type: number
+        recommendationBand:
+          type: string
+    AnalysisReportV1:
+      type: object
+      required: [schemaVersion, analysisId, summary]
+      properties:
+        schemaVersion:
+          type: string
+        analysisId:
+          type: string
+        summary:
+          type: object

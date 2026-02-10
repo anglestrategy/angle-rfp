@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://angle-rfp.dev/schemas/v1/analysis-report-v1.schema.json",
+  "title": "AnalysisReportV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "analysisId",
+    "summary",
+    "extractedRfp",
+    "scopeAnalysis",
+    "clientResearch",
+    "financialScore",
+    "warnings",
+    "generatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "analysisId": { "type": "string", "format": "uuid" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["headline", "recommendation", "score"],
+      "properties": {
+        "headline": { "type": "string" },
+        "recommendation": { "type": "string" },
+        "score": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "extractedRfp": { "$ref": "https://angle-rfp.dev/schemas/v1/extracted-rfp-data-v1.schema.json" },
+    "scopeAnalysis": { "$ref": "https://angle-rfp.dev/schemas/v1/scope-analysis-v1.schema.json" },
+    "clientResearch": { "$ref": "https://angle-rfp.dev/schemas/v1/client-research-v1.schema.json" },
+    "financialScore": { "$ref": "https://angle-rfp.dev/schemas/v1/financial-score-v1.schema.json" },
+    "warnings": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "generatedAt": { "type": "string", "format": "date-time" }
+  }
+}
