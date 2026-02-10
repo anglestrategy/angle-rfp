@@ -14,9 +14,9 @@ final class RunwayMappingTests: XCTestCase {
     func testRunwayStepMappingAcrossAppStates() {
         XCTAssertEqual(runwayStep(for: .upload, analysisStage: .parsing), .upload)
         XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .parsing), .parse)
-        XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .analyzing), .criteria)
+        XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .extracting), .criteria)
         XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .researching), .research)
-        XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .calculating), .score)
+        XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .scoring), .score)
         XCTAssertEqual(runwayStep(for: .analyzing(documentName: "A.pdf"), analysisStage: .complete), .results)
         XCTAssertEqual(
             runwayStep(

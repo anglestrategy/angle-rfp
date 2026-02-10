@@ -11,16 +11,16 @@ import SwiftUI
 struct angle_rfpApp: App {
     init() {
         if !isRunningTests {
-            configureAPIKeysIfNeeded()
+            configureBackendIfNeeded()
         }
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .frame(minWidth: 600, minHeight: 500)
+                .frame(width: 600, height: 800)
         }
-        .defaultSize(width: 1100, height: 700)
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("New Analysis") {
@@ -30,7 +30,7 @@ struct angle_rfpApp: App {
             }
 
             CommandGroup(after: .appSettings) {
-                Button("Configure API Keys") {
+                Button("Configure Backend") {
                     NotificationCenter.default.post(name: .openSettingsCommand, object: nil)
                 }
                 .keyboardShortcut(",", modifiers: [.command, .option])
@@ -44,32 +44,26 @@ struct angle_rfpApp: App {
                environment["XCTestSessionIdentifier"] != nil
     }
 
-    /// Configure API keys from environment variables if available.
-    /// Keys are never hardcoded in source.
-    private func configureAPIKeysIfNeeded() {
-        guard !APIKeySetup.hasAPIKeys() else {
+    /// Configure backend token/base URL from environment variables if available.
+    private func configureBackendIfNeeded() {
+        guard !APIKeySetup.hasBackendConfiguration() else {
             return
         }
 
         let environment = ProcessInfo.processInfo.environment
-        let claudeKey = environment["CLAUDE_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let braveKey = environment["BRAVE_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let backendToken = environment["BACKEND_APP_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let backendBaseURL = environment["BACKEND_BASE_URL"]?.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard
-            let claudeKey,
-            let braveKey,
-            !claudeKey.isEmpty,
-            !braveKey.isEmpty
-        else {
-            AppLogger.shared.warning("API keys are missing. Configure keys in Settings or environment variables.")
+        guard let backendToken, !backendToken.isEmpty else {
+            AppLogger.shared.warning("Backend token missing. Configure backend token in Settings or environment variables.")
             return
         }
 
         do {
-            try APIKeySetup.storeAPIKeys(claudeKey: claudeKey, braveKey: braveKey)
-            AppLogger.shared.info("API keys loaded from environment and stored in Keychain")
+            try APIKeySetup.storeBackendConfiguration(token: backendToken, baseURL: backendBaseURL)
+            AppLogger.shared.info("Backend configuration loaded from environment")
         } catch {
-            AppLogger.shared.error("Failed to store API keys", error: error)
+            AppLogger.shared.error("Failed to store backend configuration", error: error)
         }
     }
 }

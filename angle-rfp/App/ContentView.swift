@@ -88,13 +88,13 @@ func runwayStep(for appState: AppState, analysisStage: AnalysisStage) -> RunwayS
         switch analysisStage {
         case .parsing:
             return .parse
-        case .analyzing:
+        case .extracting, .scopeAnalyzing:
             return .criteria
         case .researching:
             return .research
-        case .calculating:
+        case .scoring:
             return .score
-        case .complete:
+        case .rendering, .exporting, .complete:
             return .results
         }
     case .dashboard:
@@ -129,10 +129,11 @@ struct ContentView: View {
     @State private var extractedData: ExtractedRFPData?
     @State private var clientInfo: ClientInformation?
     @State private var showSettings = false
-    @State private var apiKeysConfigured = false
+    @State private var backendConfigured = false
 
-    // Demo mode - set to true to bypass API and use mock data
-    private let useDemoMode = true
+    // Demo mode can be enabled with ANGLE_DEMO_MODE=1
+    private let useDemoMode = ProcessInfo.processInfo.environment["ANGLE_DEMO_MODE"] == "1"
+    private let backendClient = BackendAnalysisClient.shared
 
     @AppStorage("motionPreference") private var motionPreferenceRawValue = MotionPreference.balanced.rawValue
 
@@ -178,50 +179,46 @@ struct ContentView: View {
     // overallProgress removed - no longer needed with scene-based navigation
 
     var body: some View {
-        ZStack {
-            backgroundLayer
+        VStack(spacing: 0) {
+            AppHeader(
+                currentStep: activeStepIndex,
+                completedSteps: completedSteps
+            )
 
-            VStack(spacing: 0) {
-                AppHeader(
-                    currentStep: activeStepIndex,
-                    completedSteps: completedSteps,
-                    apiKeysConfigured: useDemoMode || apiKeysConfigured,
-                    onSettingsTap: { showSettings = true }
-                )
+            // Scene content
+            Group {
+                switch appState {
+                case .upload:
+                    DocumentUploadView(
+                        uploadQueue: $uploadQueue,
+                        motionPreference: motionPreferenceBinding,
+                        onQueueChanged: { uploadQueue = $0 },
+                        onBeginAnalysis: beginAnalysis
+                    )
 
-                // Scene content
-                Group {
-                    switch appState {
-                    case .upload:
-                        DocumentUploadView(
-                            uploadQueue: $uploadQueue,
-                            motionPreference: motionPreferenceBinding,
-                            onQueueChanged: { uploadQueue = $0 },
-                            onBeginAnalysis: beginAnalysis
-                        )
+                case .analyzing:
+                    AnalysisProgressView(
+                        currentStage: $currentStage,
+                        progress: $analysisProgress,
+                        parsingWarnings: $parsingWarnings,
+                        documentName: activeDocumentName,
+                        onCancel: cancelAnalysis
+                    )
 
-                    case .analyzing:
-                        AnalysisProgressView(
-                            currentStage: $currentStage,
-                            progress: $analysisProgress,
-                            parsingWarnings: $parsingWarnings,
-                            documentName: activeDocumentName,
-                            onCancel: cancelAnalysis
-                        )
-
-                    case .dashboard(let data, let info):
-                        DashboardView(
-                            data: data,
-                            clientInfo: info,
-                            onExport: handleExport,
-                            onNewAnalysis: startNewAnalysis
-                        )
-                    }
+                case .dashboard(let data, let info):
+                    DashboardView(
+                        data: data,
+                        clientInfo: info,
+                        onExport: handleExport,
+                        onNewAnalysis: startNewAnalysis
+                    )
                 }
-                .transition(.opacity.combined(with: .move(edge: .trailing)))
             }
+            .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
-        .frame(minWidth: DesignSystem.Layout.minWindowWidth, minHeight: DesignSystem.Layout.minWindowHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(DesignSystem.Palette.Background.base)
+        .ignoresSafeArea()
         .environment(\.motionPreference, selectedMotionPreference)
         .onAppear {
             checkAPIKeyStatus()
@@ -244,11 +241,6 @@ struct ContentView: View {
         }
     }
 
-    private var backgroundLayer: some View {
-        DesignSystem.Palette.Background.base
-            .ignoresSafeArea()
-    }
-
     private var completedSteps: Set<Int> {
         var completed = Set<Int>()
 
@@ -257,16 +249,16 @@ struct ContentView: View {
             break
         case .analyzing:
             completed.insert(0) // Upload complete
-            if currentStage.rawValue >= AnalysisStage.analyzing.rawValue {
+            if currentStage.rawValue >= AnalysisStage.extracting.rawValue {
                 completed.insert(1) // Parse complete
             }
             if currentStage.rawValue >= AnalysisStage.researching.rawValue {
                 completed.insert(2) // Criteria complete
             }
-            if currentStage.rawValue >= AnalysisStage.calculating.rawValue {
+            if currentStage.rawValue >= AnalysisStage.scoring.rawValue {
                 completed.insert(3) // Research complete
             }
-            if currentStage == .complete {
+            if currentStage.rawValue >= AnalysisStage.rendering.rawValue {
                 completed.insert(4) // Score complete
             }
         case .dashboard:
@@ -587,8 +579,8 @@ struct ContentView: View {
     }
 
     private func checkAPIKeyStatus() {
-        let keys = APIKeySetup.verifyAPIKeys()
-        apiKeysConfigured = keys.claude != nil
+        let configuration = APIKeySetup.verifyBackendConfiguration()
+        backendConfigured = configuration.token != nil
     }
 
     // MARK: - Analysis Process
@@ -600,49 +592,27 @@ struct ContentView: View {
         }
 
         Task {
-            let accessGranted = documentURL.startAccessingSecurityScopedResource()
-            defer {
-                if accessGranted {
-                    documentURL.stopAccessingSecurityScopedResource()
-                }
-            }
-
             do {
-                updateStage(.parsing, progress: 0.1)
-                let parseResult = try await parseDocument(at: documentURL)
-
-                if !parseResult.warnings.isEmpty {
-                    await MainActor.run {
-                        parsingWarnings = parseResult.warnings.map { $0.message }
+                let result = try await backendClient.analyze(documentURL: documentURL) { update in
+                    Task { @MainActor in
+                        updateStage(analysisStage(from: update.stage), progress: update.progress)
+                        if !update.warnings.isEmpty {
+                            parsingWarnings = Array(Set(parsingWarnings + update.warnings)).sorted()
+                        }
                     }
                 }
-
-                updateProgress(0.25)
-
-                updateStage(.analyzing, progress: 0.3)
-                let extractedData = try await analyzeWithClaude(text: parseResult.text)
-                updateProgress(0.55)
-
-                updateStage(.researching, progress: 0.6)
-                let clientInfo = try? await researchCompany(name: extractedData.clientName ?? "Unknown")
-                updateProgress(0.8)
-
-                updateStage(.calculating, progress: 0.85)
-                updateProgress(0.95)
-
-                updateStage(.complete, progress: 1.0)
-                try await Task.sleep(nanoseconds: 450_000_000)
 
                 await MainActor.run {
                     withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
-                        self.extractedData = extractedData
-                        self.clientInfo = clientInfo
-                        self.appState = .dashboard(data: extractedData, clientInfo: clientInfo)
+                        self.extractedData = result.extractedData
+                        self.clientInfo = result.clientInfo
+                        self.parsingWarnings = result.warnings
+                        self.currentStage = .complete
+                        self.analysisProgress = 1.0
+                        self.appState = .dashboard(data: result.extractedData, clientInfo: result.clientInfo)
                     }
                 }
-
             } catch {
-                print("Analysis error: \(error)")
                 await MainActor.run {
                     parsingWarnings.append("Analysis failed: \(error.localizedDescription)")
                     appState = .upload
@@ -661,25 +631,41 @@ struct ContentView: View {
             try? await Task.sleep(nanoseconds: 500_000_000)
             analysisProgress = 0.25
 
-            // Stage 2: Analyzing
-            currentStage = .analyzing
+            // Stage 2: Extracting
+            currentStage = .extracting
             analysisProgress = 0.3
-            try? await Task.sleep(nanoseconds: 600_000_000)
-            analysisProgress = 0.55
-
-            // Stage 3: Researching
-            currentStage = .researching
-            analysisProgress = 0.6
             try? await Task.sleep(nanoseconds: 500_000_000)
-            analysisProgress = 0.8
+            analysisProgress = 0.46
 
-            // Stage 4: Calculating
-            currentStage = .calculating
-            analysisProgress = 0.85
+            // Stage 3: Scope
+            currentStage = .scopeAnalyzing
+            analysisProgress = 0.52
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            analysisProgress = 0.6
+
+            // Stage 4: Researching
+            currentStage = .researching
+            analysisProgress = 0.65
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            analysisProgress = 0.76
+
+            // Stage 5: Scoring
+            currentStage = .scoring
+            analysisProgress = 0.82
             try? await Task.sleep(nanoseconds: 400_000_000)
-            analysisProgress = 0.95
+            analysisProgress = 0.9
 
-            // Stage 5: Complete
+            // Stage 6: Rendering
+            currentStage = .rendering
+            analysisProgress = 0.93
+            try? await Task.sleep(nanoseconds: 250_000_000)
+
+            // Stage 7: Exporting
+            currentStage = .exporting
+            analysisProgress = 0.97
+            try? await Task.sleep(nanoseconds: 250_000_000)
+
+            // Stage 8: Complete
             currentStage = .complete
             analysisProgress = 1.0
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -690,6 +676,25 @@ struct ContentView: View {
                 self.clientInfo = Self.mockClientInfo
                 self.appState = .dashboard(data: Self.mockRFPData, clientInfo: Self.mockClientInfo)
             }
+        }
+    }
+
+    private func analysisStage(from stage: BackendPipelineStage) -> AnalysisStage {
+        switch stage {
+        case .parse:
+            return .parsing
+        case .extract:
+            return .extracting
+        case .scope:
+            return .scopeAnalyzing
+        case .research:
+            return .researching
+        case .score:
+            return .scoring
+        case .render:
+            return .rendering
+        case .export:
+            return .exporting
         }
     }
 
@@ -709,6 +714,12 @@ struct ContentView: View {
             4. Campaign Creative - Concept development, storyboarding, and production of video content for TV and digital
             5. Content Strategy - Editorial calendar, content pillars, and messaging framework for all channels
             6. Social Media Assets - Platform-specific creative templates and animated content
+
+            The following services will require external partners or client-side resources:
+            7. Media Buying - Programmatic and traditional media placement across digital and broadcast channels
+            8. PR Distribution - Press release distribution and media outreach coordination
+            9. Website Development - Front-end and back-end development, CMS integration, and hosting setup
+            10. SEO Implementation - Technical SEO audit, keyword optimization, and ongoing search performance monitoring
 
             The project will span 6 months with phased deliverables and regular client reviews.
             """,
@@ -772,7 +783,7 @@ struct ContentView: View {
                 ImportantDate(title: "Intent to Respond", date: Date().addingTimeInterval(86400 * 5), dateType: .other, isCritical: false),
                 ImportantDate(title: "Questions Due", date: Date().addingTimeInterval(86400 * 10), dateType: .questionsDeadline, isCritical: false),
                 ImportantDate(title: "Proposal Deadline", date: Date().addingTimeInterval(86400 * 21), dateType: .proposalDeadline, isCritical: true),
-                ImportantDate(title: "Finalist Presentations", date: Date().addingTimeInterval(86400 * 35), dateType: .presentationDate, isCritical: true),
+                ImportantDate(title: "Presentation", date: Date().addingTimeInterval(86400 * 35), dateType: .presentationDate, isCritical: true),
                 ImportantDate(title: "Award Decision", date: Date().addingTimeInterval(86400 * 42), dateType: .other, isCritical: false)
             ],
             submissionMethodRequirements: """
@@ -813,45 +824,6 @@ struct ContentView: View {
         )
     }
 
-    private func parseDocument(at url: URL) async throws -> ParseResult {
-        let fileExtension = url.pathExtension.lowercased()
-
-        switch fileExtension {
-        case "pdf":
-            let parser = PDFParsingService()
-            return try await parser.parseDocument(at: url) { progress in
-                Task { self.updateProgress(0.1 + progress * 0.15) }
-            }
-        case "txt":
-            let parser = TXTParsingService()
-            return try await parser.parseDocument(at: url)
-        case "docx":
-            throw NSError(
-                domain: "angle.rfp",
-                code: 1001,
-                userInfo: [NSLocalizedDescriptionKey: "DOCX support coming soon"]
-            )
-        default:
-            throw NSError(
-                domain: "angle.rfp",
-                code: 1000,
-                userInfo: [NSLocalizedDescriptionKey: "Unsupported format: .\(fileExtension)"]
-            )
-        }
-    }
-
-    private func analyzeWithClaude(text: String) async throws -> ExtractedRFPData {
-        try await ClaudeAnalysisService.shared.analyzeRFP(
-            documentText: text,
-            documentID: UUID(),
-            agencyServices: []
-        )
-    }
-
-    private func researchCompany(name: String) async throws -> ClientInformation {
-        try await BraveSearchService.shared.researchCompany(name)
-    }
-
     @MainActor
     private func updateStage(_ stage: AnalysisStage, progress: Double) {
         currentStage = stage
@@ -868,8 +840,8 @@ struct SettingsView: View {
     @Binding var motionPreference: MotionPreference
     let onDismiss: () -> Void
 
-    @State private var claudeAPIKey = ""
-    @State private var braveAPIKey = ""
+    @State private var backendBaseURL = ""
+    @State private var backendToken = ""
     @State private var isSaving = false
     @State private var showSaveSuccess = false
 
@@ -919,23 +891,24 @@ struct SettingsView: View {
 
                     settingsCard {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("API Configuration")
+                            Text("Backend Configuration")
                                 .font(.custom("Urbanist", size: 17).weight(.semibold))
                                 .foregroundColor(DesignSystem.Palette.Charcoal.c900)
 
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Claude API Key")
+                                Text("Backend Base URL")
                                     .font(.custom("Urbanist", size: 12).weight(.medium))
                                     .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                                SecureField("sk-ant-...", text: $claudeAPIKey)
+                                TextField("http://localhost:3000", text: $backendBaseURL)
                                     .textFieldStyle(.roundedBorder)
+                                    .autocorrectionDisabled()
                             }
 
                             VStack(alignment: .leading, spacing: 6) {
-                                Text("Brave Search API Key")
+                                Text("Backend App Token")
                                     .font(.custom("Urbanist", size: 12).weight(.medium))
                                     .foregroundColor(DesignSystem.Palette.Charcoal.c700)
-                                SecureField("BSA...", text: $braveAPIKey)
+                                SecureField("dev-angle-rfp-token", text: $backendToken)
                                     .textFieldStyle(.roundedBorder)
                             }
 
@@ -957,7 +930,7 @@ struct SettingsView: View {
                                         ProgressView()
                                             .scaleEffect(0.8)
                                     } else {
-                                        Text("Save Keys")
+                                        Text("Save Config")
                                     }
                                 }
                                 .buttonStyle(.accent)
@@ -983,8 +956,9 @@ struct SettingsView: View {
     }
 
     private func loadExistingKeys() {
-        claudeAPIKey = (try? KeychainManager.shared.get(.claudeAPIKey)) ?? ""
-        braveAPIKey = (try? KeychainManager.shared.get(.braveAPIKey)) ?? ""
+        let config = APIKeySetup.verifyBackendConfiguration()
+        backendToken = config.token ?? ""
+        backendBaseURL = config.baseURL ?? "http://localhost:3000"
     }
 
     private func saveAPIKeys() {
@@ -992,12 +966,10 @@ struct SettingsView: View {
 
         Task {
             do {
-                if !claudeAPIKey.isEmpty {
-                    try KeychainManager.shared.set(claudeAPIKey, forKey: .claudeAPIKey)
-                }
-                if !braveAPIKey.isEmpty {
-                    try KeychainManager.shared.set(braveAPIKey, forKey: .braveAPIKey)
-                }
+                try APIKeySetup.storeBackendConfiguration(
+                    token: backendToken,
+                    baseURL: backendBaseURL
+                )
 
                 await MainActor.run {
                     isSaving = false

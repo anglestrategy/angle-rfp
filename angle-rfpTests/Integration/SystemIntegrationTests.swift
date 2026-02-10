@@ -524,4 +524,44 @@ final class SystemIntegrationTests: XCTestCase {
             return !AnalyticsManager.shared.getEvents().isEmpty
         }, description: "System functional after cleanup")
     }
+
+    // MARK: - Backend Contracts
+
+    func testBackendEnvelopeContractDecoding() throws {
+        let json = """
+        {
+          "requestId": "req_123",
+          "traceId": "trace_123",
+          "schemaVersion": "1.0.0",
+          "durationMs": 12,
+          "warnings": [],
+          "partialResult": false,
+          "data": {
+            "schemaVersion": "1.0.0",
+            "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+            "baseScore": 82.4,
+            "redFlagPenalty": 3.0,
+            "completenessPenalty": 1.2,
+            "finalScore": 78.2,
+            "recommendationBand": "GOOD",
+            "factorBreakdown": [
+              {
+                "factor": "Project Scope Magnitude",
+                "weight": 0.18,
+                "score": 85.0,
+                "contribution": 15.3,
+                "evidence": ["20+ deliverables"]
+              }
+            ],
+            "rationale": "Strong fit with manageable risks."
+          },
+          "error": null
+        }
+        """
+
+        let envelope = try JSONDecoder().decode(ApiEnvelope<FinancialScoreV1Payload>.self, from: Data(json.utf8))
+        XCTAssertEqual(envelope.schemaVersion, "1.0.0")
+        XCTAssertEqual(envelope.data?.recommendationBand, "GOOD")
+        XCTAssertNil(envelope.error)
+    }
 }

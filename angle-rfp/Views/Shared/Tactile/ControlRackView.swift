@@ -33,7 +33,7 @@ struct ControlRackView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: shellRadius, style: .continuous)
-                            .stroke(Color.white.opacity(0.16), lineWidth: 1)
+                            .stroke(Color.black.opacity(0.08), lineWidth: 1)
                     )
                     .shadow(
                         color: .black.opacity(0.45),
@@ -167,7 +167,7 @@ struct ControlRackView: View {
         }
         .overlay(
             RoundedRectangle(cornerRadius: s(12, density, min: 8, max: 15), style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
         )
     }
 
@@ -198,7 +198,7 @@ struct ControlRackView: View {
                             .fill(DesignSystem.Palette.Charcoal.c800)
                             .overlay(
                                 RoundedRectangle(cornerRadius: s(6, density, min: 4, max: 8), style: .continuous)
-                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                                    .stroke(Color.black.opacity(0.06), lineWidth: 1)
                             )
                     )
             }
@@ -249,7 +249,7 @@ struct ControlRackView: View {
                 .fill(DesignSystem.Palette.Charcoal.c800)
                 .overlay(
                     RoundedRectangle(cornerRadius: s(12, density, min: 8, max: 14), style: .continuous)
-                        .stroke(Color.white.opacity(0.1), lineWidth: 1)
+                        .stroke(Color.black.opacity(0.06), lineWidth: 1)
                 )
         )
     }
@@ -286,7 +286,7 @@ struct ControlRackView: View {
                 .fill(DesignSystem.Palette.Charcoal.c800)
                 .overlay(
                     RoundedRectangle(cornerRadius: s(12, density, min: 8, max: 14), style: .continuous)
-                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
                 )
         )
     }
@@ -325,7 +325,7 @@ struct ControlRackView: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: s(12, density, min: 8, max: 14), style: .continuous)
-                .stroke(Color.white.opacity(0.11), lineWidth: 1)
+                .stroke(Color.black.opacity(0.06), lineWidth: 1)
         )
     }
 
@@ -374,7 +374,7 @@ struct ControlRackView: View {
 
         return ZStack(alignment: .bottom) {
             Capsule()
-                .fill(Color.white.opacity(0.1))
+                .fill(Color.black.opacity(0.06))
                 .frame(width: trackWidth, height: trackHeight)
 
             Capsule()
@@ -571,13 +571,13 @@ enum ProcessModuleMapper {
         switch stage {
         case .parsing:
             return .ingest
-        case .analyzing:
+        case .extracting, .scopeAnalyzing:
             return .parse
         case .researching:
             return .criteria
-        case .calculating:
+        case .scoring:
             return .score
-        case .complete:
+        case .rendering, .exporting, .complete:
             return .synthesize
         }
     }
