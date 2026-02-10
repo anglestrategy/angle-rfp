@@ -286,16 +286,6 @@ public final class KeychainManager {
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
 
-            // XCTest runs in a non-interactive context; fail fast instead of blocking on auth UI.
-            let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            let context = LAContext()
-            if isRunningTests {
-                context.interactionNotAllowed = true
-            } else {
-                context.localizedReason = "Authenticate to access \(getKeyDisplayName(key))"
-            }
-            query[kSecUseAuthenticationContext as String] = context
-
             var result: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &result)
 

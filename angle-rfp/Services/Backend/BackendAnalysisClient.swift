@@ -570,22 +570,31 @@ final class BackendAnalysisClient {
 
         let defaults = UserDefaults.standard
         let storedBase = defaults.string(forKey: Config.baseURLDefaultsKey)
-        if let storedBase {
-            if let url = APIKeySetup.validatedBackendBaseURL(from: storedBase) {
-                // Avoid accidentally shipping a config that points to localhost.
-                if url.host?.lowercased() == "localhost" || url.host == "127.0.0.1" {
-                    AppLogger.shared.warning("Stored backend base URL points to localhost; ignoring and using production backend.")
-                    defaults.removeObject(forKey: Config.baseURLDefaultsKey)
-                } else {
-                    return url
-                }
-            } else {
-                AppLogger.shared.warning("Stored backend base URL is invalid; removing and using production backend.")
+        let productionURL = APIKeySetup.validatedBackendBaseURL(from: Config.productionBaseURL)
+
+        // Production behavior:
+        // - Always use production backend unless BACKEND_BASE_URL is explicitly set.
+        // - Ignore stored base URLs from older builds to prevent a common misconfiguration:
+        //   users accidentally pasting their token into the URL field ("hostname not found").
+        if let storedBase,
+           let storedURL = APIKeySetup.validatedBackendBaseURL(from: storedBase),
+           let storedHost = storedURL.host?.lowercased() {
+            if storedHost == "localhost" || storedHost == "127.0.0.1" {
+                AppLogger.shared.warning("Stored backend base URL points to localhost; removing.")
+                defaults.removeObject(forKey: Config.baseURLDefaultsKey)
+            } else if let prodHost = productionURL?.host?.lowercased(), storedHost != prodHost {
+                AppLogger.shared.warning("Ignoring non-production stored backend base URL; removing.", metadata: [
+                    "storedHost": storedHost,
+                    "prodHost": prodHost
+                ])
                 defaults.removeObject(forKey: Config.baseURLDefaultsKey)
             }
+        } else if storedBase != nil {
+            AppLogger.shared.warning("Stored backend base URL is invalid; removing.")
+            defaults.removeObject(forKey: Config.baseURLDefaultsKey)
         }
 
-        return APIKeySetup.validatedBackendBaseURL(from: Config.productionBaseURL)
+        return productionURL
     }
 
     private func resolvedToken() -> String? {
