@@ -1,0 +1,18 @@
+{
+  "requestId": "req_124",
+  "traceId": "3bfef9a9-c122-47cc-a657-bd4971f23053",
+  "schemaVersion": "1.0.0",
+  "durationMs": 201,
+  "warnings": [],
+  "partialResult": false,
+  "data": null,
+  "error": {
+    "code": "validation_error",
+    "message": "analysisId is required",
+    "retryable": false,
+    "stage": "parse-document",
+    "details": {
+      "field": "analysisId"
+    }
+  }
+}

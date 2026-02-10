@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://angle-rfp.dev/schemas/v1/error.schema.json",
+  "title": "ApiError",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "message", "retryable", "stage", "details"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": [
+        "validation_error",
+        "auth_failed",
+        "rate_limited",
+        "timeout",
+        "upstream_rate_limited",
+        "upstream_unavailable",
+        "schema_validation_failed",
+        "unsupported_format",
+        "file_too_large",
+        "partial_result",
+        "internal_error"
+      ]
+    },
+    "message": { "type": "string", "minLength": 1 },
+    "retryable": { "type": "boolean" },
+    "stage": { "type": "string", "minLength": 1 },
+    "details": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+  "scopeItems": ["Brand strategy", "Media buying supervision"],
+  "matches": [
+    {
+      "scopeItem": "Brand strategy",
+      "service": "Brand strategy",
+      "class": "full",
+      "confidence": 0.95
+    },
+    {
+      "scopeItem": "Media buying supervision",
+      "service": "Media buying supervision",
+      "class": "partial",
+      "confidence": 0.87
+    }
+  ],
+  "agencyServicePercentage": 0.75,
+  "outsourcingPercentage": 0.25,
+  "outputQuantities": {
+    "videoProduction": 5,
+    "motionGraphics": 12,
+    "visualDesign": 45,
+    "contentOnly": 20
+  },
+  "outputTypes": ["videoProduction", "motionGraphics", "visualDesign"],
+  "warnings": []
+}

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://angle-rfp.dev/schemas/v1/client-research-v1.schema.json",
+  "title": "ClientResearchV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "analysisId",
+    "companyName",
+    "companyProfile",
+    "financialIndicators",
+    "digitalPresence",
+    "advertisingActivity",
+    "positiveSignals",
+    "researchMetadata",
+    "confidence",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1.0.0" },
+    "analysisId": { "type": "string", "format": "uuid" },
+    "companyName": { "type": "string" },
+    "companyNameArabic": { "type": ["string", "null"] },
+    "companyProfile": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["entityType", "industry", "confidence", "sources"],
+      "properties": {
+        "entityType": { "type": "string" },
+        "industry": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sources": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "financialIndicators": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["marketingBudgetIndicator", "confidence"],
+      "properties": {
+        "marketingBudgetIndicator": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "digitalPresence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["bilingual", "confidence"],
+      "properties": {
+        "bilingual": { "type": "boolean" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "advertisingActivity": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["confidence"],
+      "properties": {
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "positiveSignals": { "type": "array", "items": { "type": "string" } },
+    "redFlags": { "type": "array", "items": { "type": "string" } },
+    "researchMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourcesUsed", "englishSources", "arabicSources", "overallConfidence", "researchDate"],
+      "properties": {
+        "sourcesUsed": { "type": "integer", "minimum": 0 },
+        "englishSources": { "type": "integer", "minimum": 0 },
+        "arabicSources": { "type": "integer", "minimum": 0 },
+        "overallConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "researchDate": { "type": "string", "format": "date" }
+      }
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["claim", "source", "tier"],
+        "properties": {
+          "claim": { "type": "string" },
+          "source": { "type": "string" },
+          "tier": { "type": "integer", "minimum": 1, "maximum": 4 }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "1.0.0",
+  "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+  "extractionDate": "2026-02-10T12:00:00Z",
+  "clientName": "Saudi Aramco",
+  "clientNameArabic": "أرامكو السعودية",
+  "projectName": "Brand Refresh Campaign 2026",
+  "projectNameOriginal": "حملة تجديد العلامة التجارية 2026",
+  "projectDescription": "Brand refresh across digital and campaign channels.",
+  "scopeOfWork": "Exact RFP scope text.",
+  "evaluationCriteria": "Exact RFP evaluation text.",
+  "requiredDeliverables": ["Technical proposal", "Financial proposal"],
+  "importantDates": [
+    { "title": "Submission Deadline", "date": "2026-03-15", "type": "submission_deadline", "isCritical": true }
+  ],
+  "submissionRequirements": {
+    "method": "Email + physical copies",
+    "email": "procurement@example.com",
+    "physicalAddress": "Riyadh",
+    "format": "PDF",
+    "copies": 3,
+    "otherRequirements": ["Sealed financial envelope"]
+  },
+  "redFlags": [
+    {
+      "type": "contractual",
+      "severity": "MEDIUM",
+      "title": "IP Ownership",
+      "description": "All concepts transferred",
+      "sourceText": "All work product becomes client property",
+      "recommendation": "Negotiate carve-outs"
+    }
+  ],
+  "missingInformation": [
+    {
+      "field": "budget",
+      "suggestedQuestion": "What is the anticipated budget range?"
+    }
+  ],
+  "confidenceScores": {
+    "clientName": 0.99,
+    "projectName": 0.97,
+    "overall": 0.93
+  },
+  "completenessScore": 0.88,
+  "warnings": ["Budget not explicitly stated"],
+  "conflicts": [
+    {
+      "field": "submission_deadline",
+      "candidates": ["2026-03-15", "2026-03-16"],
+      "resolution": "Section heading prioritized"
+    }
+  ],
+  "evidence": [
+    {
+      "field": "evaluationCriteria",
+      "page": 7,
+      "excerpt": "Technical 30%, Team 25%"
+    }
+  ]
+}

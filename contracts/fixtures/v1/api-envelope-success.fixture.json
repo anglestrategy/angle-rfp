@@ -1,0 +1,28 @@
+{
+  "requestId": "req_123",
+  "traceId": "2e9880a6-d7f3-4af8-a1d9-b247757f6fa4",
+  "schemaVersion": "1.0.0",
+  "durationMs": 1234,
+  "warnings": [],
+  "partialResult": false,
+  "data": {
+    "schemaVersion": "1.0.0",
+    "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+    "baseScore": 82.4,
+    "redFlagPenalty": 3,
+    "completenessPenalty": 1.2,
+    "finalScore": 78.2,
+    "recommendationBand": "GOOD",
+    "factorBreakdown": [
+      {
+        "factor": "Project Scope Magnitude",
+        "weight": 0.18,
+        "score": 85,
+        "contribution": 15.3,
+        "evidence": ["20+ deliverables"]
+      }
+    ],
+    "rationale": "Strong fit with manageable risks."
+  },
+  "error": null
+}

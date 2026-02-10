@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0.0",
+  "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+  "companyName": "Saudi Aramco",
+  "companyNameArabic": "أرامكو السعودية",
+  "companyProfile": {
+    "entityType": "public_company",
+    "industry": "Oil & Gas",
+    "confidence": 0.97,
+    "sources": ["Tadawul", "Company Website"]
+  },
+  "financialIndicators": {
+    "marketingBudgetIndicator": "VERY_HIGH",
+    "confidence": 0.9
+  },
+  "digitalPresence": {
+    "bilingual": true,
+    "confidence": 0.95
+  },
+  "advertisingActivity": {
+    "confidence": 0.84,
+    "estimatedMonthlySpend": "$500K+"
+  },
+  "positiveSignals": ["Strong ad activity", "Enterprise digital presence"],
+  "redFlags": [],
+  "researchMetadata": {
+    "sourcesUsed": 14,
+    "englishSources": 8,
+    "arabicSources": 6,
+    "overallConfidence": 0.92,
+    "researchDate": "2026-02-10"
+  },
+  "confidence": 0.92,
+  "evidence": [
+    {
+      "claim": "Active Meta ads",
+      "source": "Meta Ad Library",
+      "tier": 2
+    }
+  ]
+}

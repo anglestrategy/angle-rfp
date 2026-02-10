@@ -131,3 +131,15 @@ Secrets.swift
 *.swiftmodule
 *.swiftdoc
 *.swiftsourceinfo
+
+# Backend (Next.js)
+backend/node_modules/
+backend/.next/
+backend/coverage/
+backend/.turbo/
+backend/.env
+backend/.env.local
+backend/.env.development.local
+backend/.env.test.local
+backend/.env.production.local
+backend/tsconfig.tsbuildinfo

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0.0",
+  "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+  "detectedFormat": "pdf",
+  "primaryLanguage": "mixed",
+  "rawText": "Request for Proposal...",
+  "sections": [
+    { "name": "scope_of_work", "startOffset": 120, "endOffset": 920 }
+  ],
+  "tables": [
+    {
+      "title": "Evaluation Criteria",
+      "headers": ["Criteria", "Weight"],
+      "rows": [["Technical Approach", "30%"]],
+      "pages": [4],
+      "confidence": 0.91
+    }
+  ],
+  "evidenceMap": [
+    {
+      "page": 4,
+      "charStart": 128,
+      "charEnd": 182,
+      "excerpt": "Technical Approach 30%",
+      "sourceType": "table_cell"
+    }
+  ],
+  "parseConfidence": 0.93,
+  "ocrStats": {
+    "used": true,
+    "pagesOcred": 2
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "1.0.0",
+  "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+  "summary": {
+    "headline": "High-value bilingual campaign opportunity",
+    "recommendation": "Proceed with standard diligence",
+    "score": 78.2
+  },
+  "extractedRfp": {
+    "schemaVersion": "1.0.0",
+    "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+    "extractionDate": "2026-02-10T12:00:00Z",
+    "clientName": "Saudi Aramco",
+    "projectName": "Brand Refresh Campaign 2026",
+    "projectDescription": "Brand refresh across digital and campaign channels.",
+    "scopeOfWork": "Exact RFP scope text.",
+    "evaluationCriteria": "Exact RFP evaluation text.",
+    "requiredDeliverables": ["Technical proposal"],
+    "importantDates": [
+      { "title": "Submission Deadline", "date": "2026-03-15", "type": "submission_deadline", "isCritical": true }
+    ],
+    "submissionRequirements": {
+      "method": "Email",
+      "email": "procurement@example.com",
+      "physicalAddress": null,
+      "format": "PDF",
+      "copies": null,
+      "otherRequirements": []
+    },
+    "redFlags": [],
+    "missingInformation": [],
+    "confidenceScores": { "overall": 0.9 },
+    "completenessScore": 0.9,
+    "warnings": [],
+    "evidence": [
+      { "field": "scopeOfWork", "page": 3, "excerpt": "Scope section" }
+    ]
+  },
+  "scopeAnalysis": {
+    "schemaVersion": "1.0.0",
+    "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+    "scopeItems": ["Brand strategy"],
+    "matches": [
+      {
+        "scopeItem": "Brand strategy",
+        "service": "Brand strategy",
+        "class": "full",
+        "confidence": 0.95
+      }
+    ],
+    "agencyServicePercentage": 1,
+    "outsourcingPercentage": 0,
+    "outputQuantities": {
+      "videoProduction": 1,
+      "motionGraphics": 0,
+      "visualDesign": 2,
+      "contentOnly": 0
+    },
+    "outputTypes": ["videoProduction", "visualDesign"],
+    "warnings": []
+  },
+  "clientResearch": {
+    "schemaVersion": "1.0.0",
+    "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+    "companyName": "Saudi Aramco",
+    "companyProfile": {
+      "entityType": "public_company",
+      "industry": "Oil & Gas",
+      "confidence": 0.97,
+      "sources": ["Tadawul"]
+    },
+    "financialIndicators": {
+      "marketingBudgetIndicator": "VERY_HIGH",
+      "confidence": 0.9
+    },
+    "digitalPresence": {
+      "bilingual": true,
+      "confidence": 0.95
+    },
+    "advertisingActivity": { "confidence": 0.84 },
+    "positiveSignals": ["Strong ad activity"],
+    "researchMetadata": {
+      "sourcesUsed": 8,
+      "englishSources": 4,
+      "arabicSources": 4,
+      "overallConfidence": 0.9,
+      "researchDate": "2026-02-10"
+    },
+    "confidence": 0.9,
+    "evidence": [
+      { "claim": "Tier-1 source", "source": "Tadawul", "tier": 1 }
+    ]
+  },
+  "financialScore": {
+    "schemaVersion": "1.0.0",
+    "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+    "baseScore": 82.4,
+    "redFlagPenalty": 3,
+    "completenessPenalty": 1.2,
+    "finalScore": 78.2,
+    "recommendationBand": "GOOD",
+    "factorBreakdown": [
+      {
+        "factor": "Project Scope Magnitude",
+        "weight": 0.18,
+        "score": 85,
+        "contribution": 15.3,
+        "evidence": ["20+ deliverables"]
+      }
+    ],
+    "rationale": "Strong fit with manageable risks."
+  },
+  "warnings": [],
+  "generatedAt": "2026-02-10T12:05:00Z"
+}
