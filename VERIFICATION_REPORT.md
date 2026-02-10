@@ -79,7 +79,7 @@ Configuration: Debug
 ## ✅ API Keys Stored Securely
 
 Both keys successfully stored in macOS Keychain:
-- **Claude API**: `sk-ant-api03-CYLrD460...` ✅
+- **Claude API**: `sk-ant-api03-REDACTED` ✅
 - **Brave Search API**: `BRAVE_SEARCH_API_KEY_REDACTED-zOBuxsE9...` ✅
 
 ## ✅ Features Implemented (Phase 1)

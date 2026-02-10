@@ -118,7 +118,7 @@ Three utility scripts are available in `scripts/`:
 ## Quick Reference
 
 ### API Keys Status
-- ✅ Claude API: `sk-ant-api03-C1...AA` (108 chars)
+- ✅ Claude API: `sk-ant-api03-REDACTED` (example)
 - ✅ Brave Search: `BRAVE_SEARCH_API_KEY_REDACTED...02` (31 chars)
 
 ### Build Status
