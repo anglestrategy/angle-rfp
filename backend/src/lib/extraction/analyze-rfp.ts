@@ -25,6 +25,11 @@ export interface AnalyzeRfpInput {
   };
 }
 
+export interface DeliverableItemV1 {
+  item: string;
+  source: "verbatim" | "inferred";
+}
+
 export interface ExtractedRfpDataV1 {
   schemaVersion: "1.0.0";
   analysisId: string;
@@ -36,7 +41,7 @@ export interface ExtractedRfpDataV1 {
   projectDescription: string;
   scopeOfWork: string;
   evaluationCriteria: string;
-  requiredDeliverables: string[];
+  requiredDeliverables: DeliverableItemV1[];
   importantDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>;
   submissionRequirements: {
     method: string;

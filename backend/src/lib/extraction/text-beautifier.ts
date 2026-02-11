@@ -36,7 +36,9 @@ const BEAUTIFY_PROMPT = `You are a senior editorial designer. Transform the foll
 **Rules:**
 - Parse any existing markdown (##, **, •, 1.) into appropriate section types
 - Break long paragraphs into digestible chunks
-- Create highlights for deadlines, percentages, and key requirements
+- Use "highlight" SPARINGLY - MAX 2 highlights per field
+- Only highlight: critical deadlines, disqualifying requirements, or unusual conditions
+- Do NOT highlight standard evaluation criteria percentages - use regular text for these
 - Preserve ALL information - don't omit anything
 - Each section should be short and scannable (2-3 sentences max for paragraphs)
 - Use bullet_list for unordered items, numbered_list for sequential steps

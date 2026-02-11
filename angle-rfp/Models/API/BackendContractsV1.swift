@@ -103,6 +103,35 @@ struct BeautifiedFieldsV1: Codable {
     let evaluationCriteria: BeautifiedTextV1?
 }
 
+/// Deliverable item with source tagging - supports both legacy (String) and new (object) formats
+struct DeliverableV1: Codable {
+    let item: String
+    let source: String // "verbatim" or "inferred"
+
+    init(from decoder: Decoder) throws {
+        // Try to decode as object first
+        if let container = try? decoder.container(keyedBy: CodingKeys.self) {
+            item = try container.decode(String.self, forKey: .item)
+            source = try container.decodeIfPresent(String.self, forKey: .source) ?? "verbatim"
+        } else {
+            // Fall back to decoding as String (legacy format)
+            let container = try decoder.singleValueContainer()
+            item = try container.decode(String.self)
+            source = "verbatim"
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(item, forKey: .item)
+        try container.encode(source, forKey: .source)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case item, source
+    }
+}
+
 struct ExtractedRFPDataV1Payload: Codable {
     let schemaVersion: String
     let analysisId: String
@@ -114,7 +143,7 @@ struct ExtractedRFPDataV1Payload: Codable {
     let projectDescription: String
     let scopeOfWork: String
     let evaluationCriteria: String
-    let requiredDeliverables: [String]
+    let requiredDeliverables: [DeliverableV1]
     let importantDates: [ImportantDateV1]
     let submissionRequirements: SubmissionRequirementsV1
     let redFlags: [RedFlagV1]
@@ -211,6 +240,7 @@ struct FactorBreakdownV1: Codable {
     let score: Double
     let contribution: Double
     let evidence: [String]
+    let identified: Bool?  // false when data unavailable, factor excluded from weighted average
 }
 
 struct FinancialScoreV1Payload: Codable {
@@ -254,11 +284,19 @@ struct AnalyzeScopeRequestV1: Codable {
     let language: String
 }
 
+struct RFPContextV1: Codable {
+    let projectName: String?
+    let projectDescription: String?
+    let scopeOfWork: String?
+    let industry: String?
+}
+
 struct ResearchClientRequestV1: Codable {
     let analysisId: String
     let clientName: String
     let clientNameArabic: String?
     let country: String
+    let rfpContext: RFPContextV1?
 }
 
 struct CalculateScoreRequestV1: Codable {

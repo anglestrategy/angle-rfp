@@ -48,6 +48,9 @@ private struct FactorCard: View {
     @State private var isHovered = false
 
     private var scoreColor: Color {
+        guard factor.identified else {
+            return DesignSystem.Palette.Text.muted
+        }
         switch factor.percentage {
         case 0..<0.4: return DesignSystem.Palette.Semantic.error
         case 0.4..<0.7: return DesignSystem.Palette.Semantic.warning
@@ -67,29 +70,31 @@ private struct FactorCard: View {
 
                 Spacer()
 
-                // Score badge
-                Text("\(Int(factor.score))%")
+                // Score badge - show "-" for unidentified factors
+                Text(factor.identified ? "\(Int(factor.score))%" : "-")
                     .font(.custom("IBM Plex Mono", size: 14).weight(.bold))
                     .foregroundColor(scoreColor)
             }
 
-            // Progress bar
+            // Progress bar - show empty track for unidentified factors
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 3)
                         .fill(DesignSystem.Palette.Background.surface)
 
-                    // Fill
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(
-                            LinearGradient(
-                                colors: [scoreColor, scoreColor.opacity(0.7)],
-                                startPoint: .leading,
-                                endPoint: .trailing
+                    // Fill - only show if identified
+                    if factor.identified {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(
+                                LinearGradient(
+                                    colors: [scoreColor, scoreColor.opacity(0.7)],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
                             )
-                        )
-                        .frame(width: geo.size.width * factor.percentage)
+                            .frame(width: geo.size.width * factor.percentage)
+                    }
                 }
             }
             .frame(height: 6)
@@ -178,28 +183,32 @@ struct FinancialFactorsGrid_Previews: PreviewProvider {
                     weight: 0.18,
                     score: 85,
                     maxScore: 100,
-                    reasoning: "Deliverables counted: 12 | Timeline estimate: 4.5 months"
+                    reasoning: "Deliverables counted: 12 | Timeline estimate: 4.5 months",
+                    identified: true
                 ),
                 ScoringFactor(
                     name: "Agency Services Percentage",
                     weight: 0.15,
                     score: 72,
                     maxScore: 100,
-                    reasoning: "Agency service percentage: 72%"
+                    reasoning: "Agency service percentage: 72%",
+                    identified: true
                 ),
                 ScoringFactor(
-                    name: "Company/Brand Size",
-                    weight: 0.12,
-                    score: 90,
+                    name: "Output Types",
+                    weight: 0.10,
+                    score: 0,
                     maxScore: 100,
-                    reasoning: "Employee estimate: 15,000"
+                    reasoning: "Output types not identified in RFP",
+                    identified: false
                 ),
                 ScoringFactor(
                     name: "Media/Ad Spend Indicators",
                     weight: 0.10,
                     score: 65,
                     maxScore: 100,
-                    reasoning: "Budget indicator: medium"
+                    reasoning: "Budget indicator: medium",
+                    identified: true
                 )
             ])
             .padding(40)

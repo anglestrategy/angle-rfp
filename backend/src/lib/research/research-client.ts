@@ -1,3 +1,5 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
 import { makeError } from "@/lib/api/errors";
 import { InMemoryCircuitBreaker } from "@/lib/ops/circuit-breaker";
 import { confidenceCapForFreshness } from "@/lib/research/freshness";
@@ -11,6 +13,13 @@ export interface ResearchClientInput {
   clientName: string;
   clientNameArabic?: string;
   country: "SA";
+  // RFP context for smarter query generation
+  rfpContext?: {
+    projectName?: string;
+    projectDescription?: string;
+    scopeOfWork?: string;
+    industry?: string;
+  };
 }
 
 interface ProviderSet {
@@ -84,18 +93,106 @@ export interface ClientResearchV1 {
   warnings: string[];
 }
 
-export function buildBilingualQueries(input: ResearchClientInput): { english: string[]; arabic: string[] } {
+// Schema for Claude-generated research queries
+const ResearchQueriesSchema = z.object({
+  english: z.array(z.string()).min(4).max(8),
+  arabic: z.array(z.string()).min(2).max(6)
+});
+
+/**
+ * Generate semantically relevant search queries based on RFP context using Claude.
+ * This produces better research results than static templates.
+ */
+async function generateSmartQueries(input: ResearchClientInput): Promise<{ english: string[]; arabic: string[] }> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  // Fall back to basic queries if no API key or no context
+  if (!apiKey || !input.rfpContext) {
+    return buildBasicQueries(input);
+  }
+
+  const client = new Anthropic({ apiKey, timeout: 15000 });
+
+  const context = input.rfpContext;
+  const contextSummary = [
+    context.projectName && `Project: ${context.projectName}`,
+    context.projectDescription && `Description: ${context.projectDescription.slice(0, 500)}`,
+    context.scopeOfWork && `Scope: ${context.scopeOfWork.slice(0, 500)}`,
+    context.industry && `Industry: ${context.industry}`
+  ].filter(Boolean).join("\n");
+
+  const prompt = `You are a research analyst. Generate search queries to research a company/organization for a business proposal.
+
+CLIENT: ${input.clientName}
+${input.clientNameArabic ? `CLIENT (Arabic): ${input.clientNameArabic}` : ""}
+COUNTRY: Saudi Arabia
+
+RFP CONTEXT:
+${contextSummary || "No additional context provided."}
+
+Generate search queries that will help us understand:
+1. What type of organization this is (company, government entity, event, etc.)
+2. Their size, scale, and significance
+3. Their marketing/advertising activity and budget indicators
+4. Their digital presence and social media
+5. Recent news and developments
+
+IMPORTANT:
+- Use the EXACT client name in quotes for precise matching
+- Include context-specific terms from the RFP (e.g., if it mentions "World Expo", include that)
+- Generate queries that would reveal the organization's importance and scale
+- Arabic queries should use the Arabic name if provided
+
+Return JSON only:
+{
+  "english": ["query1", "query2", ...],  // 4-8 queries
+  "arabic": ["query1", "query2", ...]    // 2-6 queries
+}`;
+
+  try {
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5-20251001", // Fast model for query generation
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    const textContent = response.content.find(block => block.type === "text");
+    if (!textContent || textContent.type !== "text") {
+      return buildBasicQueries(input);
+    }
+
+    let jsonText = textContent.text.trim();
+    if (jsonText.startsWith("```")) {
+      const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (match?.[1]) {
+        jsonText = match[1];
+      }
+    }
+
+    const parsed = JSON.parse(jsonText);
+    const validated = ResearchQueriesSchema.parse(parsed);
+    return validated;
+  } catch (error) {
+    console.error("Smart query generation failed, using basic queries:", error);
+    return buildBasicQueries(input);
+  }
+}
+
+/**
+ * Basic fallback queries when Claude generation isn't available
+ */
+function buildBasicQueries(input: ResearchClientInput): { english: string[]; arabic: string[] } {
   const english = [
-    `${input.clientName} company size revenue employees`,
-    `${input.clientName} marketing budget advertising agency`,
-    `${input.clientName} latest campaign Saudi Arabia`
+    `"${input.clientName}" company organization about`,
+    `"${input.clientName}" size employees headquarters`,
+    `"${input.clientName}" marketing advertising campaigns`,
+    `"${input.clientName}" news 2024 2025`
   ];
 
   const nameArabic = input.clientNameArabic?.trim() || input.clientName;
   const arabic = [
-    `${nameArabic} حجم الشركة الإيرادات الموظفين`,
-    `${nameArabic} ميزانية التسويق وكالة إعلانات`,
-    `${nameArabic} أخبار حملة السعودية`
+    `"${nameArabic}" نبذة عن المؤسسة`,
+    `"${nameArabic}" أخبار 2024 2025`
   ];
 
   return { english, arabic };
@@ -128,16 +225,36 @@ export async function researchClientInput(
     firecrawl: providers?.firecrawl ?? queryFirecrawl
   };
 
-  const { english, arabic } = buildBilingualQueries(input);
+  // Generate semantically relevant queries based on RFP context
+  const { english, arabic } = await generateSmartQueries(input);
   const warnings: string[] = [];
 
-  const settled = await Promise.allSettled([
-    callWithCircuit("brave", () => p.brave(english[0])),
-    callWithCircuit("brave", () => p.brave(arabic[0])),
-    callWithCircuit("tavily", () => p.tavily(english[1])),
-    callWithCircuit("tavily", () => p.tavily(arabic[1])),
-    callWithCircuit("firecrawl", () => p.firecrawl(`https://www.${input.clientName.toLowerCase().replace(/\s+/g, "")}.com`))
-  ]);
+  // Build research calls dynamically based on generated queries
+  // Alternate between Brave (web search) and Tavily (deep research) for coverage
+  const researchCalls: Promise<{ docs: ProviderDocument[]; warning?: string }>[] = [];
+
+  // English queries - distribute across providers
+  english.forEach((query, index) => {
+    const provider = index % 2 === 0 ? "brave" : "tavily";
+    const fn = provider === "brave" ? p.brave : p.tavily;
+    researchCalls.push(callWithCircuit(provider, () => fn(query)));
+  });
+
+  // Arabic queries - distribute across providers
+  arabic.forEach((query, index) => {
+    const provider = index % 2 === 0 ? "brave" : "tavily";
+    const fn = provider === "brave" ? p.brave : p.tavily;
+    researchCalls.push(callWithCircuit(provider, () => fn(query)));
+  });
+
+  // Website crawl attempt (try common domain patterns)
+  const cleanName = input.clientName.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
+  researchCalls.push(
+    callWithCircuit("firecrawl", () => p.firecrawl(`https://www.${cleanName}.com`)),
+    callWithCircuit("firecrawl", () => p.firecrawl(`https://${cleanName}.sa`))
+  );
+
+  const settled = await Promise.allSettled(researchCalls);
 
   const docs: ProviderDocument[] = [];
   for (const result of settled) {

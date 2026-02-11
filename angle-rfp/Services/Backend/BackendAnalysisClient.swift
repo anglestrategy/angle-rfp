@@ -144,7 +144,13 @@ final class BackendAnalysisClient {
                     analysisId: analysisId,
                     clientName: extracted.clientName,
                     clientNameArabic: extracted.clientNameArabic,
-                    country: "SA"
+                    country: "SA",
+                    rfpContext: RFPContextV1(
+                        projectName: extracted.projectName,
+                        projectDescription: extracted.projectDescription,
+                        scopeOfWork: extracted.scopeOfWork,
+                        industry: nil // Could be inferred from scope in the future
+                    )
                 )
             )
             research = try researchEnvelope.requireData()
@@ -623,13 +629,18 @@ final class BackendAnalysisClient {
         score: FinancialScoreV1Payload,
         warnings: [String]
     ) -> ExtractedRFPData {
+        // Deduplicate services using Set to remove duplicates
+        let agencyServicesSet = Set(scope.matches
+            .filter { $0.class == "full" || $0.class == "partial" }
+            .map { $0.service })
+        // For non-agency items, show the scopeItem (actual RFP text) instead of "No direct match"
+        let nonAgencyServicesSet = Set(scope.matches
+            .filter { $0.class == "none" }
+            .map { $0.scopeItem })
+
         let scopeAnalysis = ScopeAnalysis(
-            agencyServices: scope.matches
-                .filter { $0.class == "full" || $0.class == "partial" }
-                .map { $0.service },
-            nonAgencyServices: scope.matches
-                .filter { $0.class == "none" }
-                .map { $0.service },
+            agencyServices: Array(agencyServicesSet),
+            nonAgencyServices: Array(nonAgencyServicesSet),
             agencyServicePercentage: scope.agencyServicePercentage,
             outputQuantities: OutputQuantities(
                 videoProduction: scope.outputQuantities.videoProduction,
@@ -649,7 +660,8 @@ final class BackendAnalysisClient {
                     weight: item.weight,
                     score: item.score,
                     maxScore: 100,
-                    reasoning: item.evidence.joined(separator: " | ")
+                    reasoning: item.evidence.joined(separator: " | "),
+                    identified: item.identified ?? true
                 )
             },
             formulaExplanation: "Deterministic 11-factor weighted model with red-flag and completeness penalties."
@@ -668,7 +680,12 @@ final class BackendAnalysisClient {
             scopeAnalysis: scopeAnalysis,
             financialPotential: financialPotential,
             evaluationCriteria: extracted.evaluationCriteria,
-            requiredDeliverables: extracted.requiredDeliverables,
+            requiredDeliverables: extracted.requiredDeliverables.map { deliverable in
+                Deliverable(
+                    item: deliverable.item,
+                    source: deliverable.source == "inferred" ? .inferred : .verbatim
+                )
+            },
             importantDates: extracted.importantDates.map { item in
                 ImportantDate(
                     title: item.title,
@@ -783,8 +800,12 @@ final class BackendAnalysisClient {
 
     private func submissionDescription(from submission: SubmissionRequirementsV1) -> String {
         var lines: [String] = []
-        lines.append("Method: \(submission.method)")
-        lines.append("Format: \(submission.format)")
+        if submission.method != "Unknown" {
+            lines.append("Method: \(submission.method)")
+        }
+        if submission.format != "Unspecified" {
+            lines.append("Format: \(submission.format)")
+        }
         if let email = submission.email, !email.isEmpty {
             lines.append("Email: \(email)")
         }
@@ -794,10 +815,8 @@ final class BackendAnalysisClient {
         if let copies = submission.copies {
             lines.append("Copies: \(copies)")
         }
-        if !submission.otherRequirements.isEmpty {
-            lines.append("Other: \(submission.otherRequirements.joined(separator: ", "))")
-        }
-        return lines.joined(separator: "\n")
+        // Note: otherRequirements should be empty - deliverables belong in requiredDeliverables
+        return lines.isEmpty ? "See RFP for submission details" : lines.joined(separator: "\n")
     }
 
     private func parseISODateTime(_ value: String) -> Date {

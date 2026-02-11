@@ -120,7 +120,7 @@ struct BeautifiedTextView: View {
     private func highlightView(_ text: String) -> some View {
         HStack(spacing: 12) {
             Rectangle()
-                .fill(DesignSystem.Palette.Semantic.warning)
+                .fill(DesignSystem.Palette.Accent.primary)
                 .frame(width: 3)
 
             Text(text)
@@ -132,7 +132,7 @@ struct BeautifiedTextView: View {
         .padding(.horizontal, 16)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(DesignSystem.Palette.Semantic.warning.opacity(0.1))
+                .fill(DesignSystem.Palette.Accent.primary.opacity(0.08))
         )
     }
 

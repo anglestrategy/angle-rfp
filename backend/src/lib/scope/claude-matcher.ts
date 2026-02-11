@@ -66,7 +66,9 @@ For each scope item, find the BEST matching service from the agency taxonomy. Us
 - "content calendar" → matches "Content Calendar/Strategy" (full)
 - "social media content" → matches "Social Media content" (full)
 
-Be generous with matching - if the scope item is related to marketing, branding, design, content, or creative work, there's likely a match.
+**IMPORTANT:** If an item is general project management, timeline management, project coordination, deliverable management, or administrative work related to the creative project, classify as "partial" with the closest matching agency capability (often project management or account services), NOT "none". Only use "none" for truly unrelated work like construction, legal services, IT infrastructure, etc.
+
+Be generous with matching - if the scope item is related to marketing, branding, design, content, creative work, or project coordination, there's likely a match.
 
 Return JSON only:
 {

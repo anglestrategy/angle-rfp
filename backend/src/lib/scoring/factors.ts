@@ -22,6 +22,7 @@ export interface FactorBreakdownItem {
   score: number;
   contribution: number;
   evidence: string[];
+  identified: boolean; // false when data unavailable, factor excluded from weighted average
 }
 
 interface ScopeAnalysisLike {
@@ -80,7 +81,8 @@ function factorItem(
   key: FactorKey,
   label: string,
   points: number,
-  evidence: string[]
+  evidence: string[],
+  identified: boolean = true
 ): FactorBreakdownItem {
   const maxPoints = FACTOR_MAX_POINTS[key];
   const boundedPoints = roundToTwo(clamp(points, 0, maxPoints));
@@ -89,7 +91,8 @@ function factorItem(
     weight: roundToTwo(maxPoints / TOTAL_SCORE_POINTS),
     score: toNormalizedScore(boundedPoints, maxPoints),
     contribution: boundedPoints,
-    evidence
+    evidence,
+    identified
   };
 }
 
@@ -197,6 +200,7 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
     (quantities?.motionGraphics ?? 0) +
     (quantities?.visualDesign ?? 0) +
     (quantities?.contentOnly ?? 0);
+  const outputQuantitiesIdentified = quantities !== undefined && quantities !== null && totalOutputs > 0;
   let quantityPoints = 1;
   if (totalOutputs >= 50) {
     quantityPoints = 7.5;
@@ -206,12 +210,17 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
     quantityPoints = 3.5;
   }
   factors.push(
-    factorItem("outputQuantities", "Output Quantities", quantityPoints, [
-      `Total identified outputs: ${totalOutputs}`
-    ])
+    factorItem(
+      "outputQuantities",
+      "Output Quantities",
+      outputQuantitiesIdentified ? quantityPoints : 0,
+      [outputQuantitiesIdentified ? `Total identified outputs: ${totalOutputs}` : "Output quantities not identified in RFP"],
+      outputQuantitiesIdentified
+    )
   );
 
   const outputTypes = parseOutputTypes(input.scopeAnalysis.outputTypes);
+  const outputTypesIdentified = outputTypes.size > 0;
   let outputTypePoints = 0;
   if (outputTypes.has("videoproduction")) {
     outputTypePoints += 4;
@@ -226,9 +235,13 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
     outputTypePoints += 1;
   }
   factors.push(
-    factorItem("outputTypes", "Output Types", Math.min(outputTypePoints, 10), [
-      outputTypes.size > 0 ? `Detected output types: ${Array.from(outputTypes).join(", ")}` : "No output types detected."
-    ])
+    factorItem(
+      "outputTypes",
+      "Output Types",
+      outputTypesIdentified ? Math.min(outputTypePoints, 10) : 0,
+      [outputTypesIdentified ? `Detected output types: ${Array.from(outputTypes).join(", ")}` : "Output types not identified in RFP"],
+      outputTypesIdentified
+    )
   );
 
   const employeeCount = parseEmployeeCount(input.clientResearch);
@@ -394,7 +407,22 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
     ])
   );
 
-  const baseScore = roundToTwo(factors.reduce((sum, factor) => sum + factor.contribution, 0));
+  // Calculate base score only from identified factors
+  // Unidentified factors are excluded from the weighted average
+  const identifiedFactors = factors.filter((f) => f.identified);
+  const totalIdentifiedWeight = identifiedFactors.reduce((sum, f) => sum + f.weight, 0);
+
+  let baseScore: number;
+  if (totalIdentifiedWeight > 0) {
+    // Normalize the score based on identified factors only
+    const rawContribution = identifiedFactors.reduce((sum, f) => sum + f.contribution, 0);
+    // Scale up the score to account for excluded factors
+    baseScore = roundToTwo((rawContribution / totalIdentifiedWeight) * (TOTAL_SCORE_POINTS / 100));
+  } else {
+    // Fallback if no factors are identified (shouldn't happen)
+    baseScore = roundToTwo(factors.reduce((sum, f) => sum + f.contribution, 0));
+  }
+
   return {
     factors,
     warnings,

@@ -1,6 +1,11 @@
 import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
 import { extractWithClaude, type ClaudeExtractedFields } from "@/lib/extraction/claude-extractor";
 
+export interface DeliverableItem {
+  item: string;
+  source: "verbatim" | "inferred";
+}
+
 export interface Pass1Output {
   clientName: string;
   clientNameArabic: string | null;
@@ -9,7 +14,7 @@ export interface Pass1Output {
   projectDescription: string;
   scopeOfWork: string;
   evaluationCriteria: string;
-  requiredDeliverables: string[];
+  requiredDeliverables: DeliverableItem[];
   importantDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>;
   submissionRequirements: {
     method: string;
@@ -129,17 +134,21 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
   return out;
 }
 
-function extractDeliverables(text: string): string[] {
+function extractDeliverables(text: string): DeliverableItem[] {
   const lines = text.split(/\r?\n/).map((line) => line.trim());
   const candidates = lines.filter((line) =>
     /deliverable|proposal|cv|case study|submission|required|مطلوب|تسليم/i.test(line)
   );
 
+  // Return empty array if nothing found - no hardcoded defaults
   if (candidates.length === 0) {
-    return ["Technical proposal", "Financial proposal"];
+    return [];
   }
 
-  return Array.from(new Set(candidates)).slice(0, 12);
+  return Array.from(new Set(candidates)).slice(0, 12).map((item) => ({
+    item,
+    source: "verbatim" as const
+  }));
 }
 
 function extractSubmission(text: string): Pass1Output["submissionRequirements"] {
@@ -164,7 +173,7 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
     physicalAddress: /riyadh|jeddah|dammam|address/i.test(text) ? "See RFP address section" : null,
     format,
     copies: copiesMatch?.[1] ? Number(copiesMatch[1]) : null,
-    otherRequirements: extractDeliverables(text).slice(0, 3)
+    otherRequirements: [] // Don't put deliverables here
   };
 }
 
@@ -223,9 +232,10 @@ function mapClaudeToPass1Output(
     projectDescription: claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim(),
     scopeOfWork: claude.scopeOfWork || text.slice(0, 1200),
     evaluationCriteria: claude.evaluationCriteria || "Evaluation criteria not explicitly found.",
-    requiredDeliverables: claude.requiredDeliverables.length > 0
-      ? claude.requiredDeliverables
-      : ["Technical proposal", "Financial proposal"],
+    requiredDeliverables: claude.requiredDeliverables.map((d) => ({
+      item: typeof d === "string" ? d : d.item,
+      source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
+    })),
     importantDates,
     submissionRequirements: {
       method: claude.submissionRequirements.method || "Unknown",
@@ -233,7 +243,7 @@ function mapClaudeToPass1Output(
       physicalAddress: claude.submissionRequirements.physicalAddress,
       format: claude.submissionRequirements.format || "Unspecified",
       copies: claude.submissionRequirements.copies,
-      otherRequirements: claude.requiredDeliverables.slice(0, 3)
+      otherRequirements: [] // Don't put deliverables here - they belong in requiredDeliverables
     },
     warnings,
     evidence,

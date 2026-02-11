@@ -38,7 +38,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
     var evaluationCriteria: String?
 
     /// 8. What deliverables need to be submitted for this RFP?
-    var requiredDeliverables: [String]?
+    var requiredDeliverables: [Deliverable]?
 
     /// 9. Important Dates (deadlines, Q&A windows, submission dates)
     var importantDates: [ImportantDate]?
@@ -69,7 +69,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
          scopeAnalysis: ScopeAnalysis? = nil,
          financialPotential: FinancialPotential? = nil,
          evaluationCriteria: String? = nil,
-         requiredDeliverables: [String]? = nil,
+         requiredDeliverables: [Deliverable]? = nil,
          importantDates: [ImportantDate]? = nil,
          submissionMethodRequirements: String? = nil,
          beautifiedText: BeautifiedFields? = nil,
@@ -210,27 +210,32 @@ public struct ScoringFactor: Identifiable, Codable {
     let score: Double // Actual score achieved
     let maxScore: Double // Maximum possible score
     let reasoning: String
+    let identified: Bool // false when data unavailable, factor excluded from weighted average
 
     public init(id: UUID = UUID(),
          name: String,
          weight: Double,
          score: Double,
          maxScore: Double,
-         reasoning: String) {
+         reasoning: String,
+         identified: Bool = true) {
         self.id = id
         self.name = name
         self.weight = weight
         self.score = score
         self.maxScore = maxScore
         self.reasoning = reasoning
+        self.identified = identified
     }
 
     var percentage: Double {
-        score / maxScore
+        guard identified else { return 0 }
+        return score / maxScore
     }
 
     var weightedScore: Double {
-        weight * percentage * 100
+        guard identified else { return 0 }
+        return weight * percentage * 100
     }
 }
 
@@ -265,6 +270,25 @@ public enum DateType: String, Codable {
     case presentationDate = "Presentation Date"
     case projectStartDate = "Project Start Date"
     case other = "Other"
+}
+
+// MARK: - Deliverable
+
+public struct Deliverable: Identifiable, Codable {
+    public let id: UUID
+    let item: String
+    let source: DeliverableSource
+
+    public init(id: UUID = UUID(), item: String, source: DeliverableSource = .verbatim) {
+        self.id = id
+        self.item = item
+        self.source = source
+    }
+}
+
+public enum DeliverableSource: String, Codable {
+    case verbatim   // Explicitly stated in RFP
+    case inferred   // Derived from evaluation criteria or implied
 }
 
 // MARK: - Analysis Warning

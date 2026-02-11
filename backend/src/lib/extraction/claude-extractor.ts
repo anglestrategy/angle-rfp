@@ -1,6 +1,16 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
+// Schema for deliverables with source tagging
+const DeliverableSchema = z.union([
+  // Support both old format (string) and new format (object with source)
+  z.string().transform((val) => ({ item: val, source: "verbatim" as const })),
+  z.object({
+    item: z.string(),
+    source: z.enum(["verbatim", "inferred"]).default("verbatim")
+  })
+]);
+
 // Schema for runtime validation of Claude's response
 const ClaudeExtractedFieldsSchema = z.object({
   clientName: z.string().default(""),
@@ -8,7 +18,7 @@ const ClaudeExtractedFieldsSchema = z.object({
   projectDescription: z.string().default(""),
   scopeOfWork: z.string().default(""),
   evaluationCriteria: z.string().default(""),
-  requiredDeliverables: z.array(z.string()).default([]),
+  requiredDeliverables: z.array(DeliverableSchema).default([]),
   importantDates: z.array(z.object({
     title: z.string(),
     date: z.string(),
@@ -48,7 +58,7 @@ Extract the following fields from this RFP document. Return ONLY valid JSON, no 
   "projectDescription": "2-3 sentence executive summary of the project",
   "scopeOfWork": "Well-structured scope with clear sections (see format below)",
   "evaluationCriteria": "Well-structured criteria with weights (see format below)",
-  "requiredDeliverables": ["list", "of", "specific", "deliverables"],
+  "requiredDeliverables": [{"item": "Technical Proposal", "source": "verbatim"}, {"item": "Past Project Portfolio", "source": "inferred"}],
   "importantDates": [{"title": "...", "date": "YYYY-MM-DD", "type": "submission_deadline|qa_deadline|presentation|other"}],
   "submissionRequirements": {"method": "Email|Portal|Physical", "email": "...", "format": "PDF|Word", "physicalAddress": "...", "copies": null}
 }
@@ -65,7 +75,9 @@ EXTRACTION RULES:
 1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".
 2. scopeOfWork: Extract ALL scope requirements but ORGANIZE them clearly. Don't copy raw text walls - structure with headings and bullets. Preserve all important details but make it scannable.
 3. evaluationCriteria: Extract ALL criteria with their weights. Organize by category if multiple exist.
-4. requiredDeliverables: Specific items to submit (proposals, CVs, samples), not generic terms.
+4. requiredDeliverables: Specific items to submit with source tagging:
+   - "source": "verbatim" if explicitly stated in RFP (e.g., "Submit technical proposal")
+   - "source": "inferred" if derived from evaluation criteria or implied requirements
 5. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
 6. Skip page numbers, headers, footers, table of contents entries.
 

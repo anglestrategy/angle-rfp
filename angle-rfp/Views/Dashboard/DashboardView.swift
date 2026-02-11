@@ -196,17 +196,32 @@ struct DashboardView: View {
 
     // MARK: - Deliverables Section
 
-    private func deliverablesSection(_ deliverables: [String]) -> some View {
+    private func deliverablesSection(_ deliverables: [Deliverable]) -> some View {
         DashboardSection("Deliverables") {
             VStack(alignment: .leading, spacing: 10) {
-                ForEach(deliverables, id: \.self) { item in
+                ForEach(deliverables) { deliverable in
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 14))
                             .foregroundColor(DesignSystem.Palette.Semantic.success)
-                        Text(item)
+                        Text(deliverable.item)
                             .font(.custom("Urbanist", size: 14))
                             .foregroundColor(DesignSystem.Palette.Text.secondary)
+                        Spacer()
+                        // Source tag
+                        Text(deliverable.source == .verbatim ? "Verbatim" : "Inferred")
+                            .font(.custom("Urbanist", size: 10).weight(.medium))
+                            .foregroundColor(deliverable.source == .verbatim
+                                ? DesignSystem.Palette.Semantic.success
+                                : DesignSystem.Palette.Accent.primary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                    .fill(deliverable.source == .verbatim
+                                        ? DesignSystem.Palette.Semantic.success.opacity(0.15)
+                                        : DesignSystem.Palette.Accent.primary.opacity(0.15))
+                            )
                     }
                 }
             }
@@ -236,10 +251,12 @@ struct DashboardView: View {
     private func submissionSection(_ requirements: String) -> some View {
         DashboardSection("Submission Requirements") {
             VStack(alignment: .leading, spacing: 12) {
-                Text(requirements)
-                    .font(.custom("Urbanist", size: 14))
-                    .foregroundColor(DesignSystem.Palette.Text.secondary)
-                    .lineSpacing(5)
+                // Parse the submission requirements into structured rows
+                ForEach(requirements.components(separatedBy: "\n"), id: \.self) { line in
+                    if !line.isEmpty {
+                        SubmissionRow(line: line)
+                    }
+                }
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -292,6 +309,63 @@ struct DashboardView: View {
     }
 }
 
+// MARK: - Submission Row Component
+
+private struct SubmissionRow: View {
+    let line: String
+
+    private var icon: String {
+        if line.hasPrefix("Method:") {
+            return "arrow.up.doc.fill"
+        } else if line.hasPrefix("Format:") {
+            return "doc.fill"
+        } else if line.hasPrefix("Email:") {
+            return "envelope.fill"
+        } else if line.hasPrefix("Address:") {
+            return "building.2.fill"
+        } else if line.hasPrefix("Copies:") {
+            return "doc.on.doc.fill"
+        } else {
+            return "info.circle.fill"
+        }
+    }
+
+    private var label: String {
+        if let colonIndex = line.firstIndex(of: ":") {
+            return String(line[..<colonIndex])
+        }
+        return ""
+    }
+
+    private var value: String {
+        if let colonIndex = line.firstIndex(of: ":") {
+            let afterColon = line.index(after: colonIndex)
+            return String(line[afterColon...]).trimmingCharacters(in: .whitespaces)
+        }
+        return line
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(DesignSystem.Palette.Accent.primary)
+                .frame(width: 20)
+
+            Text(label)
+                .font(.custom("Urbanist", size: 13).weight(.medium))
+                .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                .frame(width: 60, alignment: .leading)
+
+            Text(value)
+                .font(.custom("Urbanist", size: 14))
+                .foregroundColor(DesignSystem.Palette.Text.secondary)
+
+            Spacer()
+        }
+    }
+}
+
 enum ExportType: String, CaseIterable {
     case pdf = "PDF"
     case email = "Email"
@@ -331,7 +405,12 @@ struct DashboardView_Previews: PreviewProvider {
                     formulaExplanation: "Score based on company size, scope alignment, and output types."
                 ),
                 evaluationCriteria: "Proposals will be evaluated on creative approach (40%), team experience (30%), and pricing (30%).",
-                requiredDeliverables: ["Technical Proposal", "Creative Samples", "Team Bios", "Pricing Sheet"],
+                requiredDeliverables: [
+                    Deliverable(item: "Technical Proposal", source: .verbatim),
+                    Deliverable(item: "Creative Samples", source: .verbatim),
+                    Deliverable(item: "Team Bios", source: .inferred),
+                    Deliverable(item: "Pricing Sheet", source: .verbatim)
+                ],
                 importantDates: [
                     ImportantDate(title: "Questions Due", date: Date().addingTimeInterval(86400 * 7), dateType: .questionsDeadline, isCritical: false),
                     ImportantDate(title: "Proposal Due", date: Date().addingTimeInterval(86400 * 14), dateType: .proposalDeadline, isCritical: true)

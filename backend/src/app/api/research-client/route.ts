@@ -21,7 +21,14 @@ export async function POST(request: NextRequest) {
       analysisId: body.analysisId,
       clientName: body.clientName,
       clientNameArabic: body.clientNameArabic,
-      country: "SA"
+      country: "SA",
+      // Pass RFP context for smarter query generation
+      rfpContext: body.rfpContext ? {
+        projectName: body.rfpContext.projectName,
+        projectDescription: body.rfpContext.projectDescription,
+        scopeOfWork: body.rfpContext.scopeOfWork,
+        industry: body.rfpContext.industry
+      } : undefined
     });
 
     registerAnalysisUsage({

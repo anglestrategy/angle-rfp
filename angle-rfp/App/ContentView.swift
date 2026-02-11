@@ -788,13 +788,13 @@ struct ContentView: View {
             Shortlisted agencies will be invited to present their proposals in person.
             """,
             requiredDeliverables: [
-                "Agency credentials and case studies (3-5 relevant examples)",
-                "Proposed team bios and org chart",
-                "Strategic approach and creative vision",
-                "Detailed project timeline with milestones",
-                "Itemized budget breakdown by phase",
-                "References from similar healthcare clients",
-                "Sample creative concepts (optional but encouraged)"
+                Deliverable(item: "Agency credentials and case studies (3-5 relevant examples)", source: .verbatim),
+                Deliverable(item: "Proposed team bios and org chart", source: .verbatim),
+                Deliverable(item: "Strategic approach and creative vision", source: .verbatim),
+                Deliverable(item: "Detailed project timeline with milestones", source: .verbatim),
+                Deliverable(item: "Itemized budget breakdown by phase", source: .verbatim),
+                Deliverable(item: "References from similar healthcare clients", source: .inferred),
+                Deliverable(item: "Sample creative concepts (optional but encouraged)", source: .verbatim)
             ],
             importantDates: [
                 ImportantDate(title: "Intent to Respond", date: Date().addingTimeInterval(86400 * 5), dateType: .other, isCritical: false),
