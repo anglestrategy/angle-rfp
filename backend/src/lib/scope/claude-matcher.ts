@@ -24,6 +24,23 @@ export interface ClaudeScopeMatch {
   reasoning: string;
 }
 
+function extractJsonObjectCandidate(text: string): string | null {
+  const withoutFence = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
+  const start = withoutFence.indexOf("{");
+  const end = withoutFence.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    return null;
+  }
+  return withoutFence.slice(start, end + 1);
+}
+
+function repairJsonCandidate(input: string): string {
+  return input
+    .replace(/,\s*([}\]])/g, "$1")
+    .replace(/\u201c|\u201d/g, "\"")
+    .replace(/\u2018|\u2019/g, "'");
+}
+
 export async function matchScopeWithClaude(
   scopeItems: string[],
   services: AgencyService[]
@@ -114,6 +131,24 @@ Return JSON only:
       reasoning: m.reasoning
     }));
   } catch (error) {
+    const candidate = extractJsonObjectCandidate(textContent.text);
+    if (candidate) {
+      try {
+        const repaired = repairJsonCandidate(candidate);
+        const parsed = JSON.parse(repaired);
+        const validated = ClaudeMatchResponseSchema.parse(parsed);
+        return validated.matches.map(m => ({
+          scopeItem: m.scopeItem,
+          service: m.matchedService || "No direct match",
+          class: m.matchClass,
+          confidence: m.confidence,
+          reasoning: m.reasoning
+        }));
+      } catch {
+        // continue to normalized error path below
+      }
+    }
+
     if (error instanceof z.ZodError) {
       throw new Error(`Claude match response validation failed: ${error.issues.map(e => e.message).join(", ")}`);
     }

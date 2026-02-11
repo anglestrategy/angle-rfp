@@ -164,6 +164,14 @@ function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
 }
 
+function isUnknownSignal(value: string): boolean {
+  if (!value) {
+    return true;
+  }
+
+  return /^(unknown|n\/a|na|none|not available|unavailable|not specified|-)$/i.test(value.trim());
+}
+
 export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResult {
   const warnings: string[] = [];
   const factors: FactorBreakdownItem[] = [];
@@ -308,7 +316,9 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
   const holdingGroupTier = normalizeText(input.clientResearch.companyProfile?.holdingGroupTier);
   const holdingGroupName = normalizeText(input.clientResearch.companyProfile?.holdingGroup);
   let holdingPoints = 0;
-  const holdingGroupIdentified = holdingGroupTier.length > 0 || holdingGroupName.length > 0;
+  const holdingGroupIdentified =
+    (holdingGroupTier.length > 0 && !isUnknownSignal(holdingGroupTier)) ||
+    (holdingGroupName.length > 0 && !isUnknownSignal(holdingGroupName));
   if (holdingGroupTier.includes("major") || holdingGroupTier.includes("large")) {
     holdingPoints = 5;
   } else if (holdingGroupTier.includes("small") || holdingGroupTier.includes("medium")) {

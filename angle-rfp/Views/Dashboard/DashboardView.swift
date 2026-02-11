@@ -23,6 +23,46 @@ struct DashboardView: View {
         data.financialPotential?.recommendationLevel ?? "Review Required"
     }
 
+    private var sanitizedHeroDescription: BeautifiedText? {
+        guard let beautified = data.beautifiedText?.projectDescription else {
+            return nil
+        }
+
+        var output: [TextSection] = []
+        var suppressUntilNextHeading = false
+
+        for section in beautified.sections {
+            let headingText = section.content
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+
+            if section.type == .heading || section.type == .subheading {
+                if headingText == "project overview" {
+                    suppressUntilNextHeading = false
+                    continue
+                }
+
+                if headingText == "project scope" {
+                    suppressUntilNextHeading = true
+                    continue
+                }
+
+                suppressUntilNextHeading = false
+            }
+
+            if suppressUntilNextHeading {
+                continue
+            }
+
+            output.append(section)
+        }
+
+        return BeautifiedText(
+            formatted: beautified.formatted,
+            sections: output.isEmpty ? beautified.sections : output
+        )
+    }
+
     var body: some View {
         SceneContainer {
             ScrollView {
@@ -88,7 +128,7 @@ struct DashboardView: View {
                     .foregroundColor(DesignSystem.Palette.Text.secondary)
 
                 // Use beautified project description if available
-                if let beautified = data.beautifiedText?.projectDescription, !beautified.sections.isEmpty {
+                if let beautified = sanitizedHeroDescription, !beautified.sections.isEmpty {
                     BeautifiedTextView(
                         beautifiedText: beautified,
                         fallbackText: nil

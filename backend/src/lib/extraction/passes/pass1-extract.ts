@@ -499,7 +499,7 @@ function mapClaudeToPass1Output(
     projectName: claude.projectName || "Untitled Project",
     projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
     projectDescription: normalizeStructuredText(claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim()),
-    scopeOfWork: compactScopeForExecutiveSummary(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
+    scopeOfWork: normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200)),
     evaluationCriteria: normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found."),
     requiredDeliverables: dedupeDeliverables(
       claude.requiredDeliverables.map((d) => ({

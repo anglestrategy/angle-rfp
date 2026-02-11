@@ -48,6 +48,30 @@ const BEAUTIFY_PROMPT = `You are a senior editorial designer. Transform the foll
 Text to structure:
 `;
 
+const PROJECT_DESCRIPTION_BEAUTIFY_PROMPT = `You are structuring the top "hero" content for an RFP executive dashboard.
+
+Return JSON only in this format:
+{
+  "formatted": "markdown",
+  "sections": [
+    {"type": "heading|subheading|paragraph|bullet_list|numbered_list|highlight|quote", "content": "text", "items": ["..."]}
+  ]
+}
+
+STRICT RULES:
+- Keep this concise and executive-level.
+- Do NOT output headings named "Project Overview" or "Project Scope".
+- Required structure:
+  1) One short paragraph only (no heading) summarizing the engagement.
+  2) One subheading exactly: "Key Objective".
+  3) One short paragraph OR bullet list (max 3 bullets) for the key objective.
+- Do not include phase-by-phase breakdowns.
+- Do not include bid administration details.
+- No markdown code fences. JSON only.
+
+Text to structure:
+`;
+
 const SCOPE_BEAUTIFY_PROMPT = `You are editing "Scope of Work" for executive decision-making.
 
 Return JSON only in this format:
@@ -61,16 +85,249 @@ Return JSON only in this format:
 STRICT RULES:
 - Keep it concise and decision-oriented (executive summary style).
 - Use this structure only:
-  1) Overview (1 short paragraph)
-  2) Core Scope Items (max 8 bullets)
-  3) Program Phases (High-Level, optional, max 6 bullets, titles only)
+  1) Executive Summary (1 short paragraph)
+  2) Scope of Work (max 10 concise bullets)
 - Do NOT include submission/admin/evaluation/bid-process details.
 - Do NOT dump full long phase descriptions.
+- Do NOT create a separate "Program Phases" section.
+- If phases appear in source, convert them into concise scope bullets only when truly in-scope work.
 - Preserve meaning, reduce verbosity.
 - No markdown code fences. JSON only.
 
 Text to structure:
 `;
+
+const NON_SCOPE_PATTERNS = [
+  /submission deadline/i,
+  /intent to tender/i,
+  /deadline for questions/i,
+  /responses? to questions?/i,
+  /proposal submission/i,
+  /special conditions?/i,
+  /evaluation criteria/i,
+  /terms?\s*&?\s*conditions?/i,
+  /commercial proposal/i,
+  /certificate/i,
+  /\bcv\b|resume/i,
+  /proposal format/i,
+  /email submission/i,
+  /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|شروط خاصة/
+];
+
+const SCOPE_SECTION_HEADING_NOISE = [
+  /^overview$/i,
+  /^program phases?.*/i,
+  /^timeline$/i,
+  /^deliverables$/i,
+  /^key objectives?$/i
+];
+
+const PROJECT_HEADING_NOISE = [
+  /^project overview$/i,
+  /^project scope$/i
+];
+
+function toLines(text: string): string[] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function normalizeBulletItem(item: string): string {
+  return item
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/u, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function dedupeItems(items: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const raw of items) {
+    const value = normalizeBulletItem(raw);
+    if (!value) {
+      continue;
+    }
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(value);
+  }
+
+  return output;
+}
+
+function isScopeNoiseLine(line: string): boolean {
+  const normalized = normalizeBulletItem(line).toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  if (SCOPE_SECTION_HEADING_NOISE.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+  if (NON_SCOPE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeProjectDescriptionStructure(result: BeautifiedText): BeautifiedText {
+  const normalizedSections = result.sections.filter((section) => {
+    if (section.type === "heading") {
+      const heading = section.content.trim().toLowerCase();
+      if (PROJECT_HEADING_NOISE.some((pattern) => pattern.test(heading))) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const firstParagraph =
+    normalizedSections.find((section) => section.type === "paragraph" && section.content.trim().length > 0)?.content.trim() ??
+    result.formatted
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0 && !/^#{1,6}\s*/.test(line)) ??
+    "";
+
+  const keyObjectiveSection =
+    normalizedSections.find((section) => /key objective/i.test(section.content)) ??
+    { type: "subheading" as const, content: "Key Objective", items: undefined };
+
+  const keyObjectiveParagraph =
+    normalizedSections.find((section) => section.type === "paragraph" && section.content.trim() !== firstParagraph)?.content.trim() ?? "";
+
+  const keyObjectiveBullets = dedupeItems(
+    normalizedSections
+      .filter((section) => section.type === "bullet_list" || section.type === "numbered_list")
+      .flatMap((section) => section.items ?? [])
+  ).slice(0, 3);
+
+  const sections: BeautifiedText["sections"] = [];
+  if (firstParagraph) {
+    sections.push({ type: "paragraph", content: firstParagraph, items: undefined });
+  }
+
+  sections.push({
+    type: "subheading",
+    content: "Key Objective",
+    items: undefined
+  });
+
+  if (keyObjectiveBullets.length > 0) {
+    sections.push({
+      type: "bullet_list",
+      content: "Key Objective",
+      items: keyObjectiveBullets
+    });
+  } else if (keyObjectiveParagraph) {
+    sections.push({
+      type: "paragraph",
+      content: keyObjectiveParagraph,
+      items: undefined
+    });
+  } else if (keyObjectiveSection.content && !/key objective/i.test(keyObjectiveSection.content)) {
+    sections.push({
+      type: "paragraph",
+      content: keyObjectiveSection.content,
+      items: undefined
+    });
+  }
+
+  const formatted = sections
+    .map((section) => {
+      if (section.type === "subheading") {
+        return `## ${section.content}`;
+      }
+      if (section.type === "bullet_list" || section.type === "numbered_list") {
+        const items = (section.items ?? []).map((item) => `• ${item}`).join("\n");
+        return items;
+      }
+      return section.content;
+    })
+    .join("\n\n")
+    .trim();
+
+  return {
+    formatted,
+    sections
+  };
+}
+
+function normalizeScopeStructure(result: BeautifiedText): BeautifiedText {
+  const candidateParagraphs = result.sections
+    .filter((section) => section.type === "paragraph")
+    .map((section) => section.content.trim())
+    .filter((line) => line.length > 0 && !isScopeNoiseLine(line));
+
+  const candidateItems = dedupeItems(
+    result.sections
+      .flatMap((section) => {
+        if (section.type === "bullet_list" || section.type === "numbered_list") {
+          return section.items ?? [];
+        }
+        if (section.type === "paragraph") {
+          return toLines(section.content);
+        }
+        return [];
+      })
+      .filter((line) => !isScopeNoiseLine(line))
+  );
+
+  const executiveSummary =
+    candidateParagraphs.find((line) => line.length >= 60) ??
+    candidateItems.find((line) => line.length >= 60) ??
+    candidateParagraphs[0] ??
+    candidateItems[0] ??
+    "";
+
+  const scopeItems = candidateItems
+    .filter((item) => {
+      if (!item) {
+        return false;
+      }
+      const normalized = item.toLowerCase();
+      return !NON_SCOPE_PATTERNS.some((pattern) => pattern.test(normalized));
+    })
+    .slice(0, 10);
+
+  const sections: BeautifiedText["sections"] = [];
+
+  if (executiveSummary) {
+    sections.push({ type: "heading", content: "Executive Summary", items: undefined });
+    sections.push({ type: "paragraph", content: executiveSummary, items: undefined });
+  }
+
+  sections.push({ type: "heading", content: "Scope of Work", items: undefined });
+  sections.push({
+    type: "bullet_list",
+    content: "Scope of Work",
+    items: scopeItems.length > 0 ? scopeItems : ["Scope items were not clearly segmented from source text."]
+  });
+
+  const formatted = [
+    "## Executive Summary",
+    executiveSummary,
+    "",
+    "## Scope of Work",
+    ...(scopeItems.length > 0 ? scopeItems.map((item) => `• ${item}`) : ["• Scope items were not clearly segmented from source text."])
+  ]
+    .filter((line) => line !== "")
+    .join("\n")
+    .trim();
+
+  return {
+    formatted,
+    sections
+  };
+}
 
 export async function beautifyText(rawText: string, fieldName: string): Promise<BeautifiedText> {
   if (!rawText || rawText.trim().length < 20) {
@@ -95,7 +352,12 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
   });
 
   try {
-    const prompt = fieldName === "Scope of Work" ? SCOPE_BEAUTIFY_PROMPT : BEAUTIFY_PROMPT;
+    const prompt =
+      fieldName === "Scope of Work"
+        ? SCOPE_BEAUTIFY_PROMPT
+        : fieldName === "Project Description"
+          ? PROJECT_DESCRIPTION_BEAUTIFY_PROMPT
+          : BEAUTIFY_PROMPT;
     const response = await runWithClaudeSonnetModel((model) =>
       client.messages.create({
         model,
@@ -116,7 +378,17 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
       context: `Text beautification (${fieldName})`,
       expectedType: "object"
     });
-    return BeautifiedTextSchema.parse(parsed);
+    const validated = BeautifiedTextSchema.parse(parsed);
+
+    if (fieldName === "Scope of Work") {
+      return normalizeScopeStructure(validated);
+    }
+
+    if (fieldName === "Project Description") {
+      return normalizeProjectDescriptionStructure(validated);
+    }
+
+    return validated;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Text beautification failed for ${fieldName}:`, message);

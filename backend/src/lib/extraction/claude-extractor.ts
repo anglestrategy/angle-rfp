@@ -69,14 +69,14 @@ Extract the following fields from this RFP document. Return ONLY valid JSON, no 
 CRITICAL FORMATTING RULES FOR scopeOfWork AND evaluationCriteria:
 
 For scopeOfWork, structure it clearly with line breaks:
-"## Overview\\n[1-2 sentence summary of what the client needs]\\n\\n## Key Objectives\\n• [Objective 1]\\n• [Objective 2]\\n• [Objective 3]\\n\\n## Deliverables\\n1. [Deliverable 1]\\n2. [Deliverable 2]\\n3. [Deliverable 3]\\n\\n## Timeline\\n[Key timeline information]"
+"## Executive Summary\\n[1-2 sentence summary of the work needed]\\n\\n## Scope of Work\\n• [Core scope item 1]\\n• [Core scope item 2]\\n• [Core scope item 3]"
 
 For evaluationCriteria, structure it clearly:
 "## Evaluation Criteria\\n\\n**1. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**2. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**3. [Criteria Name] (XX%)**\\n[What they're looking for]"
 
 EXTRACTION RULES:
 1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".
-2. scopeOfWork: Extract ALL scope requirements but ORGANIZE them clearly. Don't copy raw text walls - structure with headings and bullets. Preserve all important details but make it scannable.
+2. scopeOfWork: Extract ALL in-scope delivery requirements but ORGANIZE them clearly. Do not include bid admin details, response mechanics, or evaluation rubric items in scope bullets.
 3. evaluationCriteria: Extract ALL criteria with their weights. Organize by category if multiple exist.
 4. requiredDeliverables: Specific items to submit with source tagging:
    - "source": "verbatim" if explicitly stated in RFP (e.g., "Submit technical proposal")
@@ -84,8 +84,9 @@ EXTRACTION RULES:
 5. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
 6. Skip page numbers, headers, footers, table of contents entries.
 7. Do NOT duplicate section headings. Each heading should appear only once in scopeOfWork/evaluationCriteria.
-8. Scope timeline should focus on project execution milestones. Bid/tender response deadlines belong in importantDates.
-9. Do NOT repeat the same criterion text under multiple numbered sections.
+8. Keep scope bullets concise and non-redundant; avoid long phase-by-phase prose.
+9. Bid/tender response deadlines belong in importantDates, not scopeOfWork.
+10. Do NOT repeat the same criterion text under multiple numbered sections.
 
 IMPORTANT: Your output should be READABLE and SCANNABLE - not raw text walls. Use headings (##), bullets (•), numbered lists (1.), and bold (**) to structure content clearly while preserving ALL important information from the original.
 

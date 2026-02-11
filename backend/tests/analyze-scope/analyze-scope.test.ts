@@ -83,6 +83,27 @@ describe("analyzeScopeInput", () => {
     expect(items.some((item) => /launch campaign strategy/i.test(item))).toBe(true);
   });
 
+  test("splitScopeItems excludes bid admin lines and keeps execution scope lines", () => {
+    const scope = [
+      "## Executive Summary",
+      "Develop and implement brand localization strategy across phases.",
+      "## Scope of Work",
+      "• Align Expo brand with Saudi identity",
+      "• Create campaign strategy and rollout plan",
+      "• Submission deadline: 2026-12-01",
+      "• Deadline for questions from bidders: 2026-11-25",
+      "• Email submission to procurement@example.com"
+    ].join("\n");
+
+    const items = splitScopeItems(scope);
+
+    expect(items.some((item) => /align expo brand/i.test(item))).toBe(true);
+    expect(items.some((item) => /campaign strategy/i.test(item))).toBe(true);
+    expect(items.some((item) => /submission deadline/i.test(item))).toBe(false);
+    expect(items.some((item) => /questions from bidders/i.test(item))).toBe(false);
+    expect(items.some((item) => /email submission/i.test(item))).toBe(false);
+  });
+
   test("matchScopeItems avoids hard-none for clearly agency-like work statements", async () => {
     clearTaxonomyCacheForTests();
     const taxonomy = await loadAgencyTaxonomy();

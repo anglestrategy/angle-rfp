@@ -78,7 +78,9 @@ const OUT_OF_SCOPE_HINTS = [
 ];
 
 const NON_SCOPE_OPERATIONAL_HINTS = [
+  /submission deadline/i,
   /proposal submission/i,
+  /email submission/i,
   /intent to tender/i,
   /deadline for questions/i,
   /responses? to questions?/i,
@@ -99,6 +101,7 @@ const NON_SCOPE_OPERATIONAL_HINTS = [
 ];
 
 const STRUCTURAL_LINE_PATTERNS = [
+  /^(executive summary)$/i,
   /^(overview|key objectives|deliverables|timeline|important dates|submission requirements|special conditions)$/i,
   /^(scope of work|evaluation criteria|project description|financial potential)$/i,
   /^(market mapping|competitive research|brand book|post launch plan)$/i,

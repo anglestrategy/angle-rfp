@@ -95,4 +95,27 @@ describe("calculateScoreInput", () => {
 
     expect(result.warnings.some((warning) => warning.includes("completenessScore"))).toBe(true);
   });
+
+  test("marks holding-group factor as unavailable when profile is unknown", async () => {
+    const result = await calculateScoreInput({
+      ...baseInput,
+      clientResearch: {
+        ...baseInput.clientResearch,
+        companyProfile: {
+          entityType: "public_company",
+          estimatedEmployees: 8000,
+          holdingGroupTier: "unknown",
+          holdingGroup: "N/A"
+        }
+      }
+    });
+
+    const holdingFactor = result.score.factorBreakdown.find(
+      (factor) => factor.factor === "Holding Group Affiliation"
+    );
+
+    expect(holdingFactor).toBeDefined();
+    expect(holdingFactor?.identified).toBe(false);
+    expect(holdingFactor?.score).toBe(0);
+  });
 });
