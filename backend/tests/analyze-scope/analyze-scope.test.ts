@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { analyzeScopeInput } from "@/lib/scope/analyze-scope";
+import type { AgencyService } from "@/lib/scope/taxonomy-loader";
 import { clearTaxonomyCacheForTests, loadAgencyTaxonomy } from "@/lib/scope/taxonomy-loader";
 import { matchScopeItems, splitScopeItems } from "@/lib/scope/matcher";
 
@@ -139,5 +140,30 @@ describe("analyzeScopeInput", () => {
     const marketMatch = result.matches.find((item) => /market research|focus groups|benchmark/i.test(item.scopeItem));
     expect(marketMatch).toBeDefined();
     expect(marketMatch?.class).toBe("none");
+  });
+
+  test("keeps market research in-scope when taxonomy explicitly supports it", () => {
+    const services: AgencyService[] = [
+      {
+        id: "1",
+        category: "Strategy",
+        service: "Market Research & Consumer Insights",
+        normalized: "market research consumer insights"
+      },
+      {
+        id: "2",
+        category: "Strategy",
+        service: "Brand strategy",
+        normalized: "brand strategy"
+      }
+    ];
+
+    const [match] = matchScopeItems(
+      ["Conduct qualitative and quantitative market research with focus groups"],
+      services
+    );
+
+    expect(match).toBeDefined();
+    expect(match.class).not.toBe("none");
   });
 });

@@ -75,7 +75,7 @@ const OUT_OF_SCOPE_HINTS = [
   /صيانة مباني/
 ];
 
-const MARKET_RESEARCH_OUT_OF_SCOPE_HINTS = [
+const MARKET_RESEARCH_SCOPE_HINTS = [
   /market research/i,
   /consumer research/i,
   /qualitative research/i,
@@ -95,6 +95,23 @@ const MARKET_RESEARCH_OUT_OF_SCOPE_HINTS = [
   /بحث نوعي/i,
   /بحث كمي/i,
   /تحليل ثقافي/i
+];
+
+const MARKET_RESEARCH_CAPABILITY_HINTS = [
+  /market research/i,
+  /consumer research/i,
+  /qualitative/i,
+  /quantitative/i,
+  /focus groups?/i,
+  /benchmark/i,
+  /competitive research/i,
+  /audience research/i,
+  /insight/i,
+  /أبحاث السوق/i,
+  /بحث السوق/i,
+  /بحث نوعي/i,
+  /بحث كمي/i,
+  /مجموعات التركيز/i
 ];
 
 const NON_SCOPE_OPERATIONAL_HINTS = [
@@ -152,6 +169,16 @@ const STOP_WORDS = new Set([
 
 function containsAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
+}
+
+export function isMarketResearchScopeItem(text: string): boolean {
+  return containsAny(text, MARKET_RESEARCH_SCOPE_HINTS);
+}
+
+export function taxonomySupportsMarketResearch(services: AgencyService[]): boolean {
+  return services.some((service) =>
+    containsAny(`${service.category} ${service.service} ${service.normalized}`, MARKET_RESEARCH_CAPABILITY_HINTS)
+  );
 }
 
 function cleanScopeFragment(fragment: string): string {
@@ -251,9 +278,7 @@ export function splitScopeItems(scopeOfWork: string): string[] {
 }
 
 function classifyMatch(scopeItem: string, service: AgencyService, score: number): ScopeMatch["class"] {
-  const isExplicitOutOfScope =
-    containsAny(scopeItem, OUT_OF_SCOPE_HINTS) ||
-    containsAny(scopeItem, MARKET_RESEARCH_OUT_OF_SCOPE_HINTS);
+  const isExplicitOutOfScope = containsAny(scopeItem, OUT_OF_SCOPE_HINTS);
 
   if (isExplicitOutOfScope) {
     return "none";
@@ -278,10 +303,12 @@ function classifyMatch(scopeItem: string, service: AgencyService, score: number)
 }
 
 export function matchScopeItems(scopeItems: string[], services: AgencyService[]): ScopeMatch[] {
+  const marketResearchSupported = taxonomySupportsMarketResearch(services);
+
   return scopeItems.map((scopeItem) => {
     const isExplicitOutOfScope =
       containsAny(scopeItem, OUT_OF_SCOPE_HINTS) ||
-      containsAny(scopeItem, MARKET_RESEARCH_OUT_OF_SCOPE_HINTS);
+      (isMarketResearchScopeItem(scopeItem) && !marketResearchSupported);
 
     const scopeTokens = tokenize(scopeItem);
     let bestService: AgencyService | null = null;

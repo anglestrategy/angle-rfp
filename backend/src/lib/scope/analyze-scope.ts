@@ -1,5 +1,10 @@
 import { makeError } from "@/lib/api/errors";
-import { matchScopeItems, splitScopeItems } from "@/lib/scope/matcher";
+import {
+  isMarketResearchScopeItem,
+  matchScopeItems,
+  splitScopeItems,
+  taxonomySupportsMarketResearch
+} from "@/lib/scope/matcher";
 import { matchScopeWithClaude } from "@/lib/scope/claude-matcher";
 import { classifyOutputTypes, parseOutputQuantities } from "@/lib/scope/quantity-parser";
 import { loadAgencyTaxonomy, taxonomyVersionFromServices } from "@/lib/scope/taxonomy-loader";
@@ -51,7 +56,6 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 }
 
 const AGENCY_DOMAIN_HINT = /(brand|branding|campaign|marketing|communication|content|design|creative|media|narrative|strategy|launch|social|digital|production|messaging|identity|locali[sz]ation|positioning|إبداع|تسويق|هوية|استراتيجية|محتوى|تصميم)/i;
-const MARKET_RESEARCH_OUT_OF_SCOPE_HINT = /(market research|consumer research|qualitative research|quantitative research|research methodologies?|focus groups?|benchmarks?|benchmarking|market mapping|competitive research|competitor analysis|cultural analysis|local insights?|أبحاث السوق|بحث السوق|مجموعات التركيز|بحث نوعي|بحث كمي|تحليل ثقافي)/i;
 
 function normalizeAgencyDomainMatch(match: {
   scopeItem: string;
@@ -59,14 +63,14 @@ function normalizeAgencyDomainMatch(match: {
   class: "full" | "partial" | "none";
   confidence: number;
   reasoning?: string;
-}): {
+}, marketResearchSupported: boolean): {
   scopeItem: string;
   service: string;
   class: "full" | "partial" | "none";
   confidence: number;
   reasoning?: string;
 } {
-  if (MARKET_RESEARCH_OUT_OF_SCOPE_HINT.test(match.scopeItem)) {
+  if (isMarketResearchScopeItem(match.scopeItem) && !marketResearchSupported) {
     return {
       ...match,
       service: "No direct match",
@@ -121,6 +125,7 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   }> = [];
 
   const batches = chunkArray(scopeItems, 14);
+  const marketResearchSupported = taxonomySupportsMarketResearch(taxonomy);
   let fallbackBatchCount = 0;
   for (let i = 0; i < batches.length; i += 1) {
     const batch = batches[i];
@@ -130,7 +135,9 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
 
     try {
       const claudeMatches = await matchScopeWithClaude(batch, taxonomy);
-      matches.push(...claudeMatches.map(normalizeAgencyDomainMatch));
+      matches.push(
+        ...claudeMatches.map((match) => normalizeAgencyDomainMatch(match, marketResearchSupported))
+      );
     } catch (error) {
       console.error(`Claude scope matching failed for batch ${i + 1}/${batches.length}, using token fallback:`, error);
       fallbackBatchCount += 1;
