@@ -84,7 +84,7 @@ Return JSON only:
 }`;
 
   const response = await client.messages.create({
-    model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
+    model: process.env.CLAUDE_MODEL || "claude-sonnet-4-5-20250929",
     max_tokens: 4000,
     messages: [{ role: "user", content: prompt }]
   });

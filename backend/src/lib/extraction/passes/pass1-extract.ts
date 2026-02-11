@@ -97,7 +97,15 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
   const lines = text.split(/\r?\n/);
   const out: Array<{ title: string; date: string; type: string; isCritical: boolean }> = [];
 
+  // Patterns that indicate this line is an address, not a date
+  const addressPatterns = /address|street|building|floor|district|p\.?o\.?\s*box|postal|zip|avenue|road|blvd|suite|unit|city|region|حي|شارع|مبنى|طابق|صندوق بريد/i;
+
   for (const line of lines) {
+    // Skip lines that look like addresses (they may contain registration dates)
+    if (addressPatterns.test(line)) {
+      continue;
+    }
+
     const normalized = normalizeDate(line);
     if (!normalized) {
       continue;

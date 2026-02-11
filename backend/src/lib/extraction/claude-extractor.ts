@@ -100,7 +100,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
 
   const truncatedText = rawText.slice(0, MAX_INPUT_CHARS);
 
-  const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514";
+  const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-5-20250929";
 
   const response = await client.messages.create({
     model,
