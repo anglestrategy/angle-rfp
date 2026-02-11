@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const extracted = analyzeRfpInput({
+    const extracted = await analyzeRfpInput({
       analysisId: body.analysisId,
       parsedDocument: body.parsedDocument
     });

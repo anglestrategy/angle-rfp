@@ -85,14 +85,14 @@ function ensureRequired(output: ExtractedRfpDataV1): void {
   }
 }
 
-export function analyzeRfpInput(input: AnalyzeRfpInput): ExtractedRfpDataV1 {
+export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<ExtractedRfpDataV1> {
   if (!input.analysisId || !input.parsedDocument?.rawText) {
     throw makeError(400, "validation_error", "analysisId and parsedDocument.rawText are required", "analyze-rfp", {
       retryable: false
     });
   }
 
-  const pass1 = runPass1Extraction(input);
+  const pass1 = await runPass1Extraction(input);
   const pass2 = runPass2Verification(input, pass1);
   const pass3 = runPass3RedFlags(input, pass1);
   const pass4 = runPass4Completeness(input, pass1);

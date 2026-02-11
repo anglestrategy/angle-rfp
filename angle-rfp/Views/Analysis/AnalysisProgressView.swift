@@ -367,22 +367,22 @@ struct AnalysisProgressView: View {
             ]
         case .extracting:
             newPoints = [
-                ExtractedDataPoint(label: "Client", value: "Meridian Healthcare", icon: "building.2.fill"),
-                ExtractedDataPoint(label: "Project", value: "2024 Brand Refresh", icon: "briefcase.fill")
+                ExtractedDataPoint(label: "Client", value: "Identifying client...", icon: "building.2.fill"),
+                ExtractedDataPoint(label: "Project", value: "Extracting project name...", icon: "briefcase.fill")
             ]
         case .scopeAnalyzing:
             newPoints = [
-                ExtractedDataPoint(label: "Scope Match", value: "Agency vs outsource split computed", icon: "circle.grid.cross")
+                ExtractedDataPoint(label: "Scope Match", value: "Analyzing scope alignment...", icon: "circle.grid.cross")
             ]
         case .researching:
             newPoints = [
-                ExtractedDataPoint(label: "Company Size", value: "Enterprise (12,000+ employees)", icon: "person.3.fill"),
-                ExtractedDataPoint(label: "Industry", value: "Healthcare / Hospital Networks", icon: "cross.case.fill")
+                ExtractedDataPoint(label: "Company Size", value: "Researching company...", icon: "person.3.fill"),
+                ExtractedDataPoint(label: "Industry", value: "Identifying industry...", icon: "cross.case.fill")
             ]
         case .scoring:
             newPoints = [
-                ExtractedDataPoint(label: "Scope Alignment", value: "72% agency services", icon: "chart.pie.fill"),
-                ExtractedDataPoint(label: "Financial Score", value: "78/100 - Strong Fit", icon: "star.fill")
+                ExtractedDataPoint(label: "Scope Alignment", value: "Calculating alignment...", icon: "chart.pie.fill"),
+                ExtractedDataPoint(label: "Financial Score", value: "Computing fit score...", icon: "star.fill")
             ]
         case .rendering:
             newPoints = [

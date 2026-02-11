@@ -1,6 +1,7 @@
 import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
+import { extractWithClaude, type ClaudeExtractedFields } from "@/lib/extraction/claude-extractor";
 
-interface Pass1Output {
+export interface Pass1Output {
   clientName: string;
   clientNameArabic: string | null;
   projectName: string;
@@ -36,11 +37,16 @@ function bySectionName(
   return text.slice(match.startOffset, match.endOffset).trim() || null;
 }
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function findLineValue(text: string, keys: string[]): string | null {
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
     for (const key of keys) {
-      const regex = new RegExp(`^\\s*${key}\\s*[:：-]\\s*(.+)$`, "i");
+      const escapedKey = escapeRegex(key);
+      const regex = new RegExp(`^\\s*${escapedKey}\\s*[:：-]\\s*(.+)$`, "i");
       const m = line.match(regex);
       if (m?.[1]) {
         return m[1].trim();
@@ -137,7 +143,8 @@ function extractDeliverables(text: string): string[] {
 }
 
 function extractSubmission(text: string): Pass1Output["submissionRequirements"] {
-  const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)?.[0] ?? null;
+  // Use word boundaries to avoid matching partial strings
+  const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)?.[0] ?? null;
 
   let method = "Unknown";
   if (/email/i.test(text) && /physical|hard copy|sealed|address/i.test(text)) {
@@ -161,9 +168,83 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
   };
 }
 
-export function runPass1Extraction(input: AnalyzeRfpInput): Pass1Output {
-  const text = input.parsedDocument.rawText;
+function mapClaudeToPass1Output(
+  claude: ClaudeExtractedFields,
+  text: string
+): Pass1Output {
   const warnings: string[] = [];
+
+  // Map Claude date types to our format with isCritical flag
+  const importantDates = claude.importantDates.map((d) => ({
+    title: d.title,
+    date: d.date,
+    type: d.type,
+    isCritical: d.type === "submission_deadline" || d.type === "presentation"
+  }));
+
+  // Ensure we have at least one date entry
+  if (importantDates.length === 0) {
+    importantDates.push({
+      title: "Date not explicitly extracted",
+      date: "2099-12-31",
+      type: "other",
+      isCritical: false
+    });
+  }
+
+  const evidence: Array<{ field: string; page: number; excerpt: string }> = [
+    {
+      field: "scopeOfWork",
+      page: 1,
+      excerpt: (claude.scopeOfWork || "").slice(0, 200)
+    },
+    {
+      field: "evaluationCriteria",
+      page: 1,
+      excerpt: (claude.evaluationCriteria || "").slice(0, 200)
+    }
+  ];
+
+  // High confidence since Claude extraction is intelligent
+  const confidenceScores: Record<string, number> & { overall: number } = {
+    clientName: claude.clientName ? 0.95 : 0.5,
+    projectName: claude.projectName ? 0.95 : 0.55,
+    scopeOfWork: claude.scopeOfWork ? 0.92 : 0.65,
+    evaluationCriteria: claude.evaluationCriteria ? 0.9 : 0.6,
+    dates: importantDates[0]?.date !== "2099-12-31" ? 0.88 : 0.5,
+    overall: 0.9
+  };
+
+  return {
+    clientName: claude.clientName || "Unknown Client",
+    clientNameArabic: /[\u0600-\u06FF]/.test(claude.clientName) ? claude.clientName : null,
+    projectName: claude.projectName || "Untitled Project",
+    projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
+    projectDescription: claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim(),
+    scopeOfWork: claude.scopeOfWork || text.slice(0, 1200),
+    evaluationCriteria: claude.evaluationCriteria || "Evaluation criteria not explicitly found.",
+    requiredDeliverables: claude.requiredDeliverables.length > 0
+      ? claude.requiredDeliverables
+      : ["Technical proposal", "Financial proposal"],
+    importantDates,
+    submissionRequirements: {
+      method: claude.submissionRequirements.method || "Unknown",
+      email: claude.submissionRequirements.email,
+      physicalAddress: claude.submissionRequirements.physicalAddress,
+      format: claude.submissionRequirements.format || "Unspecified",
+      copies: claude.submissionRequirements.copies,
+      otherRequirements: claude.requiredDeliverables.slice(0, 3)
+    },
+    warnings,
+    evidence,
+    confidenceScores
+  };
+}
+
+function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
+  // Original regex-based extraction as fallback
+  const text = input.parsedDocument.rawText;
+  const warnings: string[] = ["Claude extraction failed; using regex fallback."];
 
   const clientName =
     findLineValue(text, ["Client", "Client Name", "Issuer", "العميل"]) ??
@@ -232,4 +313,22 @@ export function runPass1Extraction(input: AnalyzeRfpInput): Pass1Output {
     evidence,
     confidenceScores
   };
+}
+
+export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1Output> {
+  const text = input.parsedDocument.rawText;
+
+  // Try Claude extraction first
+  try {
+    const claudeResult = await extractWithClaude(text);
+    return mapClaudeToPass1Output(claudeResult, text);
+  } catch (error) {
+    console.error(
+      "Claude extraction failed, using fallback:",
+      error instanceof Error
+        ? { message: error.message, stack: error.stack }
+        : error
+    );
+    return runPass1ExtractionFallback(input);
+  }
 }

@@ -35,7 +35,7 @@ describe("full pipeline e2e", () => {
       fileBytes: Buffer.from(sampleRfp, "utf8")
     });
 
-    const extracted = analyzeRfpInput({
+    const extracted = await analyzeRfpInput({
       analysisId,
       parsedDocument: parsed
     });
