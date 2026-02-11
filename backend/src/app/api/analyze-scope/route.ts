@@ -4,6 +4,9 @@ import { errorEnvelope, successEnvelope } from "@/lib/api/envelope";
 import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { analyzeScopeInput } from "@/lib/scope/analyze-scope";
 
+// Extend timeout for Claude API calls (Pro plan required for >10s)
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
 

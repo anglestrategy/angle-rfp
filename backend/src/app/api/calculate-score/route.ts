@@ -4,6 +4,9 @@ import { errorEnvelope, successEnvelope } from "@/lib/api/envelope";
 import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { calculateScoreInput } from "@/lib/scoring/calculate-score";
 
+// Extend timeout for scoring calculations
+export const maxDuration = 30;
+
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
 

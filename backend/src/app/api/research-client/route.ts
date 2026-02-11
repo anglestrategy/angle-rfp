@@ -5,6 +5,9 @@ import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { registerAnalysisUsage } from "@/lib/ops/cost-budget";
 import { researchClientInput } from "@/lib/research/research-client";
 
+// Extend timeout for Claude API + external research providers (Pro plan required for >10s)
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
 
