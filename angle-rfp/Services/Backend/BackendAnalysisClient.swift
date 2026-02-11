@@ -249,7 +249,7 @@ final class BackendAnalysisClient {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 120
+        request.timeoutInterval = 300  // 5 minutes for large file uploads
         request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
@@ -489,7 +489,7 @@ final class BackendAnalysisClient {
         let endpoint = config.baseURL.appendingPathComponent(cleanedPath)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 120
+        request.timeoutInterval = 300  // 5 minutes for Claude API + potential cold start
         request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
