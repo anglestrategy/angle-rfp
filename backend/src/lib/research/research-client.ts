@@ -7,6 +7,7 @@ import { queryBrave, type ProviderDocument } from "@/lib/research/providers/brav
 import { queryFirecrawl } from "@/lib/research/providers/firecrawl";
 import { queryTavily } from "@/lib/research/providers/tavily";
 import { resolveClaims } from "@/lib/research/trust-resolver";
+import { normalizeAnthropicError, resolveClaudeHaikuModel } from "@/lib/ai/model-resolver";
 
 export interface ResearchClientInput {
   analysisId: string;
@@ -112,6 +113,7 @@ async function generateSmartQueries(input: ResearchClientInput): Promise<{ engli
   }
 
   const client = new Anthropic({ apiKey, timeout: 60000 });  // 1 minute for query generation
+  const model = resolveClaudeHaikuModel();
 
   const context = input.rfpContext;
   const contextSummary = [
@@ -151,7 +153,7 @@ Return JSON only:
 
   try {
     const response = await client.messages.create({
-      model: "claude-3-5-haiku-20241022",  // Fast model for query generation
+      model,
       max_tokens: 1000,
       messages: [{ role: "user", content: prompt }]
     });
@@ -173,7 +175,11 @@ Return JSON only:
     const validated = ResearchQueriesSchema.parse(parsed);
     return validated;
   } catch (error) {
-    console.error("Smart query generation failed, using basic queries:", error);
+    const normalized = normalizeAnthropicError(error, {
+      model,
+      envVars: ["CLAUDE_MODEL_HAIKU"]
+    });
+    console.error("Smart query generation failed, using basic queries:", normalized.message);
     return buildBasicQueries(input);
   }
 }
@@ -196,6 +202,10 @@ function buildBasicQueries(input: ResearchClientInput): { english: string[]; ara
   ];
 
   return { english, arabic };
+}
+
+export function buildBilingualQueries(input: ResearchClientInput): { english: string[]; arabic: string[] } {
+  return buildBasicQueries(input);
 }
 
 function mappedClaims(docs: ProviderDocument[]) {

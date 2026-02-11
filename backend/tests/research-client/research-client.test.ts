@@ -12,8 +12,8 @@ describe("buildBilingualQueries", () => {
       country: "SA"
     });
 
-    expect(queries.english.length).toBe(3);
-    expect(queries.arabic.length).toBe(3);
+    expect(queries.english.length).toBe(4);
+    expect(queries.arabic.length).toBe(2);
     expect(queries.arabic[0]).toContain("أرامكو");
   });
 });

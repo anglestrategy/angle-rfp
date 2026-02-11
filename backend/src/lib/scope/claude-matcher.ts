@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AgencyService } from "@/lib/scope/taxonomy-loader";
+import { normalizeAnthropicError, resolveClaudeSonnetModel } from "@/lib/ai/model-resolver";
 
 const ScopeMatchSchema = z.object({
   scopeItem: z.string(),
@@ -83,11 +84,21 @@ Return JSON only:
   ]
 }`;
 
-  const response = await client.messages.create({
-    model: process.env.CLAUDE_MODEL || "claude-3-5-sonnet-20241022",
-    max_tokens: 4000,
-    messages: [{ role: "user", content: prompt }]
-  });
+  const model = resolveClaudeSonnetModel();
+  let response: Awaited<ReturnType<typeof client.messages.create>>;
+
+  try {
+    response = await client.messages.create({
+      model,
+      max_tokens: 4000,
+      messages: [{ role: "user", content: prompt }]
+    });
+  } catch (error: unknown) {
+    throw normalizeAnthropicError(error, {
+      model,
+      envVars: ["CLAUDE_MODEL_SONNET", "CLAUDE_MODEL"]
+    });
+  }
 
   const textContent = response.content.find(block => block.type === "text");
   if (!textContent || textContent.type !== "text") {

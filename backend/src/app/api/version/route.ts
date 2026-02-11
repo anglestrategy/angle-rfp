@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
     apiVersion: "1.0.0",
     schemaVersion: "1.0.0",
     promptVersionSet: "v1",
-    build: process.env.VERCEL_GIT_COMMIT_SHA ?? "local"
+    build: process.env.VERCEL_GIT_COMMIT_SHA ?? process.env.RENDER_GIT_COMMIT ?? "local"
   };
 
   return successEnvelope(context, payload);

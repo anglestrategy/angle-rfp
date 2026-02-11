@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
+import { normalizeAnthropicError, resolveClaudeSonnetModel } from "@/lib/ai/model-resolver";
 
 const BeautifiedTextSchema = z.object({
   formatted: z.string(),
@@ -67,10 +68,11 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     apiKey,
     timeout: 120000  // 2 minutes
   });
+  const model = resolveClaudeSonnetModel();
 
   try {
     const response = await client.messages.create({
-      model: process.env.CLAUDE_MODEL || "claude-3-5-sonnet-20241022",
+      model,
       max_tokens: 4000,
       messages: [{
         role: "user",
@@ -94,7 +96,11 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     const parsed = JSON.parse(jsonText);
     return BeautifiedTextSchema.parse(parsed);
   } catch (error) {
-    console.error(`Text beautification failed for ${fieldName}:`, error);
+    const normalized = normalizeAnthropicError(error, {
+      model,
+      envVars: ["CLAUDE_MODEL_SONNET", "CLAUDE_MODEL"]
+    });
+    console.error(`Text beautification failed for ${fieldName}:`, normalized.message);
     // Fallback: return with basic paragraph structure
     return {
       formatted: rawText,
