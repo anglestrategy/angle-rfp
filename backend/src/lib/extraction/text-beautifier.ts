@@ -83,14 +83,12 @@ Return JSON only in this format:
 }
 
 STRICT RULES:
-- Keep it concise and decision-oriented (executive summary style).
-- Use this structure only:
-  1) Executive Summary (1 short paragraph)
-  2) Scope of Work (max 10 concise bullets)
+- Keep it concise and decision-oriented.
+- Output only core scope items as concise bullets (max 10).
 - Do NOT include submission/admin/evaluation/bid-process details.
 - Do NOT dump full long phase descriptions.
-- Do NOT create a separate "Program Phases" section.
-- If phases appear in source, convert them into concise scope bullets only when truly in-scope work.
+- Do NOT include section headings such as "Executive Summary" or "Scope of Work".
+- If phases appear in source, convert only true in-scope work lines into bullets.
 - Preserve meaning, reduce verbosity.
 - No markdown code fences. JSON only.
 
@@ -262,11 +260,6 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
 }
 
 function normalizeScopeStructure(result: BeautifiedText): BeautifiedText {
-  const candidateParagraphs = result.sections
-    .filter((section) => section.type === "paragraph")
-    .map((section) => section.content.trim())
-    .filter((line) => line.length > 0 && !isScopeNoiseLine(line));
-
   const candidateItems = dedupeItems(
     result.sections
       .flatMap((section) => {
@@ -281,13 +274,6 @@ function normalizeScopeStructure(result: BeautifiedText): BeautifiedText {
       .filter((line) => !isScopeNoiseLine(line))
   );
 
-  const executiveSummary =
-    candidateParagraphs.find((line) => line.length >= 60) ??
-    candidateItems.find((line) => line.length >= 60) ??
-    candidateParagraphs[0] ??
-    candidateItems[0] ??
-    "";
-
   const scopeItems = candidateItems
     .filter((item) => {
       if (!item) {
@@ -299,27 +285,14 @@ function normalizeScopeStructure(result: BeautifiedText): BeautifiedText {
     .slice(0, 10);
 
   const sections: BeautifiedText["sections"] = [];
-
-  if (executiveSummary) {
-    sections.push({ type: "heading", content: "Executive Summary", items: undefined });
-    sections.push({ type: "paragraph", content: executiveSummary, items: undefined });
-  }
-
-  sections.push({ type: "heading", content: "Scope of Work", items: undefined });
   sections.push({
     type: "bullet_list",
-    content: "Scope of Work",
+    content: "Core Scope Items",
     items: scopeItems.length > 0 ? scopeItems : ["Scope items were not clearly segmented from source text."]
   });
 
-  const formatted = [
-    "## Executive Summary",
-    executiveSummary,
-    "",
-    "## Scope of Work",
-    ...(scopeItems.length > 0 ? scopeItems.map((item) => `• ${item}`) : ["• Scope items were not clearly segmented from source text."])
-  ]
-    .filter((line) => line !== "")
+  const formatted = (scopeItems.length > 0 ? scopeItems : ["Scope items were not clearly segmented from source text."])
+    .map((item) => `• ${item}`)
     .join("\n")
     .trim();
 

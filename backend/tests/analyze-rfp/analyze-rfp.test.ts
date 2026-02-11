@@ -54,6 +54,41 @@ describe("analyzeRfpInput", () => {
     expect(result.evaluationCriteria.length).toBeGreaterThan(10);
   });
 
+  test("keeps scope output concise and excludes phase/admin text", async () => {
+    const noisyScopeDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Scope of Work",
+        "## Executive Summary",
+        "The engagement includes strategy, creative development, and campaign rollout.",
+        "## 1. Research and Analysis / Benchmarks",
+        "• Review and identify key learnings from previous editions",
+        "## 2. Strategic Foundation and Alignment",
+        "• Develop campaign strategy and rollout plan",
+        "Submission deadline: 2026-03-15",
+        "Deadline for questions from bidders: 2026-03-01",
+        "Email submission to procurement@example.com",
+        "Evaluation Criteria",
+        "Technical Approach 30%",
+        "Team Experience 25%",
+        "Commercial 45%"
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: noisyScopeDoc.analysisId,
+      parsedDocument: noisyScopeDoc
+    });
+
+    expect(result.scopeOfWork).not.toContain("## Executive Summary");
+    expect(result.scopeOfWork).not.toMatch(/research and analysis/i);
+    expect(result.scopeOfWork).not.toMatch(/submission deadline/i);
+    expect(result.scopeOfWork).not.toMatch(/questions from bidders/i);
+    expect(result.scopeOfWork).toMatch(/campaign|strategy|creative|rollout/i);
+  });
+
   test("detects conflicts in submission deadlines", async () => {
     const conflictDoc = {
       ...baseDocument,

@@ -70,7 +70,10 @@ struct DashboardView: View {
                     // Hero header
                     heroSection
 
-                    // Scope of Work
+                    // Executive summary
+                    executiveSummarySection
+
+                    // Scope analysis
                     if let scope = data.scopeOfWork, !scope.isEmpty {
                         scopeSection(scope)
                     }
@@ -126,21 +129,6 @@ struct DashboardView: View {
                 Text(data.projectName ?? "RFP Analysis")
                     .font(.custom("Urbanist", size: 20).weight(.medium))
                     .foregroundColor(DesignSystem.Palette.Text.secondary)
-
-                // Use beautified project description if available
-                if let beautified = sanitizedHeroDescription, !beautified.sections.isEmpty {
-                    BeautifiedTextView(
-                        beautifiedText: beautified,
-                        fallbackText: nil
-                    )
-                    .padding(.top, 4)
-                } else if let description = data.projectDescription, !description.isEmpty {
-                    Text(description)
-                        .font(.custom("Urbanist", size: 15))
-                        .foregroundColor(DesignSystem.Palette.Text.tertiary)
-                        .lineSpacing(4)
-                        .padding(.top, 4)
-                }
             }
 
             Spacer()
@@ -149,23 +137,43 @@ struct DashboardView: View {
         }
     }
 
+    // MARK: - Executive Summary Section
+
+    @ViewBuilder
+    private var executiveSummarySection: some View {
+        if let beautified = sanitizedHeroDescription, !beautified.sections.isEmpty {
+            DashboardSection("Executive Summary") {
+                BeautifiedTextView(
+                    beautifiedText: beautified,
+                    fallbackText: nil
+                )
+            }
+        } else if let description = data.projectDescription, !description.isEmpty {
+            DashboardSection("Executive Summary") {
+                Text(description)
+                    .font(.custom("Urbanist", size: 14))
+                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                    .lineSpacing(5)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     // MARK: - Scope Section
 
-    private func scopeSection(_ scope: String) -> some View {
-        DashboardSection("Scope of Work") {
+    private func scopeSection(_: String) -> some View {
+        DashboardSection("Scope Analysis") {
             VStack(alignment: .leading, spacing: 16) {
-                // Use beautified text if available, otherwise fall back to raw text
-                BeautifiedTextView(
-                    beautifiedText: data.beautifiedText?.scopeOfWork,
-                    fallbackText: scope
-                )
-
                 if let analysis = data.scopeAnalysis {
                     ScopeBreakdown(
                         agencyPercentage: analysis.agencyServicePercentage,
                         agencyServices: analysis.agencyServices,
                         nonAgencyServices: analysis.nonAgencyServices
                     )
+                } else {
+                    Text("Scope analysis is unavailable for this document.")
+                        .font(.custom("Urbanist", size: 13))
+                        .foregroundColor(DesignSystem.Palette.Text.muted)
                 }
             }
         }

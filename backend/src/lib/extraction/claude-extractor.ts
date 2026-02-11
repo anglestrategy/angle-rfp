@@ -59,7 +59,7 @@ Extract the following fields from this RFP document. Return ONLY valid JSON, no 
   "clientName": "The issuing organization's name",
   "projectName": "The project or RFP title",
   "projectDescription": "2-3 sentence executive summary of the project",
-  "scopeOfWork": "Well-structured scope with clear sections (see format below)",
+  "scopeOfWork": "Core in-scope work items only, concise bullet lines (max 12)",
   "evaluationCriteria": "Well-structured criteria with weights (see format below)",
   "requiredDeliverables": [{"item": "Technical Proposal", "source": "verbatim"}, {"item": "Past Project Portfolio", "source": "inferred"}],
   "importantDates": [{"title": "...", "date": "YYYY-MM-DD", "type": "submission_deadline|qa_deadline|presentation|other"}],
@@ -68,15 +68,21 @@ Extract the following fields from this RFP document. Return ONLY valid JSON, no 
 
 CRITICAL FORMATTING RULES FOR scopeOfWork AND evaluationCriteria:
 
-For scopeOfWork, structure it clearly with line breaks:
-"## Executive Summary\\n[1-2 sentence summary of the work needed]\\n\\n## Scope of Work\\n• [Core scope item 1]\\n• [Core scope item 2]\\n• [Core scope item 3]"
+For scopeOfWork:
+- Return only concise work-item bullets.
+- Do NOT include headings, phases, timeline tables, or admin text.
+- Do NOT include markdown headings such as "## Executive Summary" or "## Scope of Work".
+- Each bullet should be one actionable work item (preferably <= 18 words).
+- Max 12 bullets.
+- Use this exact style:
+"• [Core scope item 1]\\n• [Core scope item 2]\\n• [Core scope item 3]"
 
 For evaluationCriteria, structure it clearly:
 "## Evaluation Criteria\\n\\n**1. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**2. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**3. [Criteria Name] (XX%)**\\n[What they're looking for]"
 
 EXTRACTION RULES:
 1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".
-2. scopeOfWork: Extract ALL in-scope delivery requirements but ORGANIZE them clearly. Do not include bid admin details, response mechanics, or evaluation rubric items in scope bullets.
+2. scopeOfWork: Extract only in-scope delivery requirements. Exclude bid admin details, response mechanics, evaluation rubric text, legal/commercial terms, and timeline milestones.
 3. evaluationCriteria: Extract ALL criteria with their weights. Organize by category if multiple exist.
 4. requiredDeliverables: Specific items to submit with source tagging:
    - "source": "verbatim" if explicitly stated in RFP (e.g., "Submit technical proposal")
@@ -84,11 +90,11 @@ EXTRACTION RULES:
 5. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
 6. Skip page numbers, headers, footers, table of contents entries.
 7. Do NOT duplicate section headings. Each heading should appear only once in scopeOfWork/evaluationCriteria.
-8. Keep scope bullets concise and non-redundant; avoid long phase-by-phase prose.
+8. Keep scope bullets concise and non-redundant; never output long phase-by-phase prose.
 9. Bid/tender response deadlines belong in importantDates, not scopeOfWork.
 10. Do NOT repeat the same criterion text under multiple numbered sections.
 
-IMPORTANT: Your output should be READABLE and SCANNABLE - not raw text walls. Use headings (##), bullets (•), numbered lists (1.), and bold (**) to structure content clearly while preserving ALL important information from the original.
+IMPORTANT: Your output should be READABLE and EXECUTIVE-LEVEL. Prioritize concise decision-useful content, not full document copy.
 
 RFP Document:
 `;

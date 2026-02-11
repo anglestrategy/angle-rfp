@@ -298,102 +298,131 @@ function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
   return Array.from(byKey.values());
 }
 
-function compactScopeForExecutiveSummary(scopeText: string): string {
-  const lines = scopeText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+const SCOPE_NON_WORK_PATTERNS = [
+  /submission deadline/i,
+  /intent to tender/i,
+  /deadline for questions/i,
+  /responses?\s+to\s+questions?/i,
+  /proposal submission/i,
+  /submission requirements?/i,
+  /evaluation criteria/i,
+  /special conditions?/i,
+  /terms?\s*&?\s*conditions?/i,
+  /commercial proposal/i,
+  /certificate/i,
+  /\bcv\b|resume/i,
+  /email submission/i,
+  /nda|non[-\s]?disclosure/i,
+  /must comprise|minimum\s+\d+%/i,
+  /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|الشروط|اتفاقية/i
+];
 
-  if (lines.length === 0) {
-    return scopeText;
-  }
+const SCOPE_HEADING_PATTERNS = [
+  /^executive summary$/i,
+  /^scope of work$/i,
+  /^overview$/i,
+  /^key objectives?$/i,
+  /^deliverables$/i,
+  /^timeline$/i,
+  /^important dates?$/i,
+  /^program phases?.*/i,
+  /^phase\s*\d+[:\s]/i,
+  /^(?:\d+\.?\s*)?(research and analysis|strategic foundation|local brand|local design system|brand book|post-launch plan|project management)$/i,
+  /^نطاق العمل$/i
+];
 
-  const skipPatterns = [
-    /submission deadline/i,
-    /intent to tender/i,
-    /deadline for questions/i,
-    /responses? to questions?/i,
-    /proposal submission/i,
-    /special conditions/i,
-    /evaluation criteria/i,
-    /terms?\s*&?\s*conditions?/i,
-    /موعد|شروط|معايير/
-  ];
+const SCOPE_ACTION_VERB_PATTERN =
+  /(develop|design|create|build|launch|define|align|deliver|craft|implement|execute|produce|manage|lead|plan|map|research|analyze|optimi[sz]e|monitor|coordinate|supervise|developing|designing|creating|building|إعداد|تطوير|تصميم|تنفيذ|إطلاق|إدارة|تحليل|تنسيق|إشراف|إنتاج)/i;
 
-  const phaseHeadingPattern = /^(?:##\s*)?phase\s*\d+[:\s]/i;
-  const objectiveLikePattern = /(develop|design|create|build|launch|define|align|deliver|strategy|campaign|visual|content|research|brand|digital|social|implementation|execution|analysis|communication|localization|positioning|narrative|messaging|identity|إعداد|تطوير|تصميم|تنفيذ|إطلاق|إدارة|بحث|استراتيجية)/i;
-
-  let overviewText = "";
-  const coreItems: string[] = [];
-  const phaseTitles: string[] = [];
-  const seen = new Set<string>();
+function splitScopeFragments(raw: string): string[] {
+  const lines = raw.split(/\r?\n/);
+  const out: string[] = [];
 
   for (const line of lines) {
-    if (skipPatterns.some((pattern) => pattern.test(line))) {
+    const parts = line.split(/[؛;•▪‣●]/u).map((part) => part.trim()).filter(Boolean);
+    if (parts.length === 0) {
+      out.push(line.trim());
+      continue;
+    }
+    out.push(...parts);
+  }
+
+  return out.filter(Boolean);
+}
+
+function sanitizeScopeForAnalysis(scopeText: string): string {
+  const fragments = splitScopeFragments(scopeText);
+  const seen = new Set<string>();
+  const workItems: string[] = [];
+
+  for (const fragment of fragments) {
+    if (!fragment || /^```/.test(fragment)) {
       continue;
     }
 
-    const normalized = line
+    const cleaned = fragment
       .replace(/^#{1,6}\s*/, "")
       .replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/u, "")
       .replace(/\*\*/g, "")
+      .replace(/`/g, "")
+      .replace(/\s+/g, " ")
       .trim();
 
-    if (!normalized) {
+    if (!cleaned || cleaned.length < 10) {
       continue;
     }
 
-    const key = normalizeDedupeKey(normalized);
-    if (!key || seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-
-    if (phaseHeadingPattern.test(normalized)) {
-      phaseTitles.push(normalized.replace(/^phase\s*/i, "Phase ").replace(/\s+/g, " "));
+    const normalized = normalizeDedupeKey(cleaned);
+    if (!normalized || seen.has(normalized)) {
       continue;
     }
 
-    if (!overviewText && normalized.length >= 60) {
-      overviewText = normalized;
+    if (SCOPE_HEADING_PATTERNS.some((pattern) => pattern.test(cleaned))) {
       continue;
     }
 
-    if (!objectiveLikePattern.test(normalized)) {
+    if (SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(cleaned))) {
       continue;
     }
 
-    if (coreItems.length < 8) {
-      coreItems.push(normalized);
+    // Drop short category labels and phase titles; keep concrete action lines.
+    const wordCount = cleaned.split(/\s+/).length;
+    const hasActionVerb = SCOPE_ACTION_VERB_PATTERN.test(cleaned);
+    if (!hasActionVerb && wordCount <= 6) {
+      continue;
+    }
+
+    seen.add(normalized);
+    workItems.push(cleaned);
+
+    if (workItems.length >= 12) {
+      break;
     }
   }
 
-  if (!overviewText) {
-    overviewText = coreItems[0] ?? lines[0] ?? "";
+  if (workItems.length === 0) {
+    return scopeText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(0, 8)
+      .map((line) => `• ${line.replace(/^#{1,6}\s*/, "").trim()}`)
+      .join("\n");
   }
 
-  const output: string[] = [];
-  output.push("## Overview");
-  output.push(overviewText.slice(0, 420));
+  return workItems.map((item) => `• ${item}`).join("\n");
+}
 
-  if (coreItems.length > 0) {
-    output.push("");
-    output.push("## Core Scope Items");
-    for (const item of coreItems) {
-      output.push(`• ${item}`);
-    }
+function normalizeExecutiveSummary(text: string): string {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (!clean) {
+    return clean;
   }
 
-  if (phaseTitles.length > 0) {
-    output.push("");
-    output.push("## Program Phases (High-Level)");
-    for (const phase of phaseTitles.slice(0, 6)) {
-      output.push(`• ${phase}`);
-    }
-  }
-
-  const compacted = output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  return compacted.length > 0 ? compacted : scopeText;
+  // Keep concise: max two sentences and 360 chars.
+  const sentences = clean.split(/(?<=[.!?؟])\s+/).filter(Boolean);
+  const summary = sentences.slice(0, 2).join(" ").trim();
+  return (summary || clean).slice(0, 360).trim();
 }
 
 function dedupeImportantDates(
@@ -498,8 +527,10 @@ function mapClaudeToPass1Output(
     clientNameArabic: /[\u0600-\u06FF]/.test(claude.clientName) ? claude.clientName : null,
     projectName: claude.projectName || "Untitled Project",
     projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
-    projectDescription: normalizeStructuredText(claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim()),
-    scopeOfWork: normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200)),
+    projectDescription: normalizeExecutiveSummary(
+      normalizeStructuredText(claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim())
+    ),
+    scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
     evaluationCriteria: normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found."),
     requiredDeliverables: dedupeDeliverables(
       claude.requiredDeliverables.map((d) => ({
@@ -584,8 +615,8 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     clientNameArabic: /[\u0600-\u06FF]/.test(clientName) ? clientName : null,
     projectName,
     projectNameOriginal: /[\u0600-\u06FF]/.test(projectName) ? projectName : null,
-    projectDescription,
-    scopeOfWork,
+    projectDescription: normalizeExecutiveSummary(projectDescription),
+    scopeOfWork: sanitizeScopeForAnalysis(scopeOfWork),
     evaluationCriteria,
     requiredDeliverables: dedupeDeliverables(requiredDeliverables),
     importantDates,
