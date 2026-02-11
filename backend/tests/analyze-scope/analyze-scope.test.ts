@@ -52,6 +52,19 @@ describe("analyzeScopeInput", () => {
     expect(result.outputTypes).toContain("videoProduction");
   });
 
+  test("captures xN style quantities and keyword-based output types", async () => {
+    const result = await analyzeScopeInput({
+      analysisId: "f7df722f-9968-4c17-980a-fcb53aaf56d1",
+      language: "english",
+      scopeOfWork:
+        "Post launch plan includes quarterly reports x8 and performance plans x8. Also produce key visual direction and iconography."
+    });
+
+    expect((result.outputQuantities.contentOnly ?? 0) >= 8).toBe(true);
+    expect(result.outputTypes).toContain("contentOnly");
+    expect(result.outputTypes).toContain("visualDesign");
+  });
+
   test("splitScopeItems removes structural markdown noise and keeps real scope lines", () => {
     const scope = [
       "## Phase 6: Post-Launch Plan",

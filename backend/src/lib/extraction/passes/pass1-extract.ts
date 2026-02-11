@@ -215,6 +215,37 @@ function normalizeStructuredText(input: string): string {
 
 function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
   const byKey = new Map<string, DeliverableItem>();
+  const inferredCandidates: DeliverableItem[] = [];
+
+  const inferredKeepPatterns = [
+    /technical proposal/i,
+    /commercial proposal/i,
+    /certificate/i,
+    /credentials?/i,
+    /portfolio/i,
+    /\bcv\b|resume/i,
+    /methodology/i,
+    /project management plan/i,
+    /risk management plan/i,
+    /payment terms?/i,
+    /terms?\s*&?\s*conditions?/i,
+    /non[-\s]?disclosure|nda/i,
+    /سيرة|شهادة|منهجية|عرض فني|عرض مالي|شروط/
+  ];
+
+  const inferredDropPatterns = [
+    /campaign/i,
+    /color palette/i,
+    /iconography/i,
+    /visual style/i,
+    /pattern/i,
+    /illustration/i,
+    /intro|outro/i,
+    /social media/i,
+    /content pillars?/i,
+    /always-on/i,
+    /storytelling/i
+  ];
 
   for (const item of items) {
     const cleaned = item.item.replace(/\s+/g, " ").trim();
@@ -227,16 +258,98 @@ function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
       continue;
     }
 
+    if (item.source === "inferred") {
+      const shouldKeep =
+        inferredKeepPatterns.some((pattern) => pattern.test(cleaned)) &&
+        !inferredDropPatterns.some((pattern) => pattern.test(cleaned));
+
+      if (shouldKeep) {
+        inferredCandidates.push({ item: cleaned, source: "inferred" });
+      }
+      continue;
+    }
+
     const current = byKey.get(key);
-    if (!current || (current.source === "inferred" && item.source === "verbatim")) {
-      byKey.set(key, {
-        item: cleaned,
-        source: item.source
-      });
+    if (!current || current.source !== "verbatim") {
+      byKey.set(key, { item: cleaned, source: "verbatim" });
+    }
+  }
+
+  const verbatim = Array.from(byKey.values());
+
+  // Keep inferred items only when they add value and do not overwhelm verbatim requirements.
+  const inferredLimit = verbatim.length >= 8 ? 0 : 4;
+  for (const candidate of inferredCandidates) {
+    if (inferredLimit === 0) {
+      break;
+    }
+
+    const key = normalizeDedupeKey(candidate.item);
+    if (!key || byKey.has(key)) {
+      continue;
+    }
+
+    byKey.set(key, candidate);
+    if (Array.from(byKey.values()).filter((item) => item.source === "inferred").length >= inferredLimit) {
+      break;
     }
   }
 
   return Array.from(byKey.values());
+}
+
+function compactScopeForExecutiveSummary(scopeText: string): string {
+  const lines = scopeText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return scopeText;
+  }
+
+  const skipPatterns = [
+    /submission deadline/i,
+    /intent to tender/i,
+    /deadline for questions/i,
+    /responses? to questions?/i,
+    /proposal submission/i,
+    /special conditions/i,
+    /evaluation criteria/i,
+    /terms?\s*&?\s*conditions?/i,
+    /موعد|شروط|معايير/
+  ];
+
+  const conciseLines: string[] = [];
+  let bulletCount = 0;
+
+  for (const line of lines) {
+    if (skipPatterns.some((pattern) => pattern.test(line))) {
+      continue;
+    }
+
+    const normalized = line.replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/u, "").trim();
+    if (!normalized) {
+      continue;
+    }
+
+    const isHeading = /^#{1,6}\s*/.test(line) || /^(overview|key objectives|deliverables|timeline)$/i.test(normalized);
+    if (isHeading) {
+      conciseLines.push(line.startsWith("##") ? line : `## ${normalized}`);
+      continue;
+    }
+
+    if (bulletCount >= 18) {
+      continue;
+    }
+
+    const bulletized = /^[•\-*]/.test(line) || /^\d+[.)]/.test(line) ? line : `• ${normalized}`;
+    conciseLines.push(bulletized);
+    bulletCount += 1;
+  }
+
+  const compacted = conciseLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return compacted.length > 0 ? compacted : scopeText;
 }
 
 function dedupeImportantDates(
@@ -342,7 +455,7 @@ function mapClaudeToPass1Output(
     projectName: claude.projectName || "Untitled Project",
     projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
     projectDescription: normalizeStructuredText(claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim()),
-    scopeOfWork: normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200)),
+    scopeOfWork: compactScopeForExecutiveSummary(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
     evaluationCriteria: normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found."),
     requiredDeliverables: dedupeDeliverables(
       claude.requiredDeliverables.map((d) => ({
@@ -430,7 +543,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     projectDescription,
     scopeOfWork,
     evaluationCriteria,
-    requiredDeliverables,
+    requiredDeliverables: dedupeDeliverables(requiredDeliverables),
     importantDates,
     submissionRequirements,
     warnings,

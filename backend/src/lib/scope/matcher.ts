@@ -77,6 +77,27 @@ const OUT_OF_SCOPE_HINTS = [
   /صيانة مباني/
 ];
 
+const NON_SCOPE_OPERATIONAL_HINTS = [
+  /proposal submission/i,
+  /intent to tender/i,
+  /deadline for questions/i,
+  /responses? to questions?/i,
+  /bidder|bidders/i,
+  /submission requirements?/i,
+  /terms?\s*&?\s*conditions?/i,
+  /commercial proposal/i,
+  /certificate/i,
+  /\bcv\b|resume/i,
+  /non[-\s]?disclosure|nda/i,
+  /must comprise|minimum\s+\d+%/i,
+  /evaluation criteria/i,
+  /special conditions/i,
+  /qa deadline/i,
+  /presentation deadline/i,
+  /proposal deadline/i,
+  /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|شروط خاصة/
+];
+
 const STRUCTURAL_LINE_PATTERNS = [
   /^(overview|key objectives|deliverables|timeline|important dates|submission requirements|special conditions)$/i,
   /^(scope of work|evaluation criteria|project description|financial potential)$/i,
@@ -135,6 +156,19 @@ function isStructuralLine(line: string): boolean {
   return /^#+/.test(line.trim());
 }
 
+function isScopeCandidate(line: string): boolean {
+  const normalized = normalizeForMatching(line);
+  if (!normalized) {
+    return false;
+  }
+
+  if (containsAny(normalized, NON_SCOPE_OPERATIONAL_HINTS)) {
+    return false;
+  }
+
+  return true;
+}
+
 function tokenize(text: string): Set<string> {
   return new Set(
     normalizeForMatching(text)
@@ -176,7 +210,7 @@ export function splitScopeItems(scopeOfWork: string): string[] {
 
     for (const fragment of fragments) {
       const cleaned = cleanScopeFragment(fragment);
-      if (cleaned.length < 8 || isStructuralLine(cleaned)) {
+      if (cleaned.length < 8 || isStructuralLine(cleaned) || !isScopeCandidate(cleaned)) {
         continue;
       }
 
@@ -196,6 +230,10 @@ export function splitScopeItems(scopeOfWork: string): string[] {
 function classifyMatch(scopeItem: string, service: AgencyService, score: number): ScopeMatch["class"] {
   if (containsAny(scopeItem, OUT_OF_SCOPE_HINTS) && score < 0.45) {
     return "none";
+  }
+
+  if (!containsAny(scopeItem, OUT_OF_SCOPE_HINTS) && score < 0.15) {
+    return "partial";
   }
 
   const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);

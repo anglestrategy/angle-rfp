@@ -309,6 +309,7 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
   const holdingGroupTier = normalizeText(input.clientResearch.companyProfile?.holdingGroupTier);
   const holdingGroupName = normalizeText(input.clientResearch.companyProfile?.holdingGroup);
   let holdingPoints = 0;
+  const holdingGroupIdentified = holdingGroupTier.length > 0 || holdingGroupName.length > 0;
   if (holdingGroupTier.includes("major") || holdingGroupTier.includes("large")) {
     holdingPoints = 5;
   } else if (holdingGroupTier.includes("small") || holdingGroupTier.includes("medium")) {
@@ -317,9 +318,13 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
     holdingPoints = 3;
   }
   factors.push(
-    factorItem("holdingGroupAffiliation", "Holding Group Affiliation", holdingPoints, [
-      holdingPoints > 0 ? "Holding group signal detected." : "No holding-group affiliation signal."
-    ])
+    factorItem(
+      "holdingGroupAffiliation",
+      "Holding Group Affiliation",
+      holdingGroupIdentified ? holdingPoints : 0,
+      [holdingGroupIdentified ? "Holding group signal detected." : "Holding-group data not available."],
+      holdingGroupIdentified
+    )
   );
 
   const entityType = normalizeText(input.clientResearch.companyProfile?.entityType);

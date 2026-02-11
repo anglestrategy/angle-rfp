@@ -93,6 +93,7 @@ export function parseJsonFromModelText<T = unknown>(
   const trimmed = text.trim();
 
   pushCandidate(candidates, trimmed);
+  pushCandidate(candidates, trimmed.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, ""));
 
   const fencedPattern = /```(?:json)?\s*([\s\S]*?)\s*```/gi;
   let fenceMatch: RegExpExecArray | null;

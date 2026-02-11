@@ -38,6 +38,18 @@ function roundToOneDecimalAsRatio(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+function chunkArray<T>(items: T[], size: number): T[][] {
+  if (size <= 0) {
+    return [items];
+  }
+
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    out.push(items.slice(i, i + size));
+  }
+  return out;
+}
+
 export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<ScopeAnalysisV1> {
   if (!input.analysisId || !input.scopeOfWork.trim()) {
     throw makeError(400, "validation_error", "analysisId and scopeOfWork are required", "analyze-scope", {
@@ -55,21 +67,31 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
 
   const scopeItems = splitScopeItems(input.scopeOfWork);
 
-  // Try Claude-based semantic matching first, fall back to token matching
+  // Try Claude-based semantic matching in batches; fall back to token matching per-batch
+  const warnings: string[] = [];
   let matches: Array<{
     scopeItem: string;
     service: string;
     class: "full" | "partial" | "none";
     confidence: number;
     reasoning?: string;
-  }>;
+  }> = [];
 
-  try {
-    const claudeMatches = await matchScopeWithClaude(scopeItems, taxonomy);
-    matches = claudeMatches;
-  } catch (error) {
-    console.error("Claude scope matching failed, using token fallback:", error);
-    matches = matchScopeItems(scopeItems, taxonomy);
+  const batches = chunkArray(scopeItems, 14);
+  for (let i = 0; i < batches.length; i += 1) {
+    const batch = batches[i];
+    if (batch.length === 0) {
+      continue;
+    }
+
+    try {
+      const claudeMatches = await matchScopeWithClaude(batch, taxonomy);
+      matches.push(...claudeMatches);
+    } catch (error) {
+      console.error(`Claude scope matching failed for batch ${i + 1}/${batches.length}, using token fallback:`, error);
+      warnings.push(`Scope matching fallback applied for segment ${i + 1} due model-format issue.`);
+      matches.push(...matchScopeItems(batch, taxonomy));
+    }
   }
 
   const fullCount = matches.filter((item) => item.class === "full").length;
@@ -80,9 +102,8 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   const outsourcingPercentage = roundToOneDecimalAsRatio(1 - agencyServicePercentage);
 
   const outputQuantities = parseOutputQuantities(input.scopeOfWork);
-  const outputTypes = classifyOutputTypes(outputQuantities);
+  const outputTypes = classifyOutputTypes(outputQuantities, input.scopeOfWork);
 
-  const warnings: string[] = [];
   if (scopeItems.length === 0) {
     warnings.push("No granular scope items could be segmented from scope text.");
   }

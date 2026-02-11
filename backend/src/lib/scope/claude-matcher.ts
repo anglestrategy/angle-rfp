@@ -9,7 +9,7 @@ const ScopeMatchSchema = z.object({
   matchedService: z.string().nullable(),
   matchClass: z.enum(["full", "partial", "none"]),
   confidence: z.number().min(0).max(1),
-  reasoning: z.string()
+  reasoning: z.string().optional().default("")
 });
 
 const ClaudeMatchResponseSchema = z.object({
@@ -42,7 +42,7 @@ export async function matchScopeWithClaude(
   // Build the service taxonomy list
   const serviceList = services.map(s => `- ${s.category}: ${s.service}`).join("\n");
 
-  const prompt = `You are an expert at matching RFP scope items to agency service capabilities.
+const prompt = `You are an expert at matching RFP scope items to agency service capabilities.
 
 ## Agency Service Taxonomy
 ${serviceList}
@@ -71,6 +71,8 @@ For each scope item, find the BEST matching service from the agency taxonomy. Us
 **IMPORTANT:** If an item is general project management, timeline management, project coordination, deliverable management, or administrative work related to the creative project, classify as "partial" with the closest matching agency capability (often project management or account services), NOT "none". Only use "none" for truly unrelated work like construction, legal services, IT infrastructure, etc.
 
 Be generous with matching - if the scope item is related to marketing, branding, design, content, creative work, or project coordination, there's likely a match.
+Keep reasoning extremely short (max 10 words).
+Return strictly valid JSON with no markdown fences and no extra text.
 
 Return JSON only:
 {
@@ -79,8 +81,7 @@ Return JSON only:
       "scopeItem": "exact scope item text",
       "matchedService": "Matched Service Name" or null if none,
       "matchClass": "full" | "partial" | "none",
-      "confidence": 0.0-1.0,
-      "reasoning": "Brief explanation of why this matches or doesn't"
+      "confidence": 0.0-1.0
     }
   ]
 }`;
@@ -88,7 +89,7 @@ Return JSON only:
   const response = await runWithClaudeSonnetModel((model) =>
     client.messages.create({
       model,
-      max_tokens: 4000,
+      max_tokens: 2200,
       messages: [{ role: "user", content: prompt }]
     })
   );

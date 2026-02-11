@@ -37,6 +37,18 @@ describe("parseJsonFromModelText", () => {
     expect(parsed.arabic).toEqual(["س١"]);
   });
 
+  test("parses JSON when opening fence exists without closing fence", () => {
+    const parsed = parseJsonFromModelText<{ matches: Array<{ scopeItem: string }> }>(
+      '```json\n{"matches":[{"scopeItem":"alpha"}]}',
+      {
+        context: "scope",
+        expectedType: "object"
+      }
+    );
+
+    expect(parsed.matches[0]?.scopeItem).toBe("alpha");
+  });
+
   test("throws a useful error when expected type mismatches", () => {
     expect(() =>
       parseJsonFromModelText("[1,2,3]", {
