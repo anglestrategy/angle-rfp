@@ -111,7 +111,7 @@ async function generateSmartQueries(input: ResearchClientInput): Promise<{ engli
     return buildBasicQueries(input);
   }
 
-  const client = new Anthropic({ apiKey, timeout: 15000 });
+  const client = new Anthropic({ apiKey, timeout: 60000 });  // 1 minute for query generation
 
   const context = input.rfpContext;
   const contextSummary = [

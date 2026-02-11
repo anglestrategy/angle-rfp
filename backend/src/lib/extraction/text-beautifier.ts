@@ -65,7 +65,7 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
 
   const client = new Anthropic({
     apiKey,
-    timeout: 30000
+    timeout: 120000  // 2 minutes
   });
 
   try {

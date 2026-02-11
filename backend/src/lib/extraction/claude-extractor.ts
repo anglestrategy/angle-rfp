@@ -45,8 +45,8 @@ export type ClaudeExtractedFields = z.infer<typeof ClaudeExtractedFieldsSchema>;
 // (~25k tokens at ~4 chars/token, with buffer for prompt)
 const MAX_INPUT_CHARS = 100_000;
 
-// Default timeout for Claude API requests (60 seconds)
-const API_TIMEOUT_MS = 60_000;
+// Default timeout for Claude API requests (3 minutes for large documents)
+const API_TIMEOUT_MS = 180_000;
 
 const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Your job is to extract and CLEARLY STRUCTURE key information from RFP documents so busy executives can quickly understand what's being asked.
 

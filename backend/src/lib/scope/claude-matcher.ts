@@ -34,7 +34,7 @@ export async function matchScopeWithClaude(
 
   const client = new Anthropic({
     apiKey,
-    timeout: 60000
+    timeout: 120000  // 2 minutes
   });
 
   // Build the service taxonomy list
