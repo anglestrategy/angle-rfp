@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 // Schema for deliverables with source tagging
 const DeliverableSchema = z.union([
@@ -82,6 +83,9 @@ EXTRACTION RULES:
    - "source": "inferred" if derived from evaluation criteria or implied requirements
 5. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
 6. Skip page numbers, headers, footers, table of contents entries.
+7. Do NOT duplicate section headings. Each heading should appear only once in scopeOfWork/evaluationCriteria.
+8. Scope timeline should focus on project execution milestones. Bid/tender response deadlines belong in importantDates.
+9. Do NOT repeat the same criterion text under multiple numbered sections.
 
 IMPORTANT: Your output should be READABLE and SCANNABLE - not raw text walls. Use headings (##), bullets (•), numbered lists (1.), and bold (**) to structure content clearly while preserving ALL important information from the original.
 
@@ -120,19 +124,11 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
     throw new Error("No text response from Claude API");
   }
 
-  const responseText = textContent.text.trim();
-
-  // Handle potential markdown code blocks in response
-  let jsonText = responseText;
-  if (responseText.startsWith("```")) {
-    const match = responseText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (match?.[1]) {
-      jsonText = match[1];
-    }
-  }
-
   try {
-    const rawParsed = JSON.parse(jsonText);
+    const rawParsed = parseJsonFromModelText(textContent.text, {
+      context: "Claude extraction",
+      expectedType: "object"
+    });
     // Validate and apply defaults using Zod schema
     const validated = ClaudeExtractedFieldsSchema.parse(rawParsed);
     return validated;

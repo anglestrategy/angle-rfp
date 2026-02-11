@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { AgencyService } from "@/lib/scope/taxonomy-loader";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 const ScopeMatchSchema = z.object({
   scopeItem: z.string(),
@@ -97,16 +98,11 @@ Return JSON only:
     throw new Error("No text response from Claude API");
   }
 
-  let jsonText = textContent.text.trim();
-  if (jsonText.startsWith("```")) {
-    const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (match?.[1]) {
-      jsonText = match[1];
-    }
-  }
-
   try {
-    const parsed = JSON.parse(jsonText);
+    const parsed = parseJsonFromModelText(textContent.text, {
+      context: "Claude scope matching",
+      expectedType: "object"
+    });
     const validated = ClaudeMatchResponseSchema.parse(parsed);
 
     return validated.matches.map(m => ({

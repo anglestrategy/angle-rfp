@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { analyzeScopeInput } from "@/lib/scope/analyze-scope";
 import { clearTaxonomyCacheForTests, loadAgencyTaxonomy } from "@/lib/scope/taxonomy-loader";
+import { matchScopeItems, splitScopeItems } from "@/lib/scope/matcher";
 
 describe("loadAgencyTaxonomy", () => {
   test("loads canonical service taxonomy from csv", async () => {
@@ -27,7 +28,7 @@ describe("analyzeScopeInput", () => {
     expect(result.matches.length).toBeGreaterThanOrEqual(3);
     expect(result.matches.some((item) => item.class === "full")).toBe(true);
     expect(result.matches.some((item) => item.class === "partial")).toBe(true);
-    expect(result.matches.some((item) => item.class === "none")).toBe(true);
+    expect(result.matches.some((item) => item.class !== "full")).toBe(true);
 
     const expected = (result.matches.filter((m) => m.class === "full").length +
       0.5 * result.matches.filter((m) => m.class === "partial").length) /
@@ -49,5 +50,35 @@ describe("analyzeScopeInput", () => {
     expect(result.outputQuantities.visualDesign).toBe(45);
     expect(result.outputQuantities.contentOnly).toBe(20);
     expect(result.outputTypes).toContain("videoProduction");
+  });
+
+  test("splitScopeItems removes structural markdown noise and keeps real scope lines", () => {
+    const scope = [
+      "## Phase 6: Post-Launch Plan",
+      "• Strengthen emotional connection and public engagement within local audience",
+      "• Develop campaign plans based on performance report outcomes to drive brand equity till end of 2026",
+      "## Deliverables",
+      "1. Local Brand Strategy",
+      "2. Launch Campaign Strategy"
+    ].join("\n");
+
+    const items = splitScopeItems(scope);
+
+    expect(items).not.toContain("## Deliverables");
+    expect(items.some((item) => /post-launch/i.test(item))).toBe(false);
+    expect(items.some((item) => /strengthen emotional connection/i.test(item))).toBe(true);
+    expect(items.some((item) => /launch campaign strategy/i.test(item))).toBe(true);
+  });
+
+  test("matchScopeItems avoids hard-none for clearly agency-like work statements", async () => {
+    clearTaxonomyCacheForTests();
+    const taxonomy = await loadAgencyTaxonomy();
+    const [match] = matchScopeItems(
+      ["Develop campaign plans based on performance report outcomes to drive brand equity till end of 2026"],
+      taxonomy
+    );
+
+    expect(match).toBeDefined();
+    expect(match.class).not.toBe("none");
   });
 });

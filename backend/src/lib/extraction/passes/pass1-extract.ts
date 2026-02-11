@@ -159,6 +159,109 @@ function extractDeliverables(text: string): DeliverableItem[] {
   }));
 }
 
+function normalizeDedupeKey(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[`*_#]/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeStructuredText(input: string): string {
+  const lines = input.split(/\r?\n/);
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const originalLine of lines) {
+    let line = originalLine.trim();
+    if (!line) {
+      if (output[output.length - 1] !== "") {
+        output.push("");
+      }
+      continue;
+    }
+
+    if (/^```/.test(line)) {
+      continue;
+    }
+
+    line = line.replace(/\*\*/g, "");
+
+    const listStripped = line.replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/u, "").trim();
+    if (/^#{1,6}\s*/.test(listStripped)) {
+      const heading = listStripped.replace(/^#{1,6}\s*/, "").trim();
+      if (!heading) {
+        continue;
+      }
+      line = `## ${heading}`;
+    }
+
+    const dedupeKey = normalizeDedupeKey(line);
+    if (!dedupeKey) {
+      continue;
+    }
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    output.push(line);
+  }
+
+  return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
+  const byKey = new Map<string, DeliverableItem>();
+
+  for (const item of items) {
+    const cleaned = item.item.replace(/\s+/g, " ").trim();
+    if (!cleaned || cleaned.length < 4) {
+      continue;
+    }
+
+    const key = normalizeDedupeKey(cleaned);
+    if (!key) {
+      continue;
+    }
+
+    const current = byKey.get(key);
+    if (!current || (current.source === "inferred" && item.source === "verbatim")) {
+      byKey.set(key, {
+        item: cleaned,
+        source: item.source
+      });
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
+function dedupeImportantDates(
+  dates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
+): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
+  const byKey = new Map<string, { title: string; date: string; type: string; isCritical: boolean }>();
+
+  for (const date of dates) {
+    const cleanTitle = date.title.replace(/\s+/g, " ").trim();
+    if (!cleanTitle) {
+      continue;
+    }
+
+    const key = `${date.date}|${date.type}|${normalizeDedupeKey(cleanTitle)}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        ...date,
+        title: cleanTitle
+      });
+    }
+  }
+
+  return Array.from(byKey.values());
+}
+
 function extractSubmission(text: string): Pass1Output["submissionRequirements"] {
   // Use word boundaries to avoid matching partial strings
   const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)?.[0] ?? null;
@@ -192,12 +295,13 @@ function mapClaudeToPass1Output(
   const warnings: string[] = [];
 
   // Map Claude date types to our format with isCritical flag
-  const importantDates = claude.importantDates.map((d) => ({
+  const mappedDates = claude.importantDates.map((d) => ({
     title: d.title,
     date: d.date,
     type: d.type,
     isCritical: d.type === "submission_deadline" || d.type === "presentation"
   }));
+  const importantDates = dedupeImportantDates(mappedDates);
 
   // Ensure we have at least one date entry
   if (importantDates.length === 0) {
@@ -237,13 +341,15 @@ function mapClaudeToPass1Output(
     clientNameArabic: /[\u0600-\u06FF]/.test(claude.clientName) ? claude.clientName : null,
     projectName: claude.projectName || "Untitled Project",
     projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
-    projectDescription: claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim(),
-    scopeOfWork: claude.scopeOfWork || text.slice(0, 1200),
-    evaluationCriteria: claude.evaluationCriteria || "Evaluation criteria not explicitly found.",
-    requiredDeliverables: claude.requiredDeliverables.map((d) => ({
-      item: typeof d === "string" ? d : d.item,
-      source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
-    })),
+    projectDescription: normalizeStructuredText(claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim()),
+    scopeOfWork: normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200)),
+    evaluationCriteria: normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found."),
+    requiredDeliverables: dedupeDeliverables(
+      claude.requiredDeliverables.map((d) => ({
+        item: typeof d === "string" ? d : d.item,
+        source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
+      }))
+    ),
     importantDates,
     submissionRequirements: {
       method: claude.submissionRequirements.method || "Unknown",

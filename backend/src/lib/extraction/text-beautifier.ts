@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 const BeautifiedTextSchema = z.object({
   formatted: z.string(),
@@ -86,15 +87,10 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
       throw new Error("No text response");
     }
 
-    let jsonText = textContent.text.trim();
-    if (jsonText.startsWith("```")) {
-      const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-      if (match?.[1]) {
-        jsonText = match[1];
-      }
-    }
-
-    const parsed = JSON.parse(jsonText);
+    const parsed = parseJsonFromModelText(textContent.text, {
+      context: `Text beautification (${fieldName})`,
+      expectedType: "object"
+    });
     return BeautifiedTextSchema.parse(parsed);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
