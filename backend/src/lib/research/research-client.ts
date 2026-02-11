@@ -151,7 +151,7 @@ Return JSON only:
 
   try {
     const response = await client.messages.create({
-      model: "claude-haiku-4-5-latest",  // Fast model for query generation
+      model: "claude-3-5-haiku-20241022",  // Fast model for query generation
       max_tokens: 1000,
       messages: [{ role: "user", content: prompt }]
     });
