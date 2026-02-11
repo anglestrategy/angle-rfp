@@ -69,7 +69,7 @@ final class BackendAnalysisClient {
         static let baseURLEnvKey = "BACKEND_BASE_URL"
         static let tokenEnvKey = "BACKEND_APP_TOKEN"
         /// Production backend base URL. This is safe to ship in the app; access is still gated by token.
-        static let productionBaseURL = "https://anglerfp.vercel.app"
+        static let productionBaseURL = "https://angle-rfp.vercel.app"
         /// If set to "1", the app will upload the file to the backend `/api/parse-document`.
         /// Default is local parsing to avoid large uploads and reduce backend costs.
         static let useBackendParsingEnv = "ANGLE_USE_BACKEND_PARSING"
@@ -560,6 +560,7 @@ final class BackendAnalysisClient {
     }
 
     private func resolvedBaseURL() -> URL? {
+#if DEBUG
         let envBase = ProcessInfo.processInfo.environment[Config.baseURLEnvKey]
         if let envBase, let url = APIKeySetup.validatedBackendBaseURL(from: envBase) {
             return url
@@ -567,25 +568,35 @@ final class BackendAnalysisClient {
         if envBase != nil {
             AppLogger.shared.warning("BACKEND_BASE_URL is set but invalid; falling back to production backend.")
         }
+#endif
 
         let defaults = UserDefaults.standard
         let storedBase = defaults.string(forKey: Config.baseURLDefaultsKey)
-        if let storedBase {
-            if let url = APIKeySetup.validatedBackendBaseURL(from: storedBase) {
-                // Avoid accidentally shipping a config that points to localhost.
-                if url.host?.lowercased() == "localhost" || url.host == "127.0.0.1" {
-                    AppLogger.shared.warning("Stored backend base URL points to localhost; ignoring and using production backend.")
-                    defaults.removeObject(forKey: Config.baseURLDefaultsKey)
-                } else {
-                    return url
-                }
-            } else {
-                AppLogger.shared.warning("Stored backend base URL is invalid; removing and using production backend.")
+        let productionURL = APIKeySetup.validatedBackendBaseURL(from: Config.productionBaseURL)
+
+        // Production behavior:
+        // - Always use production backend.
+        // - Ignore stored base URLs from older builds to prevent a common misconfiguration:
+        //   users accidentally pasting their token into the URL field ("hostname not found").
+        if let storedBase,
+           let storedURL = APIKeySetup.validatedBackendBaseURL(from: storedBase),
+           let storedHost = storedURL.host?.lowercased() {
+            if storedHost == "localhost" || storedHost == "127.0.0.1" {
+                AppLogger.shared.warning("Stored backend base URL points to localhost; removing.")
+                defaults.removeObject(forKey: Config.baseURLDefaultsKey)
+            } else if let prodHost = productionURL?.host?.lowercased(), storedHost != prodHost {
+                AppLogger.shared.warning("Ignoring non-production stored backend base URL; removing.", metadata: [
+                    "storedHost": storedHost,
+                    "prodHost": prodHost
+                ])
                 defaults.removeObject(forKey: Config.baseURLDefaultsKey)
             }
+        } else if storedBase != nil {
+            AppLogger.shared.warning("Stored backend base URL is invalid; removing.")
+            defaults.removeObject(forKey: Config.baseURLDefaultsKey)
         }
 
-        return APIKeySetup.validatedBackendBaseURL(from: Config.productionBaseURL)
+        return productionURL
     }
 
     private func resolvedToken() -> String? {
@@ -595,12 +606,14 @@ final class BackendAnalysisClient {
                 return trimmed
             }
         }
+#if DEBUG
         if let token = ProcessInfo.processInfo.environment[Config.tokenEnvKey] {
             let trimmed = token.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
                 return trimmed
             }
         }
+#endif
         return nil
     }
 

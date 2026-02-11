@@ -85,6 +85,11 @@ struct AnalysisProgressView: View {
                     // Live extraction preview
                     liveExtractionCard
 
+                    // Errors / warnings (kept minimal; only appears when something went wrong)
+                    if !parsingWarnings.isEmpty {
+                        warningCard
+                    }
+
                     // Stage indicators
                     stageIndicators
                 }
@@ -94,7 +99,7 @@ struct AnalysisProgressView: View {
 
                 // Cancel button
                 Button(action: onCancel) {
-                    Text("Cancel")
+                    Text(parsingWarnings.isEmpty ? "Cancel" : "Back")
                         .font(.custom("Urbanist", size: 14).weight(.medium))
                         .foregroundColor(DesignSystem.Palette.Text.muted)
                 }
@@ -208,6 +213,47 @@ struct AnalysisProgressView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(DesignSystem.Palette.Accent.primary.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private var warningCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DesignSystem.Palette.Semantic.warning)
+
+                Text("ISSUES")
+                    .font(.custom("Urbanist", size: 10).weight(.bold))
+                    .tracking(1.4)
+                    .foregroundColor(DesignSystem.Palette.Semantic.warning)
+
+                Spacer()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(parsingWarnings.prefix(4).enumerated()), id: \.offset) { _, message in
+                    Text(message)
+                        .font(.custom("Urbanist", size: 12).weight(.medium))
+                        .foregroundColor(DesignSystem.Palette.Text.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if parsingWarnings.count > 4 {
+                    Text("+\(parsingWarnings.count - 4) more")
+                        .font(.custom("Urbanist", size: 12).weight(.medium))
+                        .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                }
+            }
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(DesignSystem.Palette.Background.elevated)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(DesignSystem.Palette.Semantic.warning.opacity(0.22), lineWidth: 1)
                 )
         )
     }

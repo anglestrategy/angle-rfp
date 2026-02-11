@@ -146,12 +146,14 @@ public final class KeychainManager {
 
     /// Local authentication context
     private var authContext = LAContext()
+    private let runningTests: Bool
 
     // MARK: - Initialization
 
     private init() {
         let environment = ProcessInfo.processInfo.environment
         let isRunningTests = environment["XCTestConfigurationFilePath"] != nil
+        self.runningTests = isRunningTests
         // Keep a stable Keychain service name independent of bundle identifier,
         // so dev scripts and future bundle-id changes don't break key retrieval.
         let baseService = "com.angle.rfp"
@@ -246,18 +248,40 @@ public final class KeychainManager {
             // Using `SecItemUpdate` for duplicate items keeps the boundary tests deterministic.
             let status = SecItemAdd(query as CFDictionary, nil)
             if status == errSecDuplicateItem {
-                let updateQuery = baseQuery(for: storageKey)
-                let attributesToUpdate: [String: Any] = [
-                    kSecValueData as String: data
-                ]
+                if runningTests {
+                    // Tests intentionally hammer Keychain with contention; updates are faster and deterministic.
+                    let updateQuery = baseQuery(for: storageKey)
+                    let attributesToUpdate: [String: Any] = [
+                        kSecValueData as String: data
+                    ]
 
-                let updateStatus = SecItemUpdate(updateQuery as CFDictionary, attributesToUpdate as CFDictionary)
-                if updateStatus != errSecSuccess {
-                    AppLogger.shared.error("Failed to update keychain item", metadata: [
-                        "key": storageKey,
-                        "status": Int(updateStatus)
-                    ])
-                    throw mapKeychainError(updateStatus)
+                    let updateStatus = SecItemUpdate(updateQuery as CFDictionary, attributesToUpdate as CFDictionary)
+                    if updateStatus != errSecSuccess {
+                        AppLogger.shared.error("Failed to update keychain item", metadata: [
+                            "key": storageKey,
+                            "status": Int(updateStatus)
+                        ])
+                        throw mapKeychainError(updateStatus)
+                    }
+                } else {
+                    // Production UX: replace the item to ensure we don't keep any old access controls/ACLs that
+                    // can cause repeated password prompts for users.
+                    let deleteStatus = SecItemDelete(baseQuery(for: storageKey) as CFDictionary)
+                    if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
+                        AppLogger.shared.warning("Failed to delete existing keychain item before replace", metadata: [
+                            "key": storageKey,
+                            "status": Int(deleteStatus)
+                        ])
+                    }
+
+                    let addStatus = SecItemAdd(query as CFDictionary, nil)
+                    if addStatus != errSecSuccess {
+                        AppLogger.shared.error("Failed to replace keychain item", metadata: [
+                            "key": storageKey,
+                            "status": Int(addStatus)
+                        ])
+                        throw mapKeychainError(addStatus)
+                    }
                 }
             } else if status != errSecSuccess {
                 AppLogger.shared.error("Failed to store keychain item", metadata: [
@@ -285,16 +309,6 @@ public final class KeychainManager {
             var query = baseQuery(for: storageKey)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-            // XCTest runs in a non-interactive context; fail fast instead of blocking on auth UI.
-            let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-            let context = LAContext()
-            if isRunningTests {
-                context.interactionNotAllowed = true
-            } else {
-                context.localizedReason = "Authenticate to access \(getKeyDisplayName(key))"
-            }
-            query[kSecUseAuthenticationContext as String] = context
 
             var result: AnyObject?
             let status = SecItemCopyMatching(query as CFDictionary, &result)

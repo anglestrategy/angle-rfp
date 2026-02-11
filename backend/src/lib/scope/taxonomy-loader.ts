@@ -8,7 +8,26 @@ export interface AgencyService {
   normalized: string;
 }
 
-const taxonomyPath = path.resolve(process.cwd(), "..", "agencyservicesheet.csv");
+const taxonomyCandidates = [
+  // Vercel/production: the CSV is vendored into the backend workspace root.
+  path.resolve(process.cwd(), "agencyservicesheet.csv"),
+  // Local/dev: allow monorepo root (one level above backend/) as a fallback.
+  path.resolve(process.cwd(), "..", "agencyservicesheet.csv")
+];
+
+async function resolveTaxonomyPath(): Promise<string> {
+  for (const candidate of taxonomyCandidates) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // continue
+    }
+  }
+
+  // Surface the most helpful error by using the first candidate path.
+  return taxonomyCandidates[0]!;
+}
 
 function normalize(text: string): string {
   return text
@@ -53,6 +72,7 @@ export async function loadAgencyTaxonomy(): Promise<AgencyService[]> {
     return cached;
   }
 
+  const taxonomyPath = await resolveTaxonomyPath();
   const raw = await fs.readFile(taxonomyPath, "utf8");
   const lines = raw.split(/\r?\n/).map((line) => line.trimEnd());
 
