@@ -2,6 +2,7 @@ services:
   - type: web
     name: angle-rfp-backend
     runtime: node
+    rootDir: backend
     buildCommand: npm install && npm run build
     startCommand: npm start
     envVars:
@@ -9,7 +10,9 @@ services:
         value: production
       - key: ANTHROPIC_API_KEY
         sync: false  # Set manually in Render dashboard
-      - key: BRAVE_API_KEY
+      - key: BACKEND_APP_TOKENS
+        sync: false  # Token(s) for iOS app authentication
+      - key: BRAVE_SEARCH_API_KEY
         sync: false
       - key: TAVILY_API_KEY
         sync: false
