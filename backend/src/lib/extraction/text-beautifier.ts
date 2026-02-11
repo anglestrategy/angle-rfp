@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { normalizeAnthropicError, resolveClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
 
 const BeautifiedTextSchema = z.object({
   formatted: z.string(),
@@ -68,17 +68,18 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     apiKey,
     timeout: 120000  // 2 minutes
   });
-  const model = resolveClaudeSonnetModel();
 
   try {
-    const response = await client.messages.create({
-      model,
-      max_tokens: 4000,
-      messages: [{
-        role: "user",
-        content: `${BEAUTIFY_PROMPT}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
-      }]
-    });
+    const response = await runWithClaudeSonnetModel((model) =>
+      client.messages.create({
+        model,
+        max_tokens: 4000,
+        messages: [{
+          role: "user",
+          content: `${BEAUTIFY_PROMPT}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
+        }]
+      })
+    );
 
     const textContent = response.content.find(block => block.type === "text");
     if (!textContent || textContent.type !== "text") {
@@ -96,11 +97,8 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     const parsed = JSON.parse(jsonText);
     return BeautifiedTextSchema.parse(parsed);
   } catch (error) {
-    const normalized = normalizeAnthropicError(error, {
-      model,
-      envVars: ["CLAUDE_MODEL_SONNET", "CLAUDE_MODEL"]
-    });
-    console.error(`Text beautification failed for ${fieldName}:`, normalized.message);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Text beautification failed for ${fieldName}:`, message);
     // Fallback: return with basic paragraph structure
     return {
       formatted: rawText,

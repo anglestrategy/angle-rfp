@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { normalizeAnthropicError, resolveClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
 
 // Schema for deliverables with source tagging
 const DeliverableSchema = z.union([
@@ -102,11 +102,8 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
 
   const truncatedText = rawText.slice(0, MAX_INPUT_CHARS);
 
-  const model = resolveClaudeSonnetModel();
-  let response: Awaited<ReturnType<typeof client.messages.create>>;
-
-  try {
-    response = await client.messages.create({
+  const response = await runWithClaudeSonnetModel((model) =>
+    client.messages.create({
       model,
       max_tokens: 8000,
       messages: [
@@ -115,13 +112,8 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
           content: EXTRACTION_PROMPT + truncatedText
         }
       ]
-    });
-  } catch (error: unknown) {
-    throw normalizeAnthropicError(error, {
-      model,
-      envVars: ["CLAUDE_MODEL_SONNET", "CLAUDE_MODEL"]
-    });
-  }
+    })
+  );
 
   const textContent = response.content.find((block) => block.type === "text");
   if (!textContent || textContent.type !== "text") {

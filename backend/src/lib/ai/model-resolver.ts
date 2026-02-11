@@ -3,8 +3,8 @@ const INVALID_MODEL_ALIASES = new Set([
   "claude-haiku-4-5-latest"
 ]);
 
-export const DEFAULT_CLAUDE_SONNET_MODEL = "claude-3-5-sonnet-20241022";
-export const DEFAULT_CLAUDE_HAIKU_MODEL = "claude-3-5-haiku-20241022";
+export const DEFAULT_CLAUDE_SONNET_MODEL = "claude-sonnet-4-5-20250929";
+export const DEFAULT_CLAUDE_HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 function normalizedEnvValue(value: string | undefined): string | null {
   if (!value) {
@@ -66,6 +66,42 @@ export function resolveClaudeHaikuModel(): string {
   );
 }
 
+function dedupe(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    output.push(value);
+  }
+  return output;
+}
+
+export function getClaudeSonnetModelCandidates(): string[] {
+  return dedupe([
+    resolveClaudeSonnetModel(),
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-20250514",
+    "claude-3-7-sonnet-20250219",
+    "claude-3-7-sonnet-latest",
+    "claude-3-5-sonnet-20241022"
+  ]);
+}
+
+export function getClaudeHaikuModelCandidates(): string[] {
+  return dedupe([
+    resolveClaudeHaikuModel(),
+    "claude-haiku-4-5-20251001",
+    "claude-haiku-4-5",
+    "claude-3-5-haiku-20241022",
+    "claude-3-5-haiku-latest",
+    "claude-3-haiku-20240307"
+  ]);
+}
+
 function asObject(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -120,6 +156,28 @@ function extractRequestId(error: unknown): string | null {
   return typeof requestId === "string" && requestId.length > 0 ? requestId : null;
 }
 
+function extractErrorType(error: unknown): string | null {
+  const object = asObject(error);
+  if (!object) {
+    return null;
+  }
+
+  const nestedError = asObject(object.error);
+  if (!nestedError) {
+    return null;
+  }
+
+  const type = nestedError.type;
+  return typeof type === "string" ? type : null;
+}
+
+function isModelNotFoundError(error: unknown): boolean {
+  const status = extractStatus(error);
+  const message = extractMessage(error);
+  const errorType = extractErrorType(error);
+  return status === 404 && (errorType === "not_found_error" || /not_found_error|model:/i.test(message));
+}
+
 export function normalizeAnthropicError(
   error: unknown,
   context: {
@@ -144,4 +202,63 @@ export function normalizeAnthropicError(
   }
 
   return new Error(message);
+}
+
+async function runWithModelFallback<T>(
+  models: string[],
+  envVars: string[],
+  run: (model: string) => Promise<T>
+): Promise<T> {
+  const attempted: string[] = [];
+  let lastModelNotFoundError: unknown;
+
+  for (const model of models) {
+    attempted.push(model);
+    try {
+      return await run(model);
+    } catch (error: unknown) {
+      if (isModelNotFoundError(error)) {
+        lastModelNotFoundError = error;
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            event: "anthropic_model_not_found",
+            model,
+            attempted,
+            envVars
+          })
+        );
+        continue;
+      }
+
+      throw normalizeAnthropicError(error, {
+        model,
+        envVars
+      });
+    }
+  }
+
+  const normalized = normalizeAnthropicError(lastModelNotFoundError, {
+    model: attempted[attempted.length - 1] ?? "unknown",
+    envVars
+  });
+  throw new Error(
+    `${normalized.message} Tried models: ${attempted.join(", ")}.`
+  );
+}
+
+export async function runWithClaudeSonnetModel<T>(run: (model: string) => Promise<T>): Promise<T> {
+  return runWithModelFallback(
+    getClaudeSonnetModelCandidates(),
+    ["CLAUDE_MODEL_SONNET", "CLAUDE_MODEL"],
+    run
+  );
+}
+
+export async function runWithClaudeHaikuModel<T>(run: (model: string) => Promise<T>): Promise<T> {
+  return runWithModelFallback(
+    getClaudeHaikuModelCandidates(),
+    ["CLAUDE_MODEL_HAIKU"],
+    run
+  );
 }

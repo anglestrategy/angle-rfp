@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   DEFAULT_CLAUDE_HAIKU_MODEL,
   DEFAULT_CLAUDE_SONNET_MODEL,
+  getClaudeSonnetModelCandidates,
   normalizeAnthropicError,
+  runWithClaudeSonnetModel,
   resolveClaudeHaikuModel,
   resolveClaudeSonnetModel
 } from "@/lib/ai/model-resolver";
@@ -42,6 +44,27 @@ describe("model resolver", () => {
 
     expect(resolveClaudeHaikuModel()).toBe(DEFAULT_CLAUDE_HAIKU_MODEL);
     expect(warnSpy).toHaveBeenCalledOnce();
+  });
+
+  test("falls back through model candidates when first model is unavailable", async () => {
+    process.env.CLAUDE_MODEL_SONNET = "claude-sonnet-4-5-20250929";
+    const candidates = getClaudeSonnetModelCandidates();
+    expect(candidates[0]).toBe("claude-sonnet-4-5-20250929");
+
+    const response = await runWithClaudeSonnetModel(async (model) => {
+      if (model === "claude-sonnet-4-5-20250929") {
+        throw {
+          status: 404,
+          error: {
+            type: "not_found_error",
+            message: "model: claude-sonnet-4-5-20250929"
+          }
+        };
+      }
+      return model;
+    });
+
+    expect(response).toBe("claude-sonnet-4-5");
   });
 });
 

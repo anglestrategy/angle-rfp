@@ -21,6 +21,11 @@ This folder contains the Next.js backend for angle/RFP.
 - `CLAUDE_MODEL_HAIKU`
 - Legacy `CLAUDE_MODEL` is supported only for sonnet paths.
 
+Default runtime candidates are:
+
+- Sonnet path: `claude-sonnet-4-5-20250929` -> `claude-sonnet-4-5` -> fallback list
+- Haiku path: `claude-haiku-4-5-20251001` -> `claude-haiku-4-5` -> fallback list
+
 Do not use deprecated aliases:
 
 - `claude-sonnet-4-5-latest`
