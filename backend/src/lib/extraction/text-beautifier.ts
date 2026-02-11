@@ -70,7 +70,7 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
 
   try {
     const response = await client.messages.create({
-      model: process.env.CLAUDE_MODEL || "claude-sonnet-4-5-20250929",
+      model: process.env.CLAUDE_MODEL || "claude-sonnet-4-5-latest",
       max_tokens: 4000,
       messages: [{
         role: "user",
