@@ -29,7 +29,8 @@ const ClaudeExtractedFieldsSchema = z.object({
     email: z.string().nullable().default(null),
     format: z.string().default("Unspecified"),
     physicalAddress: z.string().nullable().default(null),
-    copies: z.number().nullable().default(null)
+    // Handle both string and number from Claude (it sometimes returns "3" instead of 3)
+    copies: z.union([z.number(), z.string().transform(v => v ? parseInt(v, 10) : null)]).nullable().default(null)
   }).default({
     method: "Unknown",
     email: null,
