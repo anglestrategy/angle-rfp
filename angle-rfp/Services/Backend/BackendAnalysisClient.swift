@@ -69,7 +69,7 @@ final class BackendAnalysisClient {
         static let baseURLEnvKey = "BACKEND_BASE_URL"
         static let tokenEnvKey = "BACKEND_APP_TOKEN"
         /// Production backend base URL. This is safe to ship in the app; access is still gated by token.
-        static let productionBaseURL = "https://angle-rfp.vercel.app"
+        static let productionBaseURL = "https://angle-rfp.onrender.com"
         /// If set to "1", the app will upload the file to the backend `/api/parse-document`.
         /// Default is local parsing to avoid large uploads and reduce backend costs.
         static let useBackendParsingEnv = "ANGLE_USE_BACKEND_PARSING"
