@@ -84,6 +84,25 @@ struct ExtractedEvidenceV1: Codable {
     let excerpt: String
 }
 
+// MARK: - Beautified Text (AI-powered formatting from backend)
+
+struct TextSectionV1: Codable {
+    let type: String
+    let content: String
+    let items: [String]?
+}
+
+struct BeautifiedTextV1: Codable {
+    let formatted: String
+    let sections: [TextSectionV1]
+}
+
+struct BeautifiedFieldsV1: Codable {
+    let projectDescription: BeautifiedTextV1?
+    let scopeOfWork: BeautifiedTextV1?
+    let evaluationCriteria: BeautifiedTextV1?
+}
+
 struct ExtractedRFPDataV1Payload: Codable {
     let schemaVersion: String
     let analysisId: String
@@ -104,6 +123,7 @@ struct ExtractedRFPDataV1Payload: Codable {
     let completenessScore: Double
     let warnings: [String]
     let evidence: [ExtractedEvidenceV1]
+    let beautifiedText: BeautifiedFieldsV1?
 }
 
 struct ScopeMatchV1: Codable {

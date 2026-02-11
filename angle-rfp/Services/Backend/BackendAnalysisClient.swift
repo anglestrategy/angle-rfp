@@ -655,6 +655,9 @@ final class BackendAnalysisClient {
             formulaExplanation: "Deterministic 11-factor weighted model with red-flag and completeness penalties."
         )
 
+        // Map beautified text from backend if available
+        let beautifiedText = mapBeautifiedText(from: extracted.beautifiedText)
+
         return ExtractedRFPData(
             id: UUID(uuidString: extracted.analysisId) ?? UUID(),
             extractionDate: parseISODateTime(extracted.extractionDate),
@@ -675,12 +678,50 @@ final class BackendAnalysisClient {
                 )
             },
             submissionMethodRequirements: submissionDescription(from: extracted.submissionRequirements),
+            beautifiedText: beautifiedText,
             parsingWarnings: warnings.map {
                 AnalysisWarning(level: .warning, message: $0, isActionable: true)
             },
             completeness: extracted.completenessScore,
             confidenceScores: extracted.confidenceScores
         )
+    }
+
+    private func mapBeautifiedText(from payload: BeautifiedFieldsV1?) -> BeautifiedFields? {
+        guard let payload = payload else { return nil }
+
+        return BeautifiedFields(
+            projectDescription: mapBeautifiedTextItem(payload.projectDescription),
+            scopeOfWork: mapBeautifiedTextItem(payload.scopeOfWork),
+            evaluationCriteria: mapBeautifiedTextItem(payload.evaluationCriteria)
+        )
+    }
+
+    private func mapBeautifiedTextItem(_ item: BeautifiedTextV1?) -> BeautifiedText? {
+        guard let item = item else { return nil }
+
+        let sections = item.sections.map { section in
+            TextSection(
+                type: textSectionType(from: section.type),
+                content: section.content,
+                items: section.items
+            )
+        }
+
+        return BeautifiedText(formatted: item.formatted, sections: sections)
+    }
+
+    private func textSectionType(from value: String) -> TextSectionType {
+        switch value {
+        case "heading": return .heading
+        case "subheading": return .subheading
+        case "paragraph": return .paragraph
+        case "bullet_list": return .bulletList
+        case "numbered_list": return .numberedList
+        case "highlight": return .highlight
+        case "quote": return .quote
+        default: return .paragraph
+        }
     }
 
     private func mapClientInformation(from research: ClientResearchV1Payload) -> ClientInformation {

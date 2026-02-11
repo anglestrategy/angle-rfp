@@ -38,39 +38,38 @@ const MAX_INPUT_CHARS = 100_000;
 // Default timeout for Claude API requests (60 seconds)
 const API_TIMEOUT_MS = 60_000;
 
-const EXTRACTION_PROMPT = `You are an expert at extracting structured data from RFP (Request for Proposal) documents.
+const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Your job is to extract and CLEARLY STRUCTURE key information from RFP documents so busy executives can quickly understand what's being asked.
 
 Extract the following fields from this RFP document. Return ONLY valid JSON, no markdown or explanations.
 
 {
-  "clientName": "The issuing organization's name (the entity requesting proposals)",
+  "clientName": "The issuing organization's name",
   "projectName": "The project or RFP title",
-  "projectDescription": "2-3 sentence summary of what the project is about",
-  "scopeOfWork": "Full scope section content - the actual work requirements, NOT table of contents entries",
-  "evaluationCriteria": "How proposals will be evaluated, including criteria and weights if specified",
+  "projectDescription": "2-3 sentence executive summary of the project",
+  "scopeOfWork": "Well-structured scope with clear sections (see format below)",
+  "evaluationCriteria": "Well-structured criteria with weights (see format below)",
   "requiredDeliverables": ["list", "of", "specific", "deliverables"],
-  "importantDates": [
-    {
-      "title": "Description of the deadline",
-      "date": "YYYY-MM-DD",
-      "type": "submission_deadline|qa_deadline|presentation|other"
-    }
-  ],
-  "submissionRequirements": {
-    "method": "Email|Portal|Physical|Email + Physical",
-    "email": "email@example.com or null",
-    "format": "PDF|Word|Unspecified",
-    "physicalAddress": "Physical address if required, or null",
-    "copies": "Number of copies required, or null"
-  }
+  "importantDates": [{"title": "...", "date": "YYYY-MM-DD", "type": "submission_deadline|qa_deadline|presentation|other"}],
+  "submissionRequirements": {"method": "Email|Portal|Physical", "email": "...", "format": "PDF|Word", "physicalAddress": "...", "copies": null}
 }
 
-IMPORTANT EXTRACTION RULES:
-1. For clientName: Look for the organization ISSUING the RFP, not contractors/vendors. Common patterns: "Client:", "Issued by:", letterhead, or at the start of the document. For Arabic RFPs, look for "العميل" or organization names.
-2. For scopeOfWork: Extract the ACTUAL scope content describing work requirements. NEVER include table of contents entries like "Scope of Work...6". Look for sections describing tasks, responsibilities, and deliverables.
-3. For dates: Parse ANY date format to YYYY-MM-DD. Skip addresses that happen to contain numbers.
-4. For requiredDeliverables: Look for specific items to submit (proposal documents, CVs, case studies), not generic keywords.
-5. Skip page numbers, headers, footers, and navigation text.
+CRITICAL FORMATTING RULES FOR scopeOfWork AND evaluationCriteria:
+
+For scopeOfWork, structure it clearly with line breaks:
+"## Overview\\n[1-2 sentence summary of what the client needs]\\n\\n## Key Objectives\\n• [Objective 1]\\n• [Objective 2]\\n• [Objective 3]\\n\\n## Deliverables\\n1. [Deliverable 1]\\n2. [Deliverable 2]\\n3. [Deliverable 3]\\n\\n## Timeline\\n[Key timeline information]"
+
+For evaluationCriteria, structure it clearly:
+"## Evaluation Criteria\\n\\n**1. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**2. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**3. [Criteria Name] (XX%)**\\n[What they're looking for]"
+
+EXTRACTION RULES:
+1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".
+2. scopeOfWork: Extract ALL scope requirements but ORGANIZE them clearly. Don't copy raw text walls - structure with headings and bullets. Preserve all important details but make it scannable.
+3. evaluationCriteria: Extract ALL criteria with their weights. Organize by category if multiple exist.
+4. requiredDeliverables: Specific items to submit (proposals, CVs, samples), not generic terms.
+5. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
+6. Skip page numbers, headers, footers, table of contents entries.
+
+IMPORTANT: Your output should be READABLE and SCANNABLE - not raw text walls. Use headings (##), bullets (•), numbered lists (1.), and bold (**) to structure content clearly while preserving ALL important information from the original.
 
 RFP Document:
 `;

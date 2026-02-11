@@ -18,32 +18,30 @@ export interface BeautifiedFields {
   evaluationCriteria: BeautifiedText;
 }
 
-const BEAUTIFY_PROMPT = `You are a senior editorial design director at a prestigious creative agency. Your job is to transform raw, messy RFP text into beautifully structured, scannable content.
-
-Transform the following text into a clean, hierarchical structure. Think like you're designing a premium editorial layout:
-
-**Guidelines:**
-- Create clear visual hierarchy with headings and subheadings
-- Break dense paragraphs into digestible chunks
-- Convert lists buried in text into proper bullet points
-- Highlight key terms, numbers, and deadlines
-- Remove redundant words and tighten prose
-- Preserve all important information - don't omit details
-- Make it scannable - a busy executive should grasp key points in 5 seconds
+const BEAUTIFY_PROMPT = `You are a senior editorial designer. Transform the following text into beautifully structured, scannable sections.
 
 **Output JSON format:**
 {
-  "formatted": "A clean markdown version with ## headings, **bold**, bullet points",
+  "formatted": "Clean markdown with ## headings and **bold**",
   "sections": [
-    {
-      "type": "heading|subheading|paragraph|bullet_list|numbered_list|highlight|quote",
-      "content": "The text content",
-      "items": ["for lists only", "array of items"]
-    }
+    {"type": "heading", "content": "Section Title"},
+    {"type": "paragraph", "content": "Regular text paragraph"},
+    {"type": "bullet_list", "content": "List title", "items": ["Item 1", "Item 2"]},
+    {"type": "numbered_list", "content": "Steps", "items": ["Step 1", "Step 2"]},
+    {"type": "highlight", "content": "Important: Key deadline or requirement"},
+    {"type": "subheading", "content": "Subsection title"}
   ]
 }
 
-Raw text to beautify:
+**Rules:**
+- Parse any existing markdown (##, **, •, 1.) into appropriate section types
+- Break long paragraphs into digestible chunks
+- Create highlights for deadlines, percentages, and key requirements
+- Preserve ALL information - don't omit anything
+- Each section should be short and scannable (2-3 sentences max for paragraphs)
+- Use bullet_list for unordered items, numbered_list for sequential steps
+
+Text to structure:
 `;
 
 export async function beautifyText(rawText: string, fieldName: string): Promise<BeautifiedText> {
