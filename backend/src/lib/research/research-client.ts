@@ -30,6 +30,8 @@ interface ProviderSet {
   firecrawl?: typeof queryFirecrawl;
 }
 
+type ProviderName = "brave" | "tavily" | "firecrawl";
+
 const providerBreakers = {
   brave: new InMemoryCircuitBreaker(),
   tavily: new InMemoryCircuitBreaker(),
@@ -235,41 +237,68 @@ export async function researchClientInput(
 
   // Build research calls dynamically based on generated queries
   // Alternate between Brave (web search) and Tavily (deep research) for coverage
-  const researchCalls: Promise<{ docs: ProviderDocument[]; warning?: string }>[] = [];
+  const researchCalls: Array<{
+    provider: ProviderName;
+    promise: Promise<{ docs: ProviderDocument[]; warning?: string }>;
+  }> = [];
 
   // English queries - distribute across providers
   english.forEach((query, index) => {
-    const provider = index % 2 === 0 ? "brave" : "tavily";
+    const provider: ProviderName = index % 2 === 0 ? "brave" : "tavily";
     const fn = provider === "brave" ? p.brave : p.tavily;
-    researchCalls.push(callWithCircuit(provider, () => fn(query)));
+    researchCalls.push({
+      provider,
+      promise: callWithCircuit(provider, () => fn(query))
+    });
   });
 
   // Arabic queries - distribute across providers
   arabic.forEach((query, index) => {
-    const provider = index % 2 === 0 ? "brave" : "tavily";
+    const provider: ProviderName = index % 2 === 0 ? "brave" : "tavily";
     const fn = provider === "brave" ? p.brave : p.tavily;
-    researchCalls.push(callWithCircuit(provider, () => fn(query)));
+    researchCalls.push({
+      provider,
+      promise: callWithCircuit(provider, () => fn(query))
+    });
   });
 
   // Website crawl attempt (try common domain patterns)
   const cleanName = input.clientName.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
   researchCalls.push(
-    callWithCircuit("firecrawl", () => p.firecrawl(`https://www.${cleanName}.com`)),
-    callWithCircuit("firecrawl", () => p.firecrawl(`https://${cleanName}.sa`))
+    { provider: "firecrawl", promise: callWithCircuit("firecrawl", () => p.firecrawl(`https://www.${cleanName}.com`)) },
+    { provider: "firecrawl", promise: callWithCircuit("firecrawl", () => p.firecrawl(`https://${cleanName}.sa`)) }
   );
 
-  const settled = await Promise.allSettled(researchCalls);
+  const settled = await Promise.allSettled(researchCalls.map((item) => item.promise));
 
   const docs: ProviderDocument[] = [];
-  for (const result of settled) {
+  const providerStats: Record<ProviderName, { success: number; failure: number }> = {
+    brave: { success: 0, failure: 0 },
+    tavily: { success: 0, failure: 0 },
+    firecrawl: { success: 0, failure: 0 }
+  };
+
+  for (const [index, result] of settled.entries()) {
+    const provider = researchCalls[index]?.provider ?? "brave";
     if (result.status === "fulfilled") {
+      providerStats[provider].success += 1;
       docs.push(...result.value.docs);
       if (result.value.warning) {
         warnings.push(result.value.warning);
       }
     } else {
-      warnings.push(`Provider call failed: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`);
+      providerStats[provider].failure += 1;
     }
+  }
+
+  if (providerStats.brave.failure > 0 && providerStats.brave.success === 0) {
+    warnings.push("Brave search unavailable or rate-limited; continued with other sources.");
+  }
+  if (providerStats.tavily.failure > 0 && providerStats.tavily.success === 0) {
+    warnings.push("Tavily research unavailable for this run; continued with available sources.");
+  }
+  if (providerStats.firecrawl.failure > 0 && providerStats.firecrawl.success === 0) {
+    warnings.push("Website crawl source unavailable for this run; official-site evidence may be limited.");
   }
 
   if (docs.length === 0) {

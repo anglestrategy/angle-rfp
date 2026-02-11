@@ -270,7 +270,6 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
       sizePoints = 5;
     }
     sizeEvidence = "Employee count unavailable; inferred from budget indicators.";
-    warnings.push("Company size inferred from secondary indicators due missing employee estimate.");
   }
   factors.push(
     factorItem("companyBrandSize", "Company/Brand Size", sizePoints, [sizeEvidence])

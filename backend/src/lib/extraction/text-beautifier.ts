@@ -48,6 +48,30 @@ const BEAUTIFY_PROMPT = `You are a senior editorial designer. Transform the foll
 Text to structure:
 `;
 
+const SCOPE_BEAUTIFY_PROMPT = `You are editing "Scope of Work" for executive decision-making.
+
+Return JSON only in this format:
+{
+  "formatted": "markdown",
+  "sections": [
+    {"type": "heading|subheading|paragraph|bullet_list|numbered_list|highlight|quote", "content": "text", "items": ["..."]}
+  ]
+}
+
+STRICT RULES:
+- Keep it concise and decision-oriented (executive summary style).
+- Use this structure only:
+  1) Overview (1 short paragraph)
+  2) Core Scope Items (max 8 bullets)
+  3) Program Phases (High-Level, optional, max 6 bullets, titles only)
+- Do NOT include submission/admin/evaluation/bid-process details.
+- Do NOT dump full long phase descriptions.
+- Preserve meaning, reduce verbosity.
+- No markdown code fences. JSON only.
+
+Text to structure:
+`;
+
 export async function beautifyText(rawText: string, fieldName: string): Promise<BeautifiedText> {
   if (!rawText || rawText.trim().length < 20) {
     return {
@@ -71,13 +95,14 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
   });
 
   try {
+    const prompt = fieldName === "Scope of Work" ? SCOPE_BEAUTIFY_PROMPT : BEAUTIFY_PROMPT;
     const response = await runWithClaudeSonnetModel((model) =>
       client.messages.create({
         model,
         max_tokens: 4000,
         messages: [{
           role: "user",
-          content: `${BEAUTIFY_PROMPT}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
+          content: `${prompt}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
         }]
       })
     );

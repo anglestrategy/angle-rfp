@@ -320,35 +320,79 @@ function compactScopeForExecutiveSummary(scopeText: string): string {
     /موعد|شروط|معايير/
   ];
 
-  const conciseLines: string[] = [];
-  let bulletCount = 0;
+  const phaseHeadingPattern = /^(?:##\s*)?phase\s*\d+[:\s]/i;
+  const objectiveLikePattern = /(develop|design|create|build|launch|define|align|deliver|strategy|campaign|visual|content|research|brand|digital|social|implementation|execution|analysis|communication|localization|positioning|narrative|messaging|identity|إعداد|تطوير|تصميم|تنفيذ|إطلاق|إدارة|بحث|استراتيجية)/i;
+
+  let overviewText = "";
+  const coreItems: string[] = [];
+  const phaseTitles: string[] = [];
+  const seen = new Set<string>();
 
   for (const line of lines) {
     if (skipPatterns.some((pattern) => pattern.test(line))) {
       continue;
     }
 
-    const normalized = line.replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/u, "").trim();
+    const normalized = line
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/u, "")
+      .replace(/\*\*/g, "")
+      .trim();
+
     if (!normalized) {
       continue;
     }
 
-    const isHeading = /^#{1,6}\s*/.test(line) || /^(overview|key objectives|deliverables|timeline)$/i.test(normalized);
-    if (isHeading) {
-      conciseLines.push(line.startsWith("##") ? line : `## ${normalized}`);
+    const key = normalizeDedupeKey(normalized);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    if (phaseHeadingPattern.test(normalized)) {
+      phaseTitles.push(normalized.replace(/^phase\s*/i, "Phase ").replace(/\s+/g, " "));
       continue;
     }
 
-    if (bulletCount >= 18) {
+    if (!overviewText && normalized.length >= 60) {
+      overviewText = normalized;
       continue;
     }
 
-    const bulletized = /^[•\-*]/.test(line) || /^\d+[.)]/.test(line) ? line : `• ${normalized}`;
-    conciseLines.push(bulletized);
-    bulletCount += 1;
+    if (!objectiveLikePattern.test(normalized)) {
+      continue;
+    }
+
+    if (coreItems.length < 8) {
+      coreItems.push(normalized);
+    }
   }
 
-  const compacted = conciseLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  if (!overviewText) {
+    overviewText = coreItems[0] ?? lines[0] ?? "";
+  }
+
+  const output: string[] = [];
+  output.push("## Overview");
+  output.push(overviewText.slice(0, 420));
+
+  if (coreItems.length > 0) {
+    output.push("");
+    output.push("## Core Scope Items");
+    for (const item of coreItems) {
+      output.push(`• ${item}`);
+    }
+  }
+
+  if (phaseTitles.length > 0) {
+    output.push("");
+    output.push("## Program Phases (High-Level)");
+    for (const phase of phaseTitles.slice(0, 6)) {
+      output.push(`• ${phase}`);
+    }
+  }
+
+  const compacted = output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
   return compacted.length > 0 ? compacted : scopeText;
 }
 

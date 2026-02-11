@@ -108,7 +108,9 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     warnings.push("No granular scope items could be segmented from scope text.");
   }
 
-  if (matches.some((item) => item.class === "none")) {
+  const noneCount = matches.filter((item) => item.class === "none").length;
+  const noneRatio = matches.length > 0 ? noneCount / matches.length : 0;
+  if (noneCount >= 3 && noneRatio >= 0.4) {
     warnings.push("One or more scope items have no direct agency-service match.");
   }
 
