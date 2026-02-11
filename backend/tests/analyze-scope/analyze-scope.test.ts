@@ -115,4 +115,29 @@ describe("analyzeScopeInput", () => {
     expect(match).toBeDefined();
     expect(match.class).not.toBe("none");
   });
+
+  test("classifies market-research activities as out-of-scope", async () => {
+    clearTaxonomyCacheForTests();
+    const taxonomy = await loadAgencyTaxonomy();
+    const [tokenMatch] = matchScopeItems(
+      ["Conduct qualitative and quantitative market research using focus groups and benchmark studies"],
+      taxonomy
+    );
+
+    expect(tokenMatch).toBeDefined();
+    expect(tokenMatch.class).toBe("none");
+
+    const result = await analyzeScopeInput({
+      analysisId: "f7df722f-9968-4c17-980a-fcb53aaf56d1",
+      language: "english",
+      scopeOfWork: [
+        "Conduct qualitative and quantitative market research using focus groups and benchmark studies",
+        "Develop campaign strategy and localized messaging framework"
+      ].join("\n")
+    });
+
+    const marketMatch = result.matches.find((item) => /market research|focus groups|benchmark/i.test(item.scopeItem));
+    expect(marketMatch).toBeDefined();
+    expect(marketMatch?.class).toBe("none");
+  });
 });

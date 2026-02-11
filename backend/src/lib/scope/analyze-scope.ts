@@ -50,7 +50,8 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-const AGENCY_DOMAIN_HINT = /(brand|branding|campaign|marketing|communication|content|design|creative|media|narrative|strategy|launch|research|social|digital|production|messaging|identity|locali[sz]ation|positioning|insight|إبداع|تسويق|هوية|استراتيجية|محتوى|تصميم)/i;
+const AGENCY_DOMAIN_HINT = /(brand|branding|campaign|marketing|communication|content|design|creative|media|narrative|strategy|launch|social|digital|production|messaging|identity|locali[sz]ation|positioning|إبداع|تسويق|هوية|استراتيجية|محتوى|تصميم)/i;
+const MARKET_RESEARCH_OUT_OF_SCOPE_HINT = /(market research|consumer research|qualitative research|quantitative research|research methodologies?|focus groups?|benchmarks?|benchmarking|market mapping|competitive research|competitor analysis|cultural analysis|local insights?|أبحاث السوق|بحث السوق|مجموعات التركيز|بحث نوعي|بحث كمي|تحليل ثقافي)/i;
 
 function normalizeAgencyDomainMatch(match: {
   scopeItem: string;
@@ -65,6 +66,16 @@ function normalizeAgencyDomainMatch(match: {
   confidence: number;
   reasoning?: string;
 } {
+  if (MARKET_RESEARCH_OUT_OF_SCOPE_HINT.test(match.scopeItem)) {
+    return {
+      ...match,
+      service: "No direct match",
+      class: "none",
+      confidence: Math.min(match.confidence, 0.35),
+      reasoning: "Market research capability is outside configured agency scope."
+    };
+  }
+
   if (match.class !== "none") {
     return match;
   }

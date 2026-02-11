@@ -168,6 +168,20 @@ function normalizeDedupeKey(value: string): string {
     .trim();
 }
 
+function truncateAtWordBoundary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text;
+  }
+
+  const candidate = text.slice(0, maxChars + 1);
+  const lastSpace = candidate.lastIndexOf(" ");
+  const safeCut = lastSpace >= Math.floor(maxChars * 0.7)
+    ? candidate.slice(0, lastSpace)
+    : candidate.slice(0, maxChars);
+
+  return `${safeCut.trim().replace(/[,:;\-]+$/g, "").trim()}…`;
+}
+
 function normalizeStructuredText(input: string): string {
   const lines = input.split(/\r?\n/);
   const seen = new Set<string>();
@@ -211,6 +225,21 @@ function normalizeStructuredText(input: string): string {
   }
 
   return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function fallbackExecutiveSummarySeed(text: string): string {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^client\s*[:：-]/i.test(line))
+    .filter((line) => !/^project\s*(name)?\s*[:：-]/i.test(line))
+    .filter((line) => !/^scope of work$/i.test(line))
+    .filter((line) => !/^evaluation criteria$/i.test(line))
+    .filter((line) => !/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(line))
+    .slice(0, 8);
+
+  return lines.join(" ").replace(/\s+/g, " ").trim();
 }
 
 function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
@@ -414,15 +443,29 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
 }
 
 function normalizeExecutiveSummary(text: string): string {
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/gmu, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
   if (!clean) {
     return clean;
   }
 
-  // Keep concise: max two sentences and 360 chars.
+  // Keep concise but complete: prioritize sentence boundaries and avoid mid-word clipping.
   const sentences = clean.split(/(?<=[.!?؟])\s+/).filter(Boolean);
   const summary = sentences.slice(0, 2).join(" ").trim();
-  return (summary || clean).slice(0, 360).trim();
+
+  if (summary) {
+    return truncateAtWordBoundary(summary, 480);
+  }
+
+  const words = clean.split(/\s+/).slice(0, 80).join(" ").trim();
+  return truncateAtWordBoundary(words || clean, 480);
 }
 
 function dedupeImportantDates(
@@ -528,7 +571,7 @@ function mapClaudeToPass1Output(
     projectName: claude.projectName || "Untitled Project",
     projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
     projectDescription: normalizeExecutiveSummary(
-      normalizeStructuredText(claude.projectDescription || text.slice(0, 320).replace(/\s+/g, " ").trim())
+      normalizeStructuredText(claude.projectDescription || fallbackExecutiveSummarySeed(text))
     ),
     scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
     evaluationCriteria: normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found."),
@@ -586,7 +629,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   const importantDates = extractDates(text);
   const submissionRequirements = extractSubmission(text);
 
-  const projectDescription = text.slice(0, 320).replace(/\s+/g, " ").trim();
+  const projectDescription = fallbackExecutiveSummarySeed(text);
 
   const evidence: Array<{ field: string; page: number; excerpt: string }> = [
     {

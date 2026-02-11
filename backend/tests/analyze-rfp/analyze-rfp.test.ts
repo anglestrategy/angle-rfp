@@ -118,4 +118,35 @@ describe("analyzeRfpInput", () => {
     expect(result.missingInformation.length).toBeGreaterThan(0);
     expect(result.completenessScore).toBeLessThan(1);
   });
+
+  test("normalizes executive summary without markdown headers or mid-word clipping", async () => {
+    const longDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "## Executive Summary",
+        "Develop and implement a comprehensive brand localization strategy for Expo 2030 Riyadh that aligns the global brand with Saudi identity and cultural expression while creating a unified narrative across touchpoints, launch campaign strategy, visual system, and long-term brand stewardship for local audiences and stakeholders.",
+        "Scope of Work",
+        "Brand strategy development",
+        "Evaluation Criteria",
+        "Technical Approach 30%"
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: longDoc.analysisId,
+      parsedDocument: longDoc
+    });
+
+    expect(result.projectDescription).not.toContain("##");
+    expect(result.projectDescription.toLowerCase()).not.toContain("client:");
+    expect(result.projectDescription.length).toBeLessThanOrEqual(481);
+
+    const trimmed = result.projectDescription.trim();
+    const lastToken = trimmed.split(/\s+/).at(-1) ?? "";
+    if (!/[.!?؟…]$/.test(trimmed)) {
+      expect(lastToken.length).toBeGreaterThanOrEqual(2);
+    }
+  });
 });

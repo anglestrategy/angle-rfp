@@ -33,7 +33,6 @@ const AGENCY_DOMAIN_HINTS = [
   /narrative/i,
   /strategy/i,
   /launch/i,
-  /research/i,
   /social/i,
   /digital/i,
   /production/i,
@@ -41,7 +40,6 @@ const AGENCY_DOMAIN_HINTS = [
   /identity/i,
   /locali[sz]ation/i,
   /positioning/i,
-  /insight/i,
   /branding/i,
   /إبداع/,
   /تسويق/,
@@ -75,6 +73,28 @@ const OUT_OF_SCOPE_HINTS = [
   /أعمال إنشائية/,
   /خدمات قانونية/,
   /صيانة مباني/
+];
+
+const MARKET_RESEARCH_OUT_OF_SCOPE_HINTS = [
+  /market research/i,
+  /consumer research/i,
+  /qualitative research/i,
+  /quantitative research/i,
+  /research methodologies?/i,
+  /focus groups?/i,
+  /benchmarks?/i,
+  /benchmarking/i,
+  /market mapping/i,
+  /competitive research/i,
+  /competitor analysis/i,
+  /cultural analysis/i,
+  /local insights?/i,
+  /أبحاث السوق/i,
+  /بحث السوق/i,
+  /مجموعات التركيز/i,
+  /بحث نوعي/i,
+  /بحث كمي/i,
+  /تحليل ثقافي/i
 ];
 
 const NON_SCOPE_OPERATIONAL_HINTS = [
@@ -231,12 +251,17 @@ export function splitScopeItems(scopeOfWork: string): string[] {
 }
 
 function classifyMatch(scopeItem: string, service: AgencyService, score: number): ScopeMatch["class"] {
-  if (containsAny(scopeItem, OUT_OF_SCOPE_HINTS) && score < 0.45) {
+  const isExplicitOutOfScope =
+    containsAny(scopeItem, OUT_OF_SCOPE_HINTS) ||
+    containsAny(scopeItem, MARKET_RESEARCH_OUT_OF_SCOPE_HINTS);
+
+  if (isExplicitOutOfScope) {
     return "none";
   }
 
-  if (!containsAny(scopeItem, OUT_OF_SCOPE_HINTS) && score < 0.15) {
-    return "partial";
+  if (score < 0.15) {
+    const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
+    return hasAgencySignal ? "partial" : "none";
   }
 
   const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
@@ -254,6 +279,10 @@ function classifyMatch(scopeItem: string, service: AgencyService, score: number)
 
 export function matchScopeItems(scopeItems: string[], services: AgencyService[]): ScopeMatch[] {
   return scopeItems.map((scopeItem) => {
+    const isExplicitOutOfScope =
+      containsAny(scopeItem, OUT_OF_SCOPE_HINTS) ||
+      containsAny(scopeItem, MARKET_RESEARCH_OUT_OF_SCOPE_HINTS);
+
     const scopeTokens = tokenize(scopeItem);
     let bestService: AgencyService | null = null;
     let bestScore = 0;
@@ -268,6 +297,15 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
     }
 
     const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
+
+    if (isExplicitOutOfScope) {
+      return {
+        scopeItem,
+        service: "No direct match",
+        class: "none",
+        confidence: 0.2
+      };
+    }
 
     if (!bestService) {
       return {
