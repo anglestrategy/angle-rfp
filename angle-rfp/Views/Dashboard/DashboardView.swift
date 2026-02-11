@@ -127,7 +127,7 @@ struct DashboardView: View {
 
     private var financialSection: some View {
         DashboardSection("Financial Potential") {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 20) {
                 // AI recommendation
                 if let recommendation = data.financialPotential?.recommendation, !recommendation.isEmpty {
                     Text("\"\(recommendation)\"")
@@ -147,13 +147,10 @@ struct DashboardView: View {
                         )
                 }
 
-                // Factor bars (mock data for now - would come from FinancialPotential.factors)
-                FactorBarGroup(factors: [
-                    ("Budget", 85),
-                    ("Scope", 72),
-                    ("Client", 78),
-                    ("Timeline", 68)
-                ])
+                // All 11 scoring factors with evidence
+                if let factors = data.financialPotential?.factors, !factors.isEmpty {
+                    FinancialFactorsGrid(factors: factors)
+                }
 
                 // Formula explanation
                 if let explanation = data.financialPotential?.formulaExplanation, !explanation.isEmpty {
