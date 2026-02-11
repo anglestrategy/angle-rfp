@@ -1,5 +1,6 @@
 import { makeError } from "@/lib/api/errors";
 import { matchScopeItems, splitScopeItems } from "@/lib/scope/matcher";
+import { matchScopeWithClaude } from "@/lib/scope/claude-matcher";
 import { classifyOutputTypes, parseOutputQuantities } from "@/lib/scope/quantity-parser";
 import { loadAgencyTaxonomy, taxonomyVersionFromServices } from "@/lib/scope/taxonomy-loader";
 
@@ -19,6 +20,7 @@ export interface ScopeAnalysisV1 {
     service: string;
     class: "full" | "partial" | "none";
     confidence: number;
+    reasoning?: string;
   }>;
   agencyServicePercentage: number;
   outsourcingPercentage: number;
@@ -52,7 +54,23 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   }
 
   const scopeItems = splitScopeItems(input.scopeOfWork);
-  const matches = matchScopeItems(scopeItems, taxonomy);
+
+  // Try Claude-based semantic matching first, fall back to token matching
+  let matches: Array<{
+    scopeItem: string;
+    service: string;
+    class: "full" | "partial" | "none";
+    confidence: number;
+    reasoning?: string;
+  }>;
+
+  try {
+    const claudeMatches = await matchScopeWithClaude(scopeItems, taxonomy);
+    matches = claudeMatches;
+  } catch (error) {
+    console.error("Claude scope matching failed, using token fallback:", error);
+    matches = matchScopeItems(scopeItems, taxonomy);
+  }
 
   const fullCount = matches.filter((item) => item.class === "full").length;
   const partialCount = matches.filter((item) => item.class === "partial").length;

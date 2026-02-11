@@ -1,0 +1,120 @@
+import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import type { AgencyService } from "@/lib/scope/taxonomy-loader";
+
+const ScopeMatchSchema = z.object({
+  scopeItem: z.string(),
+  matchedService: z.string().nullable(),
+  matchClass: z.enum(["full", "partial", "none"]),
+  confidence: z.number().min(0).max(1),
+  reasoning: z.string()
+});
+
+const ClaudeMatchResponseSchema = z.object({
+  matches: z.array(ScopeMatchSchema)
+});
+
+export interface ClaudeScopeMatch {
+  scopeItem: string;
+  service: string;
+  class: "full" | "partial" | "none";
+  confidence: number;
+  reasoning: string;
+}
+
+export async function matchScopeWithClaude(
+  scopeItems: string[],
+  services: AgencyService[]
+): Promise<ClaudeScopeMatch[]> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+  }
+
+  const client = new Anthropic({
+    apiKey,
+    timeout: 60000
+  });
+
+  // Build the service taxonomy list
+  const serviceList = services.map(s => `- ${s.category}: ${s.service}`).join("\n");
+
+  const prompt = `You are an expert at matching RFP scope items to agency service capabilities.
+
+## Agency Service Taxonomy
+${serviceList}
+
+## Scope Items to Match
+${scopeItems.map((item, i) => `${i + 1}. ${item}`).join("\n")}
+
+## Instructions
+For each scope item, find the BEST matching service from the agency taxonomy. Use semantic understanding, not just keyword matching.
+
+**Match Classes:**
+- "full": The scope item is a core capability the agency offers (e.g., "brand strategy development" matches "Brand strategy")
+- "partial": The agency can do part of this or supervise it (e.g., "media buying campaign" matches "Media buying supervision")
+- "none": This is genuinely outside agency scope (e.g., "construction work", "legal services")
+
+**Important Matching Guidelines:**
+- "brand positioning and narrative" → matches "Brand strategy" (full)
+- "campaign strategies" → matches "Campaign strategy" (full)
+- "video production" → matches "Video Production Supervision" (partial - agency supervises, doesn't produce)
+- "local brand launch campaigns" → matches "Campaign strategy" (full)
+- "visual style and imagery" → matches "Main Key Visual Direction" or "Design" services (full)
+- "motion graphics assets" → matches "Design adaptations (Animatic)" or motion-related services (full)
+- "content calendar" → matches "Content Calendar/Strategy" (full)
+- "social media content" → matches "Social Media content" (full)
+
+Be generous with matching - if the scope item is related to marketing, branding, design, content, or creative work, there's likely a match.
+
+Return JSON only:
+{
+  "matches": [
+    {
+      "scopeItem": "exact scope item text",
+      "matchedService": "Matched Service Name" or null if none,
+      "matchClass": "full" | "partial" | "none",
+      "confidence": 0.0-1.0,
+      "reasoning": "Brief explanation of why this matches or doesn't"
+    }
+  ]
+}`;
+
+  const response = await client.messages.create({
+    model: process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514",
+    max_tokens: 4000,
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  const textContent = response.content.find(block => block.type === "text");
+  if (!textContent || textContent.type !== "text") {
+    throw new Error("No text response from Claude API");
+  }
+
+  let jsonText = textContent.text.trim();
+  if (jsonText.startsWith("```")) {
+    const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (match?.[1]) {
+      jsonText = match[1];
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText);
+    const validated = ClaudeMatchResponseSchema.parse(parsed);
+
+    return validated.matches.map(m => ({
+      scopeItem: m.scopeItem,
+      service: m.matchedService || "No direct match",
+      class: m.matchClass,
+      confidence: m.confidence,
+      reasoning: m.reasoning
+    }));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(`Claude match response validation failed: ${error.issues.map(e => e.message).join(", ")}`);
+    }
+    throw new Error(`Failed to parse Claude match response: ${error}`);
+  }
+}
