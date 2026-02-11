@@ -4,6 +4,7 @@ import { runPass2Verification } from "@/lib/extraction/passes/pass2-verify";
 import { runPass3RedFlags } from "@/lib/extraction/passes/pass3-redflags";
 import { runPass4Completeness } from "@/lib/extraction/passes/pass4-completeness";
 import { runPass5Conflicts } from "@/lib/extraction/passes/pass5-conflicts";
+import { beautifyExtractedFields, type BeautifiedText } from "@/lib/extraction/text-beautifier";
 
 export interface AnalyzeRfpInput {
   analysisId: string;
@@ -59,6 +60,12 @@ export interface ExtractedRfpDataV1 {
   warnings: string[];
   conflicts?: Array<{ field: string; candidates: string[]; resolution: string }>;
   evidence: Array<{ field: string; page: number; excerpt: string }>;
+  // Beautified text fields with structured sections for rich UI rendering
+  beautifiedText?: {
+    projectDescription: BeautifiedText;
+    scopeOfWork: BeautifiedText;
+    evaluationCriteria: BeautifiedText;
+  };
 }
 
 function clampScore(score: number): number {
@@ -98,6 +105,19 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   const pass4 = runPass4Completeness(input, pass1);
   const pass5 = runPass5Conflicts(input, pass1);
 
+  // Run text beautification in parallel for key content fields
+  let beautifiedText: ExtractedRfpDataV1["beautifiedText"];
+  try {
+    beautifiedText = await beautifyExtractedFields({
+      projectDescription: pass1.projectDescription,
+      scopeOfWork: pass1.scopeOfWork,
+      evaluationCriteria: pass1.evaluationCriteria
+    });
+  } catch (error) {
+    console.error("Text beautification failed:", error);
+    // Continue without beautified text - it's enhancement, not critical
+  }
+
   const mergedConfidence: Record<string, number> & { overall: number } = {
     ...pass1.confidenceScores,
     overall: clampScore(
@@ -127,7 +147,8 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     completenessScore: pass4.completenessScore,
     warnings: [...pass1.warnings, ...pass2.warnings, ...pass3.warnings, ...pass4.warnings, ...pass5.warnings],
     conflicts: pass5.conflicts,
-    evidence: pass1.evidence
+    evidence: pass1.evidence,
+    beautifiedText
   };
 
   ensureRequired(output);

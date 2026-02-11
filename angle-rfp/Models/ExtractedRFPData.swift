@@ -46,6 +46,9 @@ public struct ExtractedRFPData: Identifiable, Codable {
     /// 10. Submission Method/Requirements (how and where to submit)
     var submissionMethodRequirements: String?
 
+    /// AI-beautified text with structured sections for rich rendering
+    var beautifiedText: BeautifiedFields?
+
     // MARK: - Metadata
 
     /// Warnings from document parsing (e.g., "3 pages could not be parsed")
@@ -69,6 +72,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
          requiredDeliverables: [String]? = nil,
          importantDates: [ImportantDate]? = nil,
          submissionMethodRequirements: String? = nil,
+         beautifiedText: BeautifiedFields? = nil,
          parsingWarnings: [AnalysisWarning] = [],
          completeness: Double = 0.0,
          confidenceScores: [String: Double] = [:]) {
@@ -84,6 +88,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
         self.requiredDeliverables = requiredDeliverables
         self.importantDates = importantDates
         self.submissionMethodRequirements = submissionMethodRequirements
+        self.beautifiedText = beautifiedText
         self.parsingWarnings = parsingWarnings
         self.completeness = completeness
         self.confidenceScores = confidenceScores
@@ -299,4 +304,42 @@ public enum WarningLevel: String, Codable {
         case .critical: return "❌"
         }
     }
+}
+
+// MARK: - Beautified Text (AI-powered text formatting)
+
+/// Represents AI-beautified text with structured sections for rich rendering
+public struct BeautifiedText: Codable {
+    /// Markdown-formatted version of the text
+    let formatted: String
+
+    /// Structured sections for custom UI rendering
+    let sections: [TextSection]
+}
+
+/// A single section of beautified text with type-specific rendering
+public struct TextSection: Codable, Identifiable {
+    public var id: String { "\(type.rawValue)-\(content.prefix(20))" }
+
+    let type: TextSectionType
+    let content: String
+    let items: [String]?
+}
+
+/// Section types for applying different visual styles
+public enum TextSectionType: String, Codable {
+    case heading
+    case subheading
+    case paragraph
+    case bulletList = "bullet_list"
+    case numberedList = "numbered_list"
+    case highlight
+    case quote
+}
+
+/// Container for all beautified text fields from the API
+public struct BeautifiedFields: Codable {
+    let projectDescription: BeautifiedText?
+    let scopeOfWork: BeautifiedText?
+    let evaluationCriteria: BeautifiedText?
 }

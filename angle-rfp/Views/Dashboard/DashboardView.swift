@@ -87,7 +87,14 @@ struct DashboardView: View {
                     .font(.custom("Urbanist", size: 20).weight(.medium))
                     .foregroundColor(DesignSystem.Palette.Text.secondary)
 
-                if let description = data.projectDescription, !description.isEmpty {
+                // Use beautified project description if available
+                if let beautified = data.beautifiedText?.projectDescription, !beautified.sections.isEmpty {
+                    BeautifiedTextView(
+                        beautifiedText: beautified,
+                        fallbackText: nil
+                    )
+                    .padding(.top, 4)
+                } else if let description = data.projectDescription, !description.isEmpty {
                     Text(description)
                         .font(.custom("Urbanist", size: 15))
                         .foregroundColor(DesignSystem.Palette.Text.tertiary)
@@ -107,10 +114,11 @@ struct DashboardView: View {
     private func scopeSection(_ scope: String) -> some View {
         DashboardSection("Scope of Work") {
             VStack(alignment: .leading, spacing: 16) {
-                Text(scope)
-                    .font(.custom("Urbanist", size: 14))
-                    .foregroundColor(DesignSystem.Palette.Text.secondary)
-                    .lineSpacing(5)
+                // Use beautified text if available, otherwise fall back to raw text
+                BeautifiedTextView(
+                    beautifiedText: data.beautifiedText?.scopeOfWork,
+                    fallbackText: scope
+                )
 
                 if let analysis = data.scopeAnalysis {
                     ScopeBreakdown(
@@ -167,20 +175,22 @@ struct DashboardView: View {
 
     private func evaluationSection(_ criteria: String) -> some View {
         DashboardSection("Evaluation Criteria") {
-            Text(criteria)
-                .font(.custom("Urbanist", size: 14))
-                .foregroundColor(DesignSystem.Palette.Text.secondary)
-                .lineSpacing(5)
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(DesignSystem.Palette.Background.elevated)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color.white.opacity(0.04), lineWidth: 1)
-                        )
+            VStack(alignment: .leading) {
+                BeautifiedTextView(
+                    beautifiedText: data.beautifiedText?.evaluationCriteria,
+                    fallbackText: criteria
                 )
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(DesignSystem.Palette.Background.elevated)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.white.opacity(0.04), lineWidth: 1)
+                    )
+            )
         }
     }
 
