@@ -39,6 +39,7 @@ interface ProviderSet {
 }
 
 type ProviderName = RoutedProviderName;
+type AnalysisProfile = "high_assurance" | "balanced" | "fast";
 
 const providerBreakers = {
   brave: new InMemoryCircuitBreaker(),
@@ -46,6 +47,14 @@ const providerBreakers = {
   exa: new InMemoryCircuitBreaker(),
   firecrawl: new InMemoryCircuitBreaker()
 } as const;
+
+function resolvedAnalysisProfile(): AnalysisProfile {
+  const raw = process.env.ANALYSIS_PROFILE?.trim().toLowerCase();
+  if (raw === "fast" || raw === "balanced" || raw === "high_assurance") {
+    return raw;
+  }
+  return "high_assurance";
+}
 
 async function callWithCircuit(
   providerName: keyof typeof providerBreakers,
@@ -306,6 +315,22 @@ function p95(values: number[]): number {
   return sorted[index] ?? 0;
 }
 
+function dedupeProviderDocs(docs: ProviderDocument[]): ProviderDocument[] {
+  const seen = new Set<string>();
+  const output: ProviderDocument[] = [];
+
+  for (const doc of docs) {
+    const key = `${doc.source}|${doc.key}|${doc.value}`.toLowerCase().replace(/\s+/g, " ").trim();
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(doc);
+  }
+
+  return output;
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -372,6 +397,8 @@ export async function researchClientInput(
   const warnings: string[] = [];
 
   const runtimeStats = createProviderRuntimeStats();
+  const analysisProfile = resolvedAnalysisProfile();
+  const highAssurance = analysisProfile === "high_assurance";
   const docs: ProviderDocument[] = [];
 
   const retrievalFunctions: Record<"tavily" | "exa" | "brave", (query: string) => Promise<ProviderDocument[]>> = {
@@ -387,6 +414,8 @@ export async function researchClientInput(
 
   async function runQueryWithFailover(query: string): Promise<ProviderDocument[]> {
     const queryWarnings: string[] = [];
+    const providerDocs: ProviderDocument[] = [];
+    let successfulProviders = 0;
 
     for (const provider of retrievalOrder) {
       const startedAt = Date.now();
@@ -408,8 +437,12 @@ export async function researchClientInput(
         }
 
         if (result.docs.length > 0) {
-          warnings.push(...queryWarnings);
-          return result.docs;
+          providerDocs.push(...result.docs);
+          successfulProviders += 1;
+          if (!highAssurance || successfulProviders >= 2) {
+            warnings.push(...queryWarnings);
+            return dedupeProviderDocs(providerDocs);
+          }
         }
       } catch (error: unknown) {
         const latency = Date.now() - startedAt;
@@ -432,6 +465,14 @@ export async function researchClientInput(
       }
     }
 
+    if (providerDocs.length > 0) {
+      if (highAssurance) {
+        warnings.push(`High-assurance retrieval used limited provider diversity for query: ${query.slice(0, 80)}`);
+      }
+      warnings.push(...queryWarnings);
+      return dedupeProviderDocs(providerDocs);
+    }
+
     warnings.push(`All retrieval providers failed for query: ${query.slice(0, 80)}`);
     return [];
   }
@@ -440,6 +481,9 @@ export async function researchClientInput(
   for (const result of retrievalDocs) {
     docs.push(...result);
   }
+  const dedupedRetrievalDocs = dedupeProviderDocs(docs);
+  docs.length = 0;
+  docs.push(...dedupedRetrievalDocs);
 
   // Website crawl attempt (try common domain patterns) using firecrawl only.
   const cleanName = input.clientName.toLowerCase().replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");

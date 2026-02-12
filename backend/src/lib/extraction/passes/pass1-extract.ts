@@ -162,6 +162,7 @@ interface ScopedDeliverableLine {
   text: string;
   hint: DeliverableHeadingHint;
   explicit: boolean;
+  origin: "section" | "evaluation";
 }
 
 const DELIVERABLE_SECTION_START_PATTERNS = [
@@ -174,8 +175,6 @@ const DELIVERABLE_SECTION_START_PATTERNS = [
   /technical proposal/i,
   /commercial proposal/i,
   /financial proposal/i,
-  /evaluation criteria/i,
-  /project management\s*&?\s*deliverables?/i,
   /صيغة التقديم|متطلبات التقديم|متطلبات العرض|التسليمات|المخرجات|العرض الفني|العرض المالي|معايير التقييم/i
 ];
 
@@ -198,19 +197,35 @@ const DELIVERABLE_NOISE_PATTERNS = [
   /^page\s+\d+/i,
   /^\d{1,3}$/,
   /^(?:phase|program)\s+\d+/i,
+  /^section\s+\d+/i,
+  /^article\s+\d+/i,
   /\[vendor name\]/i,
-  /riyadh site at the heart/i
+  /riyadh site at the heart/i,
+  /^the technical proposals?\s+should\s+include\s+the\s+following\s+sections?/i,
+  /^the commercial proposals?\s+should\s+include\s+the\s+following\s+sections?/i
 ];
 
 const DELIVERABLE_CLAUSE_DROP_PATTERNS = [
   /accepts no liability/i,
   /shall not be responsible/i,
   /reserves the right/i,
+  /reserves the right to ultimately define/i,
   /if the vendor decides/i,
   /other information,?\s*if relevant/i,
   /for any costs incurred/i,
   /visionary concept of urban development/i,
-  /site at the heart of/i
+  /site at the heart of/i,
+  /no clarification.*shall be binding/i,
+  /shall not be binding or have any legal validity/i,
+  /referred to as ["“]?vendor["”]?/i,
+  /proposal documents will be submitted to/i,
+  /vendor to prepare and submit to the vendor/i,
+  /following sections?/i,
+  /following areas?/i,
+  /as stated in this rfp/i,
+  /on condition that such/i,
+  /all proposal documents/i,
+  /no vendor may add/i
 ];
 
 const DELIVERABLE_HINT_PATTERNS: Record<DeliverableHeadingHint, RegExp[]> = {
@@ -257,9 +272,13 @@ function cleanDeliverableRequirementText(raw: string): string {
     .replace(/\[\s*vendor name\s*\]/gi, "")
     .replace(/\s*\b(?:page|pg\.?)\s*\d+\b/gi, "")
     .replace(/\(\s*\d{1,3}\s*\)\s*$/g, "")
+    .replace(/\b(?:project team|team)\s+\d+\b/gi, "Project Team")
     .replace(/\s+[:\-]?\s*\d{1,3}\s*$/g, "")
-    .replace(/\bproject team\s*\d+\b/gi, "Project Team")
+    .replace(/\s+\d{1,2}\s*$/g, "")
     .replace(/\b(and|or|و)\s*$/i, "")
+    .replace(/^\s*(?:the\s+)?(?:following|below)\s+(?:sections?|areas?)\s*(?:within|in)?\s*(?:their\s+)?proposal\s*[:\-]?\s*/i, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/^(.{10,180}?)\s+\1$/i, "$1")
     .replace(/\s{2,}/g, " ")
     .trim();
 
@@ -268,6 +287,52 @@ function cleanDeliverableRequirementText(raw: string): string {
   }
 
   return cleaned;
+}
+
+const TECHNICAL_REQUIREMENT_SIGNALS = [
+  /technical proposal/i,
+  /methodology/i,
+  /approach/i,
+  /executive summary/i,
+  /credentials?/i,
+  /vendor profile/i,
+  /track record/i,
+  /references?/i,
+  /\bcv\b|resume/i,
+  /team composition/i,
+  /project management plan/i,
+  /risk management plan/i,
+  /communication.*framework/i,
+  /certificate/i,
+  /عرض فني|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الخبرات/
+];
+
+const COMMERCIAL_REQUIREMENT_SIGNALS = [
+  /commercial proposal/i,
+  /financial proposal/i,
+  /pricing|price|fees?|cost/i,
+  /payment terms?/i,
+  /encrypted file|password/i,
+  /tax|subtotal|grand total/i,
+  /quotation|quote/i,
+  /عرض مالي|مالي|تجاري|الدفع|ضريبة|تكلفة|سعر/
+];
+
+const STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS = [
+  /strategic planning/i,
+  /creativity/i,
+  /creative/i,
+  /campaign strategy/i,
+  /brand strategy/i,
+  /positioning/i,
+  /messaging framework/i,
+  /communication framework/i,
+  /creative direction/i,
+  /استراتيجي|إبداعي|الحملة|التموضع|الرسائل|الهوية/
+];
+
+function hasSignal(line: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(line));
 }
 
 function inferDeliverableHeadingHint(line: string): DeliverableHeadingHint | null {
@@ -309,7 +374,8 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
         out.push({
           text: normalized,
           hint: currentHint,
-          explicit: true
+          explicit: true,
+          origin: "section"
         });
         sectionLineCount += 1;
       }
@@ -339,7 +405,8 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
     out.push({
       text: normalized,
       hint: currentHint,
-      explicit
+      explicit,
+      origin: "section"
     });
     sectionLineCount += 1;
     if (sectionLineCount >= 100) {
@@ -561,13 +628,16 @@ function buildDeliverableRequirements(
     .split(/\r?\n/)
     .map(cleanDeliverableRequirementText)
     .filter((line) => line.length >= 14)
-    .filter((line) => /proposal|submission|deliverable|project management|certificate|credentials|cv|resume|payment|pricing|commercial|financial|technical|creative|strategy|عرض|تقديم|مطلوب|شهادة|سيرة|مالي|فني/i.test(line))
+    .filter((line) =>
+      hasSignal(line, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS)
+    )
     .map((line) => ({
       text: line,
-      hint: inferDeliverableHeadingHint(line) ?? "unknown",
-      explicit: REQUIREMENT_LINE_PATTERNS.explicit.test(line)
+      hint: "strategicCreative" as const,
+      explicit: false,
+      origin: "evaluation" as const
     }))
-    .slice(0, 80);
+    .slice(0, 40);
 
   const candidateLines = [...sectionLines, ...evaluationRequirementLines].slice(0, 260);
   for (const candidateLine of candidateLines) {
@@ -582,9 +652,11 @@ function buildDeliverableRequirements(
       }
 
       const category =
-        candidateLine.hint !== "unknown"
-          ? candidateLine.hint
-          : classifyDeliverableCategory(line);
+        candidateLine.origin === "evaluation"
+          ? "strategicCreative"
+          : candidateLine.hint !== "unknown"
+            ? candidateLine.hint
+            : classifyDeliverableCategory(line);
       if (!category) {
         continue;
       }
@@ -592,28 +664,43 @@ function buildDeliverableRequirements(
       const explicitSignal =
         candidateLine.explicit ||
         REQUIREMENT_LINE_PATTERNS.explicit.test(line) ||
-        /proposal|submission|deliverable|must|shall|required|should include|to include|submitted?|provide|عرض|تقديم|مطلوب|يجب/i.test(line);
+        /must|shall|required|should include|to include|submitted?|provide|عرض|تقديم|مطلوب|يجب/i.test(line);
 
-      const hasArtifactSignal =
-        /proposal|submission|deliverable|certificate|credentials|cv|resume|profile|references|methodology|approach|payment|pricing|quotation|plan|framework|عرض|تقديم|شهادة|سيرة|منهجية|ملف|الدفع|تسعير|خطة/i.test(line);
+      const strongSignal =
+        category === "technical"
+          ? hasSignal(line, TECHNICAL_REQUIREMENT_SIGNALS)
+          : category === "commercial"
+            ? hasSignal(line, COMMERCIAL_REQUIREMENT_SIGNALS)
+            : hasSignal(line, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS);
 
-      // Prevent strategic bucket contamination from generic brand/project prose.
+      if (!strongSignal && !explicitSignal) {
+        continue;
+      }
+
       if (
-        category === "strategicCreative" &&
-        !/(creative|campaign|concept|direction|positioning|messaging|strategic|strategy|brand localization|brand strategy|إبداع|حملة|استراتيجي|التموضع)/i.test(line)
+        candidateLine.origin === "section" &&
+        !explicitSignal &&
+        line.split(/\s+/).length < 8
       ) {
         continue;
       }
 
-      if (!explicitSignal && !hasArtifactSignal) {
+      if (category === "commercial" && !hasSignal(line, COMMERCIAL_REQUIREMENT_SIGNALS)) {
         continue;
       }
 
-      if (category !== "strategicCreative" && !hasArtifactSignal) {
+      if (category === "technical" && !hasSignal(line, TECHNICAL_REQUIREMENT_SIGNALS)) {
         continue;
       }
 
-      const source: "verbatim" | "inferred" = explicitSignal ? "verbatim" : "inferred";
+      if (category === "strategicCreative" && !hasSignal(line, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS)) {
+        continue;
+      }
+
+      const source: "verbatim" | "inferred" =
+        candidateLine.origin === "evaluation"
+          ? "inferred"
+          : (candidateLine.explicit || explicitSignal ? "verbatim" : "inferred");
       addItem(category, inferDeliverableTitle(line, category), line, source);
     }
   }

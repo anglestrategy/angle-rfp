@@ -77,6 +77,17 @@ export interface ExtractedRfpDataV1 {
   completenessScore: number;
   warnings: string[];
   qualityFlags: string[];
+  quality: {
+    status: "pass" | "review_required" | "blocked";
+    blocked: boolean;
+    blockReasons: string[];
+    evidenceDensity: number;
+    sectionScores: {
+      extraction: number;
+      scope: number;
+      evaluation: number;
+    };
+  };
   conflicts?: Array<{ field: string; candidates: string[]; resolution: string }>;
   evidence: Array<{ field: string; page: number; excerpt: string }>;
   // Beautified text fields with structured sections for rich UI rendering
@@ -89,6 +100,10 @@ export interface ExtractedRfpDataV1 {
 
 function clampScore(score: number): number {
   return Math.max(0, Math.min(1, score));
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function ensureRequired(output: ExtractedRfpDataV1): void {
@@ -166,6 +181,29 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     qualityFlags.add("critical_info_missing");
   }
 
+  const evidenceDensity = clampScore((pass1.evidence?.length ?? 0) / 7);
+  const sectionScores = {
+    extraction: round2(mergedConfidence.overall),
+    scope: round2(clampScore(pass1.confidenceScores.scopeOfWork ?? 0)),
+    evaluation: round2(clampScore(pass1.confidenceScores.evaluationCriteria ?? 0))
+  };
+  const blockReasons: string[] = [];
+  if (criticalMissing) {
+    blockReasons.push("Critical fields are missing or incomplete.");
+  }
+  if (evidenceDensity < 0.4) {
+    blockReasons.push("Evidence density is below minimum threshold.");
+  }
+  if (qualityFlags.has("conflicts_detected")) {
+    blockReasons.push("Conflicting extracted values require manual review.");
+  }
+  const blocked = blockReasons.length > 0;
+  const status: "pass" | "review_required" | "blocked" = blocked
+    ? "blocked"
+    : (qualityFlags.has("quality_degraded") || qualityFlags.has("low_evidence_density") || qualityFlags.has("incomplete_extraction"))
+      ? "review_required"
+      : "pass";
+
   const output: ExtractedRfpDataV1 = {
     schemaVersion: "1.0.0",
     analysisId: input.analysisId,
@@ -187,6 +225,13 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     completenessScore: pass4.completenessScore,
     warnings: [...pass1.warnings, ...pass2.warnings, ...pass3.warnings, ...pass4.warnings, ...pass5.warnings],
     qualityFlags: Array.from(qualityFlags),
+    quality: {
+      status,
+      blocked,
+      blockReasons,
+      evidenceDensity: round2(evidenceDensity),
+      sectionScores
+    },
     conflicts: pass5.conflicts,
     evidence: pass1.evidence,
     beautifiedText

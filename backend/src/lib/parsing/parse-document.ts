@@ -52,7 +52,18 @@ export interface ParsedDocumentV1 {
     used: boolean;
     pagesOcred: number;
   } | null;
+  parserProvenance?: string[];
   warnings: string[];
+}
+
+type AnalysisProfile = "high_assurance" | "balanced" | "fast";
+
+function resolvedAnalysisProfile(): AnalysisProfile {
+  const raw = process.env.ANALYSIS_PROFILE?.trim().toLowerCase();
+  if (raw === "fast" || raw === "balanced" || raw === "high_assurance") {
+    return raw;
+  }
+  return "high_assurance";
 }
 
 function detectFormat(fileName: string, mimeType: string): ParsedFormat {
@@ -98,9 +109,11 @@ function estimateParseConfidence(params: {
 }
 
 export async function parseDocumentInput(input: ParseDocumentInput): Promise<ParsedDocumentV1> {
+  const analysisProfile = resolvedAnalysisProfile();
   assertLimits(input.fileName, input.fileBytes);
   const detectedFormat = detectFormat(input.fileName, input.mimeType);
   const warnings: string[] = [];
+  const parserProvenance: string[] = [];
 
   let rawText = "";
   let pageCount = 1;
@@ -112,11 +125,13 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     rawText = result.text;
     warnings.push(...result.warnings);
     sourceType = "txt";
+    parserProvenance.push("txt_local");
   } else if (detectedFormat === "docx") {
     const result = await parseDocxBuffer(input.fileBytes);
     rawText = result.text;
     warnings.push(...result.warnings);
     sourceType = "docx";
+    parserProvenance.push("docx_local");
   } else {
     const result = parsePdfBuffer(input.fileBytes);
     rawText = result.text;
@@ -124,6 +139,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     warnings.push(...result.warnings);
     needsOcr = result.needsOcr;
     sourceType = "pdf_text";
+    parserProvenance.push("pdf_local");
 
     if (pageCount > MAX_PAGES) {
       throw makeError(413, "file_too_large", `PDF page count exceeds ${MAX_PAGES}`, "parse-document", {
@@ -153,10 +169,12 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
       used: true,
       pagesOcred: ocrResult.pagesOcred
     };
+    parserProvenance.push("ocr");
   }
 
   if (detectedFormat !== "txt" && process.env.UNSTRUCTURED_API_KEY) {
     const shouldUseUnstructured =
+      analysisProfile === "high_assurance" ||
       needsOcr ||
       rawText.length < 4000 ||
       warnings.some((warning) => /limited|no direct text extracted/i.test(warning));
@@ -169,10 +187,11 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
           mimeType: input.mimeType
         });
 
-        if (unstructured && unstructured.text.length > Math.max(rawText.length, 500)) {
+        if (unstructured && unstructured.text.length > Math.max(Math.floor(rawText.length * 0.75), 500)) {
           rawText = unstructured.text;
           sourceType = "unstructured";
         }
+        parserProvenance.push("unstructured");
 
         if (unstructured?.warnings.length) {
           warnings.push(...unstructured.warnings);
@@ -216,6 +235,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     evidenceMap,
     parseConfidence,
     ocrStats,
+    parserProvenance,
     warnings
   };
 }

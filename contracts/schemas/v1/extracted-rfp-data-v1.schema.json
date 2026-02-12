@@ -22,6 +22,7 @@
     "completenessScore",
     "warnings",
     "qualityFlags",
+    "quality",
     "evidence"
   ],
   "properties": {
@@ -132,6 +133,27 @@
     "completenessScore": { "type": "number", "minimum": 0, "maximum": 1 },
     "warnings": { "type": "array", "items": { "type": "string" } },
     "qualityFlags": { "type": "array", "items": { "type": "string" } },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "blocked", "blockReasons", "evidenceDensity", "sectionScores"],
+      "properties": {
+        "status": { "type": "string", "enum": ["pass", "review_required", "blocked"] },
+        "blocked": { "type": "boolean" },
+        "blockReasons": { "type": "array", "items": { "type": "string" } },
+        "evidenceDensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sectionScores": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["extraction", "scope", "evaluation"],
+          "properties": {
+            "extraction": { "type": "number", "minimum": 0, "maximum": 1 },
+            "scope": { "type": "number", "minimum": 0, "maximum": 1 },
+            "evaluation": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
     "conflicts": {
       "type": "array",
       "items": {

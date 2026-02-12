@@ -26,6 +26,7 @@
     }
   ],
   "parseConfidence": 0.93,
+  "parserProvenance": ["pdf_local", "ocr", "unstructured"],
   "ocrStats": {
     "used": true,
     "pagesOcred": 2

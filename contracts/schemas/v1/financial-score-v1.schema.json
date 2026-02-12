@@ -13,7 +13,8 @@
     "finalScore",
     "recommendationBand",
     "factorBreakdown",
-    "rationale"
+    "rationale",
+    "quality"
   ],
   "properties": {
     "schemaVersion": { "type": "string", "const": "1.0.0" },
@@ -43,6 +44,27 @@
         }
       }
     },
-    "rationale": { "type": "string", "minLength": 1 }
+    "rationale": { "type": "string", "minLength": 1 },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "blocked", "blockReasons", "evidenceDensity", "sectionScores"],
+      "properties": {
+        "status": { "type": "string", "enum": ["pass", "review_required", "blocked"] },
+        "blocked": { "type": "boolean" },
+        "blockReasons": { "type": "array", "items": { "type": "string" } },
+        "evidenceDensity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sectionScores": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["extraction", "scope", "research"],
+          "properties": {
+            "extraction": { "type": "number", "minimum": 0, "maximum": 1 },
+            "scope": { "type": "number", "minimum": 0, "maximum": 1 },
+            "research": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    }
   }
 }

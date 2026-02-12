@@ -44,6 +44,8 @@ describe("analyzeRfpInput", () => {
     expect(result.deliverableRequirements?.technical.length).toBeGreaterThan(0);
     expect(result.deliverableRequirements?.commercial.length).toBeGreaterThan(0);
     expect(result.importantDates.length).toBeGreaterThan(0);
+    expect(result.quality).toBeDefined();
+    expect(typeof result.quality.evidenceDensity).toBe("number");
   });
 
   test("extracts scope and evaluation content", async () => {
@@ -209,6 +211,8 @@ describe("analyzeRfpInput", () => {
 
     expect(result.missingInformation.length).toBeGreaterThan(0);
     expect(result.completenessScore).toBeLessThan(1);
+    expect(result.quality.blocked).toBe(true);
+    expect(result.quality.blockReasons.length).toBeGreaterThan(0);
   });
 
   test("normalizes executive summary without markdown headers or mid-word clipping", async () => {

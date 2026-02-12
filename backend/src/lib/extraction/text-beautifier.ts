@@ -142,6 +142,17 @@ function normalizeBulletItem(item: string): string {
     .trim();
 }
 
+function truncateAtWordBoundary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) {
+    return text.trim();
+  }
+
+  const candidate = text.slice(0, maxChars + 1);
+  const lastSpace = candidate.lastIndexOf(" ");
+  const cut = lastSpace >= Math.floor(maxChars * 0.7) ? candidate.slice(0, lastSpace) : candidate.slice(0, maxChars);
+  return `${cut.trim().replace(/[,:;\-]+$/g, "").trim()}…`;
+}
+
 function dedupeItems(items: string[]): string[] {
   const seen = new Set<string>();
   const output: string[] = [];
@@ -210,7 +221,7 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
 
   const sections: BeautifiedText["sections"] = [];
   if (firstParagraph) {
-    sections.push({ type: "paragraph", content: firstParagraph, items: undefined });
+    sections.push({ type: "paragraph", content: truncateAtWordBoundary(firstParagraph, 460), items: undefined });
   }
 
   sections.push({
@@ -223,18 +234,18 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
     sections.push({
       type: "bullet_list",
       content: "Key Objective",
-      items: keyObjectiveBullets
+      items: keyObjectiveBullets.map((item) => truncateAtWordBoundary(item, 140))
     });
   } else if (keyObjectiveParagraph) {
     sections.push({
       type: "paragraph",
-      content: keyObjectiveParagraph,
+      content: truncateAtWordBoundary(keyObjectiveParagraph, 240),
       items: undefined
     });
   } else if (keyObjectiveSection.content && !/key objective/i.test(keyObjectiveSection.content)) {
     sections.push({
       type: "paragraph",
-      content: keyObjectiveSection.content,
+      content: truncateAtWordBoundary(keyObjectiveSection.content, 240),
       items: undefined
     });
   }
@@ -242,7 +253,7 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
   const formatted = sections
     .map((section) => {
       if (section.type === "subheading") {
-        return `## ${section.content}`;
+        return `${section.content}:`;
       }
       if (section.type === "bullet_list" || section.type === "numbered_list") {
         const items = (section.items ?? []).map((item) => `• ${item}`).join("\n");
@@ -330,41 +341,67 @@ function normalizeEvaluationCriteriaStructure(result: BeautifiedText): Beautifie
     };
   }
 
-  const outputLines: string[] = [];
-  let previousWasNumberedHeading = false;
+  const grouped: Array<{ heading: string; bullets: string[] }> = [];
+  let current: { heading: string; bullets: string[] } | null = null;
 
   for (const rawLine of normalizedLines) {
-    let line = rawLine.replace(/^(\d+)[)\-]\s+/, "$1. ");
+    const line = rawLine.replace(/^(\d+)[)\-]\s+/, "$1. ");
 
     if (/^\d+\.\s/.test(line)) {
-      previousWasNumberedHeading = true;
-      outputLines.push(line);
+      if (current) {
+        grouped.push(current);
+      }
+      current = { heading: line, bullets: [] };
       continue;
     }
 
-    if (previousWasNumberedHeading) {
-      previousWasNumberedHeading = false;
-      outputLines.push(line);
+    const normalized = line.replace(/^\s*(?:[-*•▪‣●])\s+/u, "").trim();
+    if (!normalized) {
       continue;
     }
 
-    if (/^\s*(?:[-*•▪‣●])\s+/u.test(line)) {
-      outputLines.push(line.replace(/^\s*(?:[-*•▪‣●])\s+/u, "• "));
-      continue;
+    if (!current) {
+      current = {
+        heading: "1. Evaluation Criteria",
+        bullets: []
+      };
     }
+    current.bullets.push(truncateAtWordBoundary(normalized, 220));
+  }
 
-    outputLines.push(`• ${line}`);
+  if (current) {
+    grouped.push(current);
+  }
+
+  const compact = grouped
+    .map((group) => ({
+      heading: truncateAtWordBoundary(group.heading, 120),
+      bullets: dedupeItems(group.bullets).slice(0, 6)
+    }))
+    .filter((group) => group.heading.length > 0);
+
+  if (compact.length === 0) {
+    return {
+      formatted: "Evaluation criteria not explicitly found.",
+      sections: [{ type: "paragraph", content: "Evaluation criteria not explicitly found." }]
+    };
+  }
+
+  const outputLines: string[] = [];
+  for (const group of compact) {
+    outputLines.push(group.heading);
+    for (const bullet of group.bullets) {
+      outputLines.push(`• ${bullet}`);
+    }
+    outputLines.push("");
   }
 
   return {
-    formatted: outputLines.join("\n"),
-    sections: [
-      {
-        type: "bullet_list",
-        content: "Criteria",
-        items: outputLines.map((line) => line.replace(/^•\s+/, ""))
-      }
-    ]
+    formatted: outputLines.join("\n").trim(),
+    sections: compact.flatMap((group) => ([
+      { type: "subheading" as const, content: group.heading, items: undefined },
+      { type: "bullet_list" as const, content: "Criteria details", items: group.bullets }
+    ]))
   };
 }
 

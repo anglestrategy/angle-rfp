@@ -56,6 +56,17 @@
     "completenessScore": 0.9,
     "warnings": [],
     "qualityFlags": [],
+    "quality": {
+      "status": "review_required",
+      "blocked": false,
+      "blockReasons": [],
+      "evidenceDensity": 0.71,
+      "sectionScores": {
+        "extraction": 0.83,
+        "scope": 0.79,
+        "evaluation": 0.76
+      }
+    },
     "evidence": [
       { "field": "scopeOfWork", "page": 3, "excerpt": "Scope section" }
     ]
@@ -66,6 +77,7 @@
     "taxonomyVersion": "sha256:fixture",
     "scopeItems": ["Brand strategy"],
     "unclassifiedItems": [],
+    "uncertainItems": [],
     "matches": [
       {
         "scopeItem": "Brand strategy",
@@ -191,7 +203,18 @@
         "identified": true
       }
     ],
-    "rationale": "Strong fit with manageable risks."
+    "rationale": "Strong fit with manageable risks.",
+    "quality": {
+      "status": "review_required",
+      "blocked": false,
+      "blockReasons": [],
+      "evidenceDensity": 0.71,
+      "sectionScores": {
+        "extraction": 0.79,
+        "scope": 0.74,
+        "research": 0.69
+      }
+    }
   },
   "warnings": [],
   "generatedAt": "2026-02-10T12:05:00Z"

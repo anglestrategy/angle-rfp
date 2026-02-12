@@ -61,7 +61,7 @@ Current canonical errors:
 
 Source: `/Users/Faisal/Documents/New project/angle-rfp/backend/src/lib/api/errors.ts`
 
-Planned additive quality codes:
+Quality-related codes:
 1. `quality_degraded`
 2. `insufficient_evidence`
 3. `cross_model_disagreement`
@@ -151,9 +151,10 @@ Runtime behavior:
 4. deterministic fallback matching
 5. percentage and output quantity/type calculations
 
-Planned additive fields:
+Implemented fields:
 1. `unclassifiedItems[]`
-2. `matches[].class` may include `uncertain`
+2. `uncertainItems[]`
+3. `matches[].class` includes `uncertain`
 
 ### 3.6 POST `/api/research-client`
 Purpose:
@@ -193,8 +194,19 @@ Input:
 Output:
 1. `FinancialScoreV1`
 
-Planned additive fields:
-1. `factors[].status = scored|na|insufficient_evidence`
+Implemented fields:
+1. `factorBreakdown[].status = scored|na|insufficient_evidence`
+2. `quality` object with fail-closed state:
+   1. `status`
+   2. `blocked`
+   3. `blockReasons`
+   4. `evidenceDensity`
+   5. `sectionScores`
+
+Fail-closed runtime behavior:
+1. If quality gate is blocked, recommendation is forced to `LOW`.
+2. `finalScore` is capped at `<=49`.
+3. Blocking reasons are appended to warnings.
 
 ### 3.8 POST `/api/export`
 Purpose:

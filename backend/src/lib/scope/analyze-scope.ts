@@ -22,6 +22,7 @@ export interface ScopeAnalysisV1 {
   taxonomyVersion: string;
   scopeItems: string[];
   unclassifiedItems: string[];
+  uncertainItems: string[];
   matches: Array<{
     scopeItem: string;
     service: string;
@@ -174,6 +175,8 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
 
   if (marketResearchPolicy.source === "env_override" && !marketResearchSupported) {
     warnings.push("Market research capability is disabled by profile policy (AGENCY_SUPPORTS_MARKET_RESEARCH=false).");
+  } else if (marketResearchPolicy.source === "profile") {
+    warnings.push(`Capability profile in use: ${marketResearchPolicy.profile}.`);
   }
 
   const fullCount = matches.filter((item) => item.class === "full").length;
@@ -210,6 +213,7 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     taxonomyVersion: taxonomyVersionFromServices(taxonomy),
     scopeItems,
     unclassifiedItems,
+    uncertainItems: unclassifiedItems,
     matches,
     agencyServicePercentage,
     outsourcingPercentage,

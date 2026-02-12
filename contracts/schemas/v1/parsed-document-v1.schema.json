@@ -80,6 +80,13 @@
       }
     },
     "parseConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "parserProvenance": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["pdf_local", "docx_local", "txt_local", "ocr", "unstructured"]
+      }
+    },
     "warnings": {
       "type": "array",
       "items": { "type": "string" }

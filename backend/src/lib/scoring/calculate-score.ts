@@ -1,12 +1,16 @@
 import { makeError } from "@/lib/api/errors";
 import { buildFactorBreakdown, type FactorBreakdownItem } from "@/lib/scoring/factors";
 import { computeCompletenessPenalty, computeRedFlagPenalty } from "@/lib/scoring/penalties";
+import { evaluateQualityGate, type QualityAssessment } from "@/lib/quality/quality-gates";
 
 interface ExtractedRfpLike {
   schemaVersion?: string;
   analysisId?: string;
   redFlags?: Array<{ severity?: string }>;
   completenessScore?: number;
+  qualityFlags?: string[];
+  missingInformation?: Array<{ field?: string; suggestedQuestion?: string }>;
+  evidence?: Array<{ field?: string }>;
   requiredDeliverables?: Array<string | { item?: string }>;
   importantDates?: Array<{ date?: string }>;
 }
@@ -14,6 +18,9 @@ interface ExtractedRfpLike {
 interface ScopeAnalysisLike {
   schemaVersion?: string;
   analysisId?: string;
+  warnings?: string[];
+  unclassifiedItems?: string[];
+  matches?: Array<{ class?: string }>;
   agencyServicePercentage?: number;
   outputQuantities?: {
     videoProduction?: number | null;
@@ -27,6 +34,7 @@ interface ScopeAnalysisLike {
 interface ClientResearchLike {
   schemaVersion?: string;
   analysisId?: string;
+  warnings?: string[];
   companyProfile?: Record<string, unknown> & { entityType?: string };
   financialIndicators?: Record<string, unknown> & { marketingBudgetIndicator?: string };
   digitalPresence?: Record<string, unknown> & { bilingual?: boolean; confidence?: number };
@@ -51,6 +59,7 @@ export interface FinancialScoreV1 {
   recommendationBand: "EXCELLENT" | "GOOD" | "MODERATE" | "LOW";
   factorBreakdown: FactorBreakdownItem[];
   rationale: string;
+  quality: QualityAssessment;
 }
 
 export interface CalculateScoreResult {
@@ -131,13 +140,32 @@ export async function calculateScoreInput(input: CalculateScoreInput): Promise<C
   const redFlagPenalty = computeRedFlagPenalty(input.extractedRfp.redFlags);
   const completenessPenalty = computeCompletenessPenalty(input.extractedRfp.completenessScore);
   const baseScore = roundToTwo(clamp(factorResult.baseScore, 0, 100));
-  const finalScore = roundToTwo(clamp(baseScore - redFlagPenalty - completenessPenalty, 0, 100));
-  const recommendationBand = recommendationBandForScore(finalScore);
+  const preGateFinalScore = roundToTwo(clamp(baseScore - redFlagPenalty - completenessPenalty, 0, 100));
+  const quality = evaluateQualityGate({
+    extractedRfp: input.extractedRfp,
+    scopeAnalysis: input.scopeAnalysis,
+    clientResearch: input.clientResearch
+  });
+
+  let finalScore = preGateFinalScore;
+  let recommendationBand = recommendationBandForScore(finalScore);
 
   const warnings = [...factorResult.warnings];
   if (input.extractedRfp.completenessScore === undefined) {
     warnings.push("completenessScore missing; maximum completeness penalty applied.");
   }
+
+  if (quality.blocked) {
+    finalScore = Math.min(finalScore, 49);
+    recommendationBand = "LOW";
+    for (const reason of quality.blockReasons) {
+      warnings.push(`quality_gate_blocked: ${reason}`);
+    }
+  }
+
+  const rationale = quality.blocked
+    ? `Automatic recommendation blocked pending manual review. ${quality.blockReasons.join(" ")}`
+    : rationaleForBand(recommendationBand, factorResult.factors, warnings);
 
   const score: FinancialScoreV1 = {
     schemaVersion: "1.0.0",
@@ -148,7 +176,8 @@ export async function calculateScoreInput(input: CalculateScoreInput): Promise<C
     finalScore,
     recommendationBand,
     factorBreakdown: factorResult.factors,
-    rationale: rationaleForBand(recommendationBand, factorResult.factors, warnings)
+    rationale,
+    quality
   };
 
   return {

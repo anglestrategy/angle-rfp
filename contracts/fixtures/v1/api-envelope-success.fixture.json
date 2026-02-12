@@ -24,7 +24,18 @@
         "identified": true
       }
     ],
-    "rationale": "Strong fit with manageable risks."
+    "rationale": "Strong fit with manageable risks.",
+    "quality": {
+      "status": "review_required",
+      "blocked": false,
+      "blockReasons": [],
+      "evidenceDensity": 0.71,
+      "sectionScores": {
+        "extraction": 0.79,
+        "scope": 0.74,
+        "research": 0.69
+      }
+    }
   },
   "error": null
 }

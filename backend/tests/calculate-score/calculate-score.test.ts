@@ -120,4 +120,40 @@ describe("calculateScoreInput", () => {
     expect(holdingFactor?.score).toBe(0);
     expect(holdingFactor?.status).toBe("na");
   });
+
+  test("fails closed when quality gate blocks recommendation", async () => {
+    const result = await calculateScoreInput({
+      ...baseInput,
+      extractedRfp: {
+        ...baseInput.extractedRfp,
+        qualityFlags: ["critical_info_missing"],
+        missingInformation: [{ field: "submission deadline" }],
+        requiredDeliverables: [],
+        importantDates: [],
+        evidence: [{ field: "projectName" }]
+      },
+      scopeAnalysis: {
+        ...baseInput.scopeAnalysis,
+        matches: [{ class: "uncertain" }, { class: "uncertain" }],
+        unclassifiedItems: ["Ambiguous requirement"]
+      },
+      clientResearch: {
+        ...baseInput.clientResearch,
+        confidence: 0.2,
+        researchMetadata: {
+          sourcesUsed: 1,
+          providerStats: [
+            { finalStatus: "failed" },
+            { finalStatus: "failed" },
+            { finalStatus: "failed" }
+          ]
+        }
+      }
+    });
+
+    expect(result.score.quality.blocked).toBe(true);
+    expect(result.score.finalScore).toBeLessThanOrEqual(49);
+    expect(result.score.recommendationBand).toBe("LOW");
+    expect(result.warnings.some((warning) => warning.startsWith("quality_gate_blocked:"))).toBe(true);
+  });
 });

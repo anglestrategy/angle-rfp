@@ -4,6 +4,7 @@
   "taxonomyVersion": "sha256:fixture",
   "scopeItems": ["Brand strategy", "Media buying supervision"],
   "unclassifiedItems": [],
+  "uncertainItems": [],
   "matches": [
     {
       "scopeItem": "Brand strategy",

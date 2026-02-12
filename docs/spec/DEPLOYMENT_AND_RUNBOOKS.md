@@ -39,11 +39,15 @@ Deployment metadata requirement:
 4. `AZURE_DOCINT_KEY`
 5. `CLAUDE_MODEL_SONNET`
 6. `CLAUDE_MODEL_HAIKU`
+7. `ANALYSIS_PROFILE` (`high_assurance|balanced|fast`, default `high_assurance`)
+8. `AGENCY_CAPABILITY_PROFILE` (`angle-agency|default|full-service`)
+9. `AGENCY_SUPPORTS_MARKET_RESEARCH` (`true|false`, explicit override)
 
 ### 3.4 Guardrail Policy
 1. Do not set deprecated model aliases.
 2. Remove legacy `CLAUDE_MODEL` overrides unless intentionally mapped.
 3. Keep tokens rotated and scoped to environment.
+4. Keep `ANALYSIS_PROFILE=high_assurance` in production unless explicitly testing throughput tradeoffs.
 
 ## 4. Pre-Deploy Verification
 Run from repo root:

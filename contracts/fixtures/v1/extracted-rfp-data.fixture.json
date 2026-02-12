@@ -71,6 +71,17 @@
   "completenessScore": 0.88,
   "warnings": ["Budget not explicitly stated"],
   "qualityFlags": ["conflicts_detected"],
+  "quality": {
+    "status": "review_required",
+    "blocked": false,
+    "blockReasons": [],
+    "evidenceDensity": 0.71,
+    "sectionScores": {
+      "extraction": 0.83,
+      "scope": 0.79,
+      "evaluation": 0.76
+    }
+  },
   "conflicts": [
     {
       "field": "submission_deadline",
