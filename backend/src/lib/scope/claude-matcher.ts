@@ -7,7 +7,7 @@ import { parseJsonFromModelText } from "@/lib/ai/json-response";
 const ScopeMatchSchema = z.object({
   scopeItem: z.string(),
   matchedService: z.string().nullable(),
-  matchClass: z.enum(["full", "partial", "none"]),
+  matchClass: z.enum(["full", "partial", "none", "uncertain"]),
   confidence: z.number().min(0).max(1),
   reasoning: z.string().optional().default("")
 });
@@ -19,7 +19,7 @@ const ClaudeMatchResponseSchema = z.object({
 export interface ClaudeScopeMatch {
   scopeItem: string;
   service: string;
-  class: "full" | "partial" | "none";
+  class: "full" | "partial" | "none" | "uncertain";
   confidence: number;
   reasoning: string;
 }
@@ -73,6 +73,7 @@ For each scope item, find the BEST matching service from the agency taxonomy. Us
 **Match Classes:**
 - "full": The scope item is a core capability the agency offers (e.g., "brand strategy development" matches "Brand strategy")
 - "partial": The agency can do part of this or supervise it (e.g., "media buying campaign" matches "Media buying supervision")
+- "uncertain": The item is agency-adjacent but you cannot confidently map to one service
 - "none": This is genuinely outside agency scope (e.g., "construction work", "legal services")
 
 **Important Matching Guidelines:**
@@ -87,7 +88,7 @@ For each scope item, find the BEST matching service from the agency taxonomy. Us
 
 **IMPORTANT:** If an item is general project management, timeline management, project coordination, deliverable management, or administrative work related to the creative project, classify as "partial" with the closest matching agency capability (often project management or account services), NOT "none". Only use "none" for truly unrelated work like construction, legal services, IT infrastructure, etc.
 
-Be generous with matching - if the scope item is related to marketing, branding, design, content, creative work, or project coordination, there's likely a match.
+Be generous with matching - if the scope item is related to marketing, branding, design, content, creative work, or project coordination, there's likely a match. Use "uncertain" instead of "none" when ambiguous.
 Keep reasoning extremely short (max 10 words).
 Return strictly valid JSON with no markdown fences and no extra text.
 
@@ -97,7 +98,7 @@ Return JSON only:
     {
       "scopeItem": "exact scope item text",
       "matchedService": "Matched Service Name" or null if none,
-      "matchClass": "full" | "partial" | "none",
+      "matchClass": "full" | "partial" | "none" | "uncertain",
       "confidence": 0.0-1.0
     }
   ]

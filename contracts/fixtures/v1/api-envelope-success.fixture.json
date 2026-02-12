@@ -19,7 +19,9 @@
         "weight": 0.18,
         "score": 85,
         "contribution": 15.3,
-        "evidence": ["20+ deliverables"]
+        "evidence": ["20+ deliverables"],
+        "status": "scored",
+        "identified": true
       }
     ],
     "rationale": "Strong fit with manageable risks."

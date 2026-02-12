@@ -63,6 +63,7 @@ export interface ExtractedRfpDataV1 {
   confidenceScores: Record<string, number> & { overall: number };
   completenessScore: number;
   warnings: string[];
+  qualityFlags: string[];
   conflicts?: Array<{ field: string; candidates: string[]; resolution: string }>;
   evidence: Array<{ field: string; page: number; excerpt: string }>;
   // Beautified text fields with structured sections for rich UI rendering
@@ -132,6 +133,26 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     )
   };
 
+  const qualityFlags = new Set<string>();
+  if (!beautifiedText) {
+    qualityFlags.add("quality_degraded");
+  }
+  if (pass4.completenessScore < 0.75) {
+    qualityFlags.add("incomplete_extraction");
+  }
+  if ((pass5.conflicts?.length ?? 0) > 0) {
+    qualityFlags.add("conflicts_detected");
+  }
+  if ((pass1.evidence?.length ?? 0) < 4) {
+    qualityFlags.add("low_evidence_density");
+  }
+  const criticalMissing = pass4.missingInformation.some((item) =>
+    /scope|evaluation|deliverable|deadline|submission|client|project/i.test(item.field)
+  );
+  if (criticalMissing) {
+    qualityFlags.add("critical_info_missing");
+  }
+
   const output: ExtractedRfpDataV1 = {
     schemaVersion: "1.0.0",
     analysisId: input.analysisId,
@@ -151,6 +172,7 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     confidenceScores: mergedConfidence,
     completenessScore: pass4.completenessScore,
     warnings: [...pass1.warnings, ...pass2.warnings, ...pass3.warnings, ...pass4.warnings, ...pass5.warnings],
+    qualityFlags: Array.from(qualityFlags),
     conflicts: pass5.conflicts,
     evidence: pass1.evidence,
     beautifiedText

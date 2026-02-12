@@ -22,6 +22,7 @@ export interface FactorBreakdownItem {
   score: number;
   contribution: number;
   evidence: string[];
+  status: "scored" | "na" | "insufficient_evidence";
   identified: boolean; // false when data unavailable, factor excluded from weighted average
 }
 
@@ -37,7 +38,7 @@ interface ScopeAnalysisLike {
 }
 
 interface ExtractedRfpLike {
-  requiredDeliverables?: string[];
+  requiredDeliverables?: Array<string | { item?: string }>;
   importantDates?: Array<{ date?: string }>;
   redFlags?: Array<{ severity?: string }>;
 }
@@ -82,16 +83,19 @@ function factorItem(
   label: string,
   points: number,
   evidence: string[],
-  identified: boolean = true
+  identified: boolean = true,
+  status?: FactorBreakdownItem["status"]
 ): FactorBreakdownItem {
   const maxPoints = FACTOR_MAX_POINTS[key];
   const boundedPoints = roundToTwo(clamp(points, 0, maxPoints));
+  const resolvedStatus: FactorBreakdownItem["status"] = status ?? (identified ? "scored" : "insufficient_evidence");
   return {
     factor: label,
     weight: roundToTwo(maxPoints / TOTAL_SCORE_POINTS),
     score: toNormalizedScore(boundedPoints, maxPoints),
     contribution: boundedPoints,
     evidence,
+    status: resolvedStatus,
     identified
   };
 }
@@ -223,7 +227,8 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
       "Output Quantities",
       outputQuantitiesIdentified ? quantityPoints : 0,
       [outputQuantitiesIdentified ? `Total identified outputs: ${totalOutputs}` : "Output quantities not identified in RFP"],
-      outputQuantitiesIdentified
+      outputQuantitiesIdentified,
+      outputQuantitiesIdentified ? "scored" : "insufficient_evidence"
     )
   );
 
@@ -248,7 +253,8 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
       "Output Types",
       outputTypesIdentified ? Math.min(outputTypePoints, 10) : 0,
       [outputTypesIdentified ? `Detected output types: ${Array.from(outputTypes).join(", ")}` : "Output types not identified in RFP"],
-      outputTypesIdentified
+      outputTypesIdentified,
+      outputTypesIdentified ? "scored" : "insufficient_evidence"
     )
   );
 
@@ -332,7 +338,8 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
       "Holding Group Affiliation",
       holdingGroupIdentified ? holdingPoints : 0,
       [holdingGroupIdentified ? "Holding group signal detected." : "Holding-group data not available."],
-      holdingGroupIdentified
+      holdingGroupIdentified,
+      holdingGroupIdentified ? "scored" : "na"
     )
   );
 

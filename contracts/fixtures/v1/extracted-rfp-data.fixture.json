@@ -9,7 +9,10 @@
   "projectDescription": "Brand refresh across digital and campaign channels.",
   "scopeOfWork": "Exact RFP scope text.",
   "evaluationCriteria": "Exact RFP evaluation text.",
-  "requiredDeliverables": ["Technical proposal", "Financial proposal"],
+  "requiredDeliverables": [
+    { "item": "Technical proposal", "source": "verbatim" },
+    { "item": "Financial proposal", "source": "verbatim" }
+  ],
   "importantDates": [
     { "title": "Submission Deadline", "date": "2026-03-15", "type": "submission_deadline", "isCritical": true }
   ],
@@ -44,6 +47,7 @@
   },
   "completenessScore": 0.88,
   "warnings": ["Budget not explicitly stated"],
+  "qualityFlags": ["conflicts_detected"],
   "conflicts": [
     {
       "field": "submission_deadline",

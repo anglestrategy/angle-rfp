@@ -15,7 +15,7 @@
     "projectDescription": "Brand refresh across digital and campaign channels.",
     "scopeOfWork": "Exact RFP scope text.",
     "evaluationCriteria": "Exact RFP evaluation text.",
-    "requiredDeliverables": ["Technical proposal"],
+    "requiredDeliverables": [{ "item": "Technical proposal", "source": "verbatim" }],
     "importantDates": [
       { "title": "Submission Deadline", "date": "2026-03-15", "type": "submission_deadline", "isCritical": true }
     ],
@@ -32,6 +32,7 @@
     "confidenceScores": { "overall": 0.9 },
     "completenessScore": 0.9,
     "warnings": [],
+    "qualityFlags": [],
     "evidence": [
       { "field": "scopeOfWork", "page": 3, "excerpt": "Scope section" }
     ]
@@ -39,13 +40,16 @@
   "scopeAnalysis": {
     "schemaVersion": "1.0.0",
     "analysisId": "e6c1c93e-6f43-4f16-bbe0-30761998a4db",
+    "taxonomyVersion": "sha256:fixture",
     "scopeItems": ["Brand strategy"],
+    "unclassifiedItems": [],
     "matches": [
       {
         "scopeItem": "Brand strategy",
         "service": "Brand strategy",
         "class": "full",
-        "confidence": 0.95
+        "confidence": 0.95,
+        "classificationSource": "semantic"
       }
     ],
     "agencyServicePercentage": 1,
@@ -84,7 +88,61 @@
       "englishSources": 4,
       "arabicSources": 4,
       "overallConfidence": 0.9,
-      "researchDate": "2026-02-10"
+      "researchDate": "2026-02-10",
+      "providerStats": [
+        {
+          "provider": "tavily",
+          "attempts": 4,
+          "successes": 4,
+          "failures": 0,
+          "retries": 0,
+          "rateLimitedCount": 0,
+          "finalStatus": "ok",
+          "avgLatencyMs": 602.1,
+          "p95LatencyMs": 731,
+          "healthScore": 91.5,
+          "lastError": null
+        },
+        {
+          "provider": "exa",
+          "attempts": 2,
+          "successes": 2,
+          "failures": 0,
+          "retries": 0,
+          "rateLimitedCount": 0,
+          "finalStatus": "ok",
+          "avgLatencyMs": 640.2,
+          "p95LatencyMs": 715,
+          "healthScore": 89.3,
+          "lastError": null
+        },
+        {
+          "provider": "brave",
+          "attempts": 2,
+          "successes": 1,
+          "failures": 1,
+          "retries": 1,
+          "rateLimitedCount": 1,
+          "finalStatus": "degraded",
+          "avgLatencyMs": 1210.4,
+          "p95LatencyMs": 1880,
+          "healthScore": 72.4,
+          "lastError": "Brave request failed: 429"
+        },
+        {
+          "provider": "firecrawl",
+          "attempts": 1,
+          "successes": 1,
+          "failures": 0,
+          "retries": 0,
+          "rateLimitedCount": 0,
+          "finalStatus": "ok",
+          "avgLatencyMs": 900,
+          "p95LatencyMs": 900,
+          "healthScore": 86.2,
+          "lastError": null
+        }
+      ]
     },
     "confidence": 0.9,
     "evidence": [
@@ -105,7 +163,9 @@
         "weight": 0.18,
         "score": 85,
         "contribution": 15.3,
-        "evidence": ["20+ deliverables"]
+        "evidence": ["20+ deliverables"],
+        "status": "scored",
+        "identified": true
       }
     ],
     "rationale": "Strong fit with manageable risks."

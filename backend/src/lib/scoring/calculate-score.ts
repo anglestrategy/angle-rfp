@@ -7,7 +7,7 @@ interface ExtractedRfpLike {
   analysisId?: string;
   redFlags?: Array<{ severity?: string }>;
   completenessScore?: number;
-  requiredDeliverables?: string[];
+  requiredDeliverables?: Array<string | { item?: string }>;
   importantDates?: Array<{ date?: string }>;
 }
 

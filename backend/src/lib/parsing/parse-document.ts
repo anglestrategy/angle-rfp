@@ -4,6 +4,7 @@ import { createOcrProvider, type OcrProvider } from "@/lib/parsing/ocr-provider"
 import { parseDocxBuffer } from "@/lib/parsing/docx-parser";
 import { parsePdfBuffer } from "@/lib/parsing/pdf-parser";
 import { parseTxtBuffer } from "@/lib/parsing/txt-parser";
+import { parseWithUnstructured } from "@/lib/parsing/unstructured-provider";
 
 export type ParsedFormat = "pdf" | "docx" | "txt";
 
@@ -44,7 +45,7 @@ export interface ParsedDocumentV1 {
     charStart: number;
     charEnd: number;
     excerpt: string;
-    sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "table_cell";
+    sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "table_cell" | "unstructured";
   }>;
   parseConfidence: number;
   ocrStats: {
@@ -103,7 +104,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
 
   let rawText = "";
   let pageCount = 1;
-  let sourceType: "pdf_text" | "ocr" | "docx" | "txt" = "txt";
+  let sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "unstructured" = "txt";
   let needsOcr = false;
 
   if (detectedFormat === "txt") {
@@ -152,6 +153,35 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
       used: true,
       pagesOcred: ocrResult.pagesOcred
     };
+  }
+
+  if (detectedFormat !== "txt" && process.env.UNSTRUCTURED_API_KEY) {
+    const shouldUseUnstructured =
+      needsOcr ||
+      rawText.length < 4000 ||
+      warnings.some((warning) => /limited|no direct text extracted/i.test(warning));
+
+    if (shouldUseUnstructured) {
+      try {
+        const unstructured = await parseWithUnstructured({
+          fileBytes: input.fileBytes,
+          fileName: input.fileName,
+          mimeType: input.mimeType
+        });
+
+        if (unstructured && unstructured.text.length > Math.max(rawText.length, 500)) {
+          rawText = unstructured.text;
+          sourceType = "unstructured";
+        }
+
+        if (unstructured?.warnings.length) {
+          warnings.push(...unstructured.warnings);
+        }
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        warnings.push(`Unstructured parser unavailable; continued with local parser. (${message})`);
+      }
+    }
   }
 
   const trimmedText = rawText.trim();

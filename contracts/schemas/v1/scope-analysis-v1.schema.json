@@ -7,7 +7,9 @@
   "required": [
     "schemaVersion",
     "analysisId",
+    "taxonomyVersion",
     "scopeItems",
+    "unclassifiedItems",
     "matches",
     "agencyServicePercentage",
     "outsourcingPercentage",
@@ -18,18 +20,21 @@
   "properties": {
     "schemaVersion": { "type": "string", "const": "1.0.0" },
     "analysisId": { "type": "string", "format": "uuid" },
+    "taxonomyVersion": { "type": "string", "minLength": 1 },
     "scopeItems": { "type": "array", "items": { "type": "string" } },
+    "unclassifiedItems": { "type": "array", "items": { "type": "string" } },
     "matches": {
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["scopeItem", "service", "class", "confidence"],
+        "required": ["scopeItem", "service", "class", "confidence", "classificationSource"],
         "properties": {
           "scopeItem": { "type": "string" },
           "service": { "type": "string" },
-          "class": { "type": "string", "enum": ["full", "partial", "none"] },
-          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          "class": { "type": "string", "enum": ["full", "partial", "none", "uncertain"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "classificationSource": { "type": "string", "enum": ["semantic", "token", "rule"] }
         }
       }
     },

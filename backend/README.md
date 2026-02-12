@@ -11,9 +11,13 @@ This folder contains the Next.js backend for angle/RFP.
 
 - `BRAVE_SEARCH_API_KEY`
 - `TAVILY_API_KEY`
+- `EXA_API_KEY`
 - `FIRECRAWL_API_KEY`
 - `SHARE_LINK_BASE_URL`
 - `GOOGLE_VISION_API_KEY`
+- `UNSTRUCTURED_API_KEY`
+- `UNSTRUCTURED_API_URL`
+- `AGENCY_SUPPORTS_MARKET_RESEARCH`
 
 ### Optional model overrides
 
@@ -32,6 +36,19 @@ Do not use deprecated aliases:
 - `claude-haiku-4-5-latest`
 
 If one of those values is provided, the backend logs a warning and falls back to safe defaults.
+
+### Provider routing behavior
+
+- Retrieval order is health-scored across `Tavily -> Exa -> Brave` (dynamic ordering by recent reliability/latency).
+- Firecrawl is used for official-domain enrichment after search retrieval.
+- Provider stats are returned in `researchMetadata.providerStats`.
+- Rate-limit / outage conditions degrade with warnings rather than hard-failing when alternate providers succeed.
+
+### Parsing behavior
+
+- Local parser remains the fast path.
+- If `UNSTRUCTURED_API_KEY` is set, parser can automatically use Unstructured for low-text / complex layouts.
+- If Unstructured is unavailable, backend falls back to local parser and emits warnings.
 
 ## Render deployment
 

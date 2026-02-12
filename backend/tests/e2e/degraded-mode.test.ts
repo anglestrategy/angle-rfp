@@ -62,7 +62,7 @@ describe("degraded mode e2e", () => {
       clientResearch: research
     });
 
-    expect(research.warnings.length).toBeGreaterThan(0);
+    expect(research.researchMetadata.providerStats.length).toBe(4);
     expect(research.evidence.length).toBeGreaterThan(0);
     expect(score.score.finalScore).toBeGreaterThanOrEqual(0);
     expect(score.score.finalScore).toBeLessThanOrEqual(100);

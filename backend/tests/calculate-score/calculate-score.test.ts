@@ -60,6 +60,7 @@ describe("calculateScoreInput", () => {
 
     expect(first.score.schemaVersion).toBe("1.0.0");
     expect(first.score.factorBreakdown).toHaveLength(11);
+    expect(first.score.factorBreakdown.every((factor) => typeof factor.status === "string")).toBe(true);
     expect(first.score.finalScore).toBe(second.score.finalScore);
     expect(first.score.baseScore).toBe(second.score.baseScore);
   });
@@ -117,5 +118,6 @@ describe("calculateScoreInput", () => {
     expect(holdingFactor).toBeDefined();
     expect(holdingFactor?.identified).toBe(false);
     expect(holdingFactor?.score).toBe(0);
+    expect(holdingFactor?.status).toBe("na");
   });
 });

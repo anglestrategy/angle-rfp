@@ -74,6 +74,16 @@ describe("researchClientInput", () => {
             category: "financial"
           }
         ],
+        exa: async () => [
+          {
+            key: "marketSignal",
+            value: "High strategic visibility",
+            source: "Exa",
+            tier: 2,
+            sourceDate: "2026-02-10",
+            category: "news"
+          }
+        ],
         firecrawl: async () => [
           {
             key: "officialSignal",
@@ -89,6 +99,7 @@ describe("researchClientInput", () => {
 
     expect(result.schemaVersion).toBe("1.0.0");
     expect(result.evidence.length).toBeGreaterThan(0);
-    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.researchMetadata.providerStats.length).toBe(4);
+    expect(result.researchMetadata.providerStats.some((item) => item.provider === "exa")).toBe(true);
   });
 });

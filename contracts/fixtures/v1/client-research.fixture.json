@@ -28,7 +28,61 @@
     "englishSources": 8,
     "arabicSources": 6,
     "overallConfidence": 0.92,
-    "researchDate": "2026-02-10"
+    "researchDate": "2026-02-10",
+    "providerStats": [
+      {
+        "provider": "tavily",
+        "attempts": 6,
+        "successes": 5,
+        "failures": 1,
+        "retries": 0,
+        "rateLimitedCount": 0,
+        "finalStatus": "degraded",
+        "avgLatencyMs": 742.4,
+        "p95LatencyMs": 980,
+        "healthScore": 84.5,
+        "lastError": "Tavily request failed: 503"
+      },
+      {
+        "provider": "exa",
+        "attempts": 4,
+        "successes": 4,
+        "failures": 0,
+        "retries": 0,
+        "rateLimitedCount": 0,
+        "finalStatus": "ok",
+        "avgLatencyMs": 631.2,
+        "p95LatencyMs": 744,
+        "healthScore": 92.1,
+        "lastError": null
+      },
+      {
+        "provider": "brave",
+        "attempts": 3,
+        "successes": 2,
+        "failures": 1,
+        "retries": 2,
+        "rateLimitedCount": 1,
+        "finalStatus": "degraded",
+        "avgLatencyMs": 1098.5,
+        "p95LatencyMs": 2100,
+        "healthScore": 71.8,
+        "lastError": "Brave request failed after retries"
+      },
+      {
+        "provider": "firecrawl",
+        "attempts": 2,
+        "successes": 1,
+        "failures": 1,
+        "retries": 0,
+        "rateLimitedCount": 0,
+        "finalStatus": "degraded",
+        "avgLatencyMs": 1320.2,
+        "p95LatencyMs": 2003,
+        "healthScore": 65.4,
+        "lastError": "Firecrawl request failed: 502"
+      }
+    ]
   },
   "confidence": 0.92,
   "evidence": [

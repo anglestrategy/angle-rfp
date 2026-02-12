@@ -64,13 +64,46 @@
     "researchMetadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["sourcesUsed", "englishSources", "arabicSources", "overallConfidence", "researchDate"],
+      "required": ["sourcesUsed", "englishSources", "arabicSources", "overallConfidence", "researchDate", "providerStats"],
       "properties": {
         "sourcesUsed": { "type": "integer", "minimum": 0 },
         "englishSources": { "type": "integer", "minimum": 0 },
         "arabicSources": { "type": "integer", "minimum": 0 },
         "overallConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
-        "researchDate": { "type": "string", "format": "date" }
+        "researchDate": { "type": "string", "format": "date" },
+        "providerStats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "provider",
+              "attempts",
+              "successes",
+              "failures",
+              "retries",
+              "rateLimitedCount",
+              "finalStatus",
+              "avgLatencyMs",
+              "p95LatencyMs",
+              "healthScore",
+              "lastError"
+            ],
+            "properties": {
+              "provider": { "type": "string", "enum": ["tavily", "exa", "brave", "firecrawl"] },
+              "attempts": { "type": "integer", "minimum": 0 },
+              "successes": { "type": "integer", "minimum": 0 },
+              "failures": { "type": "integer", "minimum": 0 },
+              "retries": { "type": "integer", "minimum": 0 },
+              "rateLimitedCount": { "type": "integer", "minimum": 0 },
+              "finalStatus": { "type": "string", "enum": ["ok", "degraded", "failed"] },
+              "avgLatencyMs": { "type": "number", "minimum": 0 },
+              "p95LatencyMs": { "type": "number", "minimum": 0 },
+              "healthScore": { "type": "number", "minimum": 0, "maximum": 100 },
+              "lastError": { "type": ["string", "null"] }
+            }
+          }
+        }
       }
     },
     "confidence": { "type": "number", "minimum": 0, "maximum": 1 },

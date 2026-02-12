@@ -166,4 +166,18 @@ describe("analyzeScopeInput", () => {
     expect(match).toBeDefined();
     expect(match.class).not.toBe("none");
   });
+
+  test("tracks uncertain matches separately from explicit out-of-scope", async () => {
+    const result = await analyzeScopeInput({
+      analysisId: "f7df722f-9968-4c17-980a-fcb53aaf56d1",
+      language: "english",
+      scopeOfWork: [
+        "Develop integrated brand strategy and narrative architecture",
+        "Provide cross-functional enablement and stakeholder alignment framework"
+      ].join("\n")
+    });
+
+    expect(Array.isArray(result.unclassifiedItems)).toBe(true);
+    expect(result.matches.every((item) => ["full", "partial", "none", "uncertain"].includes(item.class))).toBe(true);
+  });
 });

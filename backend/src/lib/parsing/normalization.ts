@@ -137,7 +137,7 @@ export interface EvidenceEntry {
   charStart: number;
   charEnd: number;
   excerpt: string;
-  sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "table_cell";
+  sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "table_cell" | "unstructured";
 }
 
 export function buildEvidenceMap(

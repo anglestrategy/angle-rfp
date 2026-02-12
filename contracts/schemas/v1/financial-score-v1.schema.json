@@ -31,13 +31,15 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["factor", "weight", "score", "contribution", "evidence"],
+        "required": ["factor", "weight", "score", "contribution", "evidence", "status"],
         "properties": {
           "factor": { "type": "string" },
           "weight": { "type": "number", "minimum": 0, "maximum": 1 },
           "score": { "type": "number", "minimum": 0, "maximum": 100 },
           "contribution": { "type": "number", "minimum": 0, "maximum": 100 },
-          "evidence": { "type": "array", "items": { "type": "string" } }
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string", "enum": ["scored", "na", "insufficient_evidence"] },
+          "identified": { "type": "boolean" }
         }
       }
     },

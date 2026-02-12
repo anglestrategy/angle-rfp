@@ -4,8 +4,9 @@ import { normalizeForMatching } from "@/lib/scope/taxonomy-loader";
 export interface ScopeMatch {
   scopeItem: string;
   service: string;
-  class: "full" | "partial" | "none";
+  class: "full" | "partial" | "none" | "uncertain";
   confidence: number;
+  classificationSource: "token" | "rule";
 }
 
 const PARTIAL_HINTS = [
@@ -286,15 +287,16 @@ function classifyMatch(scopeItem: string, service: AgencyService, score: number)
 
   if (score < 0.15) {
     const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
-    return hasAgencySignal ? "partial" : "none";
+    return hasAgencySignal ? "uncertain" : "none";
   }
 
   const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
-  if (score < 0.15) {
-    return hasAgencySignal ? "partial" : "none";
-  }
 
   const isPartialHint = PARTIAL_HINTS.some((pattern) => pattern.test(scopeItem) || pattern.test(service.service));
+  if (score < 0.35 && hasAgencySignal && !isPartialHint) {
+    return "uncertain";
+  }
+
   if (isPartialHint || score < 0.45) {
     return "partial";
   }
@@ -330,7 +332,8 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
         scopeItem,
         service: "No direct match",
         class: "none",
-        confidence: 0.2
+        confidence: 0.2,
+        classificationSource: "rule"
       };
     }
 
@@ -338,8 +341,9 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
       return {
         scopeItem,
         service: hasAgencySignal ? "Broad agency capability" : "No direct match",
-        class: hasAgencySignal ? "partial" : "none",
-        confidence: hasAgencySignal ? 0.45 : 0.2
+        class: hasAgencySignal ? "uncertain" : "none",
+        confidence: hasAgencySignal ? 0.4 : 0.2,
+        classificationSource: hasAgencySignal ? "token" : "rule"
       };
     }
 
@@ -347,8 +351,9 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
       return {
         scopeItem,
         service: hasAgencySignal ? bestService.service : "No direct match",
-        class: hasAgencySignal ? "partial" : "none",
-        confidence: hasAgencySignal ? 0.45 : 0.2
+        class: hasAgencySignal ? "uncertain" : "none",
+        confidence: hasAgencySignal ? 0.4 : 0.2,
+        classificationSource: "token"
       };
     }
 
@@ -358,13 +363,16 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
         ? Math.max(0.6, Math.min(0.99, 0.6 + bestScore * 0.35))
         : className === "partial"
           ? Math.max(0.45, Math.min(0.9, 0.45 + bestScore * 0.3))
+          : className === "uncertain"
+            ? Math.max(0.3, Math.min(0.65, 0.35 + bestScore * 0.25))
           : Math.max(0.2, Math.min(0.7, bestScore * 0.5));
 
     return {
       scopeItem,
       service: bestService.service,
       class: className,
-      confidence
+      confidence,
+      classificationSource: "token"
     };
   });
 }

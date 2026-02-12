@@ -21,6 +21,7 @@
     "confidenceScores",
     "completenessScore",
     "warnings",
+    "qualityFlags",
     "evidence"
   ],
   "properties": {
@@ -34,7 +35,18 @@
     "projectDescription": { "type": "string" },
     "scopeOfWork": { "type": "string", "minLength": 1 },
     "evaluationCriteria": { "type": "string", "minLength": 1 },
-    "requiredDeliverables": { "type": "array", "items": { "type": "string" } },
+    "requiredDeliverables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item", "source"],
+        "properties": {
+          "item": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "enum": ["verbatim", "inferred"] }
+        }
+      }
+    },
     "importantDates": {
       "type": "array",
       "items": {
@@ -100,6 +112,7 @@
     },
     "completenessScore": { "type": "number", "minimum": 0, "maximum": 1 },
     "warnings": { "type": "array", "items": { "type": "string" } },
+    "qualityFlags": { "type": "array", "items": { "type": "string" } },
     "conflicts": {
       "type": "array",
       "items": {
@@ -123,6 +136,40 @@
           "field": { "type": "string" },
           "page": { "type": "integer", "minimum": 1 },
           "excerpt": { "type": "string" }
+        }
+      }
+    },
+    "beautifiedText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectDescription", "scopeOfWork", "evaluationCriteria"],
+      "properties": {
+        "projectDescription": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["formatted", "sections"],
+          "properties": {
+            "formatted": { "type": "string" },
+            "sections": { "type": "array", "items": { "type": "object" } }
+          }
+        },
+        "scopeOfWork": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["formatted", "sections"],
+          "properties": {
+            "formatted": { "type": "string" },
+            "sections": { "type": "array", "items": { "type": "object" } }
+          }
+        },
+        "evaluationCriteria": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["formatted", "sections"],
+          "properties": {
+            "formatted": { "type": "string" },
+            "sections": { "type": "array", "items": { "type": "object" } }
+          }
         }
       }
     }
