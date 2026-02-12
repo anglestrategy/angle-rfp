@@ -77,8 +77,10 @@ For scopeOfWork:
 - Use this exact style:
 "• [Core scope item 1]\\n• [Core scope item 2]\\n• [Core scope item 3]"
 
-For evaluationCriteria, structure it clearly:
-"## Evaluation Criteria\\n\\n**1. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**2. [Criteria Name] (XX%)**\\n[What they're looking for]\\n\\n**3. [Criteria Name] (XX%)**\\n[What they're looking for]"
+For evaluationCriteria:
+- Use plain text only (no markdown headings, no **bold**, no code fences).
+- Prefer a clean numbered format:
+"1. [Criteria Name] (XX%)\\n[Short explanation]\\n\\n2. [Criteria Name] (XX%)\\n[Short explanation]\\n\\n3. [Criteria Name] (XX%)\\n[Short explanation]"
 
 EXTRACTION RULES:
 1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".

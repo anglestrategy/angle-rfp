@@ -468,6 +468,73 @@ function normalizeExecutiveSummary(text: string): string {
   return truncateAtWordBoundary(words || clean, 480);
 }
 
+const EVALUATION_HEADING_NOISE = [
+  /^evaluation criteria$/i,
+  /^criteria$/i,
+  /^evaluation$/i,
+  /^evaluation matrix$/i,
+  /^technical evaluation$/i
+];
+
+function sanitizeEvaluationCriteria(criteriaText: string): string {
+  const lines = criteriaText.split(/\r?\n/);
+  const seen = new Set<string>();
+  const output: string[] = [];
+  let previousWasNumberedHeading = false;
+
+  for (const rawLine of lines) {
+    let line = rawLine.trim();
+    if (!line || /^```/.test(line)) {
+      continue;
+    }
+
+    line = line
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/\*\*/g, "")
+      .replace(/`/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!line || EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(line))) {
+      continue;
+    }
+
+    line = line.replace(/^(\d+)[)\-]\s+/, "$1. ");
+
+    const dedupeKey = normalizeDedupeKey(line);
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+
+    if (/^\d+\.\s/.test(line)) {
+      previousWasNumberedHeading = true;
+      output.push(line);
+      continue;
+    }
+
+    if (previousWasNumberedHeading) {
+      previousWasNumberedHeading = false;
+      output.push(line);
+      continue;
+    }
+
+    if (/^\s*(?:[-*•▪‣●])\s+/u.test(line)) {
+      output.push(line.replace(/^\s*(?:[-*•▪‣●])\s+/u, "• "));
+      continue;
+    }
+
+    output.push(`• ${line}`);
+  }
+
+  if (output.length === 0) {
+    return "Evaluation criteria not explicitly found.";
+  }
+
+  return output.join("\n");
+}
+
 function dedupeImportantDates(
   dates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
 ): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
@@ -574,7 +641,9 @@ function mapClaudeToPass1Output(
       normalizeStructuredText(claude.projectDescription || fallbackExecutiveSummarySeed(text))
     ),
     scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
-    evaluationCriteria: normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found."),
+    evaluationCriteria: sanitizeEvaluationCriteria(
+      normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
+    ),
     requiredDeliverables: dedupeDeliverables(
       claude.requiredDeliverables.map((d) => ({
         item: typeof d === "string" ? d : d.item,
@@ -660,7 +729,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     projectNameOriginal: /[\u0600-\u06FF]/.test(projectName) ? projectName : null,
     projectDescription: normalizeExecutiveSummary(projectDescription),
     scopeOfWork: sanitizeScopeForAnalysis(scopeOfWork),
-    evaluationCriteria,
+    evaluationCriteria: sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
     requiredDeliverables: dedupeDeliverables(requiredDeliverables),
     importantDates,
     submissionRequirements,

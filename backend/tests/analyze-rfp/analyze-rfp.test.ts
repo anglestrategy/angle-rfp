@@ -89,6 +89,34 @@ describe("analyzeRfpInput", () => {
     expect(result.scopeOfWork).toMatch(/campaign|strategy|creative|rollout/i);
   });
 
+  test("normalizes evaluation criteria without markdown markers", async () => {
+    const markdownCriteriaDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Scope of Work",
+        "Develop local launch strategy and campaign rollout.",
+        "## Evaluation Criteria",
+        "**1. Technical Approach (40%)**",
+        "Brand strategy quality and localization depth.",
+        "**2. Team Experience (35%)**",
+        "Relevant KSA work history and senior staffing.",
+        "**3. Commercial (25%)**",
+        "Pricing competitiveness and value."
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: markdownCriteriaDoc.analysisId,
+      parsedDocument: markdownCriteriaDoc
+    });
+
+    expect(result.evaluationCriteria).not.toContain("##");
+    expect(result.evaluationCriteria).not.toContain("**");
+    expect(result.evaluationCriteria).toMatch(/team experience|commercial|\d+%/i);
+  });
+
   test("detects conflicts in submission deadlines", async () => {
     const conflictDoc = {
       ...baseDocument,

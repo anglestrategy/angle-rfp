@@ -24,7 +24,7 @@ const BEAUTIFY_PROMPT = `You are a senior editorial designer. Transform the foll
 
 **Output JSON format:**
 {
-  "formatted": "Clean markdown with ## headings and **bold**",
+  "formatted": "Clean plain text (no markdown symbols)",
   "sections": [
     {"type": "heading", "content": "Section Title"},
     {"type": "paragraph", "content": "Regular text paragraph"},
@@ -302,6 +302,72 @@ function normalizeScopeStructure(result: BeautifiedText): BeautifiedText {
   };
 }
 
+function normalizeEvaluationCriteriaStructure(result: BeautifiedText): BeautifiedText {
+  const sourceLines = result.sections
+    .flatMap((section) => {
+      if (section.type === "bullet_list" || section.type === "numbered_list") {
+        return section.items ?? [];
+      }
+      return toLines(section.content);
+    })
+    .concat(toLines(result.formatted));
+
+  const normalizedLines = dedupeItems(
+    sourceLines
+      .map((line) =>
+        normalizeBulletItem(line)
+          .replace(/^evaluation criteria[:\s-]*/i, "")
+          .trim()
+      )
+      .filter(Boolean)
+      .filter((line) => !/^evaluation criteria$/i.test(line))
+  ).slice(0, 24);
+
+  if (normalizedLines.length === 0) {
+    return {
+      formatted: "Evaluation criteria not explicitly found.",
+      sections: [{ type: "paragraph", content: "Evaluation criteria not explicitly found." }]
+    };
+  }
+
+  const outputLines: string[] = [];
+  let previousWasNumberedHeading = false;
+
+  for (const rawLine of normalizedLines) {
+    let line = rawLine.replace(/^(\d+)[)\-]\s+/, "$1. ");
+
+    if (/^\d+\.\s/.test(line)) {
+      previousWasNumberedHeading = true;
+      outputLines.push(line);
+      continue;
+    }
+
+    if (previousWasNumberedHeading) {
+      previousWasNumberedHeading = false;
+      outputLines.push(line);
+      continue;
+    }
+
+    if (/^\s*(?:[-*•▪‣●])\s+/u.test(line)) {
+      outputLines.push(line.replace(/^\s*(?:[-*•▪‣●])\s+/u, "• "));
+      continue;
+    }
+
+    outputLines.push(`• ${line}`);
+  }
+
+  return {
+    formatted: outputLines.join("\n"),
+    sections: [
+      {
+        type: "bullet_list",
+        content: "Criteria",
+        items: outputLines.map((line) => line.replace(/^•\s+/, ""))
+      }
+    ]
+  };
+}
+
 export async function beautifyText(rawText: string, fieldName: string): Promise<BeautifiedText> {
   if (!rawText || rawText.trim().length < 20) {
     return {
@@ -312,11 +378,14 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // Fallback: return as-is with basic structure
-    return {
+    const fallback: BeautifiedText = {
       formatted: rawText,
       sections: [{ type: "paragraph", content: rawText }]
     };
+    if (fieldName === "Evaluation Criteria") {
+      return normalizeEvaluationCriteriaStructure(fallback);
+    }
+    return fallback;
   }
 
   const client = new Anthropic({
@@ -361,15 +430,23 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
       return normalizeProjectDescriptionStructure(validated);
     }
 
+    if (fieldName === "Evaluation Criteria") {
+      return normalizeEvaluationCriteriaStructure(validated);
+    }
+
     return validated;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Text beautification failed for ${fieldName}:`, message);
     // Fallback: return with basic paragraph structure
-    return {
+    const fallback: BeautifiedText = {
       formatted: rawText,
       sections: [{ type: "paragraph", content: rawText }]
     };
+    if (fieldName === "Evaluation Criteria") {
+      return normalizeEvaluationCriteriaStructure(fallback);
+    }
+    return fallback;
   }
 }
 
