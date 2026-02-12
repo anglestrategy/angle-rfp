@@ -179,6 +179,7 @@ Return JSON only:
     const response = await runWithClaudeHaikuModel((model) =>
       client.messages.create({
         model,
+        temperature: 0,
         max_tokens: 1000,
         messages: [{ role: "user", content: prompt }]
       })

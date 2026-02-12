@@ -145,6 +145,42 @@ describe("analyzeRfpInput", () => {
     expect(result.deliverableRequirements?.strategicCreative.length ?? 0).toBeGreaterThan(0);
   });
 
+  test("filters noisy deliverable fragments and numeric artifacts", async () => {
+    const noisyDeliverablesDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Submission Format",
+        "The technical proposals should include the following sections: 13",
+        "Project Team 14",
+        "Vendor profile, credentials, and references.",
+        "The commercial proposals should include the following sections: 15",
+        "Commercial Proposal submitted separately in encrypted file with proposed payment terms.",
+        "[VENDOR NAME]",
+        "Evaluation Criteria",
+        "Strategic Planning & Creativity"
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: noisyDeliverablesDoc.analysisId,
+      parsedDocument: noisyDeliverablesDoc
+    });
+
+    const descriptions = [
+      ...(result.deliverableRequirements?.technical ?? []),
+      ...(result.deliverableRequirements?.commercial ?? []),
+      ...(result.deliverableRequirements?.strategicCreative ?? [])
+    ].map((item) => item.description);
+
+    const combined = descriptions.join("\n");
+    expect(combined).not.toContain("[VENDOR NAME]");
+    expect(combined).not.toMatch(/\bProject Team\s*14\b/i);
+    expect(combined).not.toMatch(/:\s*13\b/);
+    expect(combined).not.toMatch(/:\s*15\b/);
+  });
+
   test("detects conflicts in submission deadlines", async () => {
     const conflictDoc = {
       ...baseDocument,

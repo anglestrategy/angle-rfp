@@ -107,6 +107,7 @@ Return JSON only:
   const response = await runWithClaudeSonnetModel((model) =>
     client.messages.create({
       model,
+      temperature: 0,
       max_tokens: 2200,
       messages: [{ role: "user", content: prompt }]
     })

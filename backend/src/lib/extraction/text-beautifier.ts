@@ -403,6 +403,7 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     const response = await runWithClaudeSonnetModel((model) =>
       client.messages.create({
         model,
+        temperature: 0,
         max_tokens: 4000,
         messages: [{
           role: "user",

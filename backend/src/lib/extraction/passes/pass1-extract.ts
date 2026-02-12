@@ -77,7 +77,7 @@ function findLineValue(text: string, keys: string[]): string | null {
 
 function extractExactBlock(text: string, headingRegex: RegExp, fallbackLength: number): string | null {
   const match = headingRegex.exec(text);
-  if (!match?.index) {
+  if (!match) {
     return null;
   }
 
@@ -155,30 +155,256 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
   return out;
 }
 
-function extractDeliverables(text: string): DeliverableItem[] {
-  const lines = text.split(/\r?\n/).map((line) => line.trim());
-  const candidates = lines.filter((line) =>
-    /deliverable|proposal|cv|case study|submission|required|مطلوب|تسليم/i.test(line)
-  );
+type DeliverableCategory = "technical" | "commercial" | "strategicCreative";
+type DeliverableHeadingHint = DeliverableCategory | "unknown";
 
-  // Return empty array if nothing found - no hardcoded defaults
-  if (candidates.length === 0) {
-    return [];
-  }
-
-  return Array.from(new Set(candidates)).slice(0, 12).map((item) => ({
-    item,
-    source: "verbatim" as const
-  }));
+interface ScopedDeliverableLine {
+  text: string;
+  hint: DeliverableHeadingHint;
+  explicit: boolean;
 }
 
-type DeliverableCategory = "technical" | "commercial" | "strategicCreative";
+const DELIVERABLE_SECTION_START_PATTERNS = [
+  /submission format/i,
+  /submission requirements?/i,
+  /proposal requirements?/i,
+  /deliverables?/i,
+  /technical proposals?\s+should\s+include/i,
+  /commercial proposals?\s+should\s+include/i,
+  /technical proposal/i,
+  /commercial proposal/i,
+  /financial proposal/i,
+  /evaluation criteria/i,
+  /project management\s*&?\s*deliverables?/i,
+  /صيغة التقديم|متطلبات التقديم|متطلبات العرض|التسليمات|المخرجات|العرض الفني|العرض المالي|معايير التقييم/i
+];
 
+const DELIVERABLE_SECTION_STOP_PATTERNS = [
+  /^scope of work$/i,
+  /^timeline$/i,
+  /^important dates?$/i,
+  /^special conditions?$/i,
+  /^financial potential$/i,
+  /^submission method$/i,
+  /^executive summary$/i,
+  /^project description$/i,
+  /^نطاق العمل$/i,
+  /^الشروط الخاصة$/i,
+  /^الجدول الزمني$/i
+];
+
+const DELIVERABLE_NOISE_PATTERNS = [
+  /^table of contents/i,
+  /^page\s+\d+/i,
+  /^\d{1,3}$/,
+  /^(?:phase|program)\s+\d+/i,
+  /\[vendor name\]/i,
+  /riyadh site at the heart/i
+];
+
+const DELIVERABLE_CLAUSE_DROP_PATTERNS = [
+  /accepts no liability/i,
+  /shall not be responsible/i,
+  /reserves the right/i,
+  /if the vendor decides/i,
+  /other information,?\s*if relevant/i,
+  /for any costs incurred/i,
+  /visionary concept of urban development/i,
+  /site at the heart of/i
+];
+
+const DELIVERABLE_HINT_PATTERNS: Record<DeliverableHeadingHint, RegExp[]> = {
+  technical: [
+    /technical proposals?\s+should\s+include/i,
+    /technical proposal/i,
+    /methodology/i,
+    /vendor profile/i,
+    /team composition/i,
+    /عرض فني/i
+  ],
+  commercial: [
+    /commercial proposals?\s+should\s+include/i,
+    /commercial proposal/i,
+    /financial proposal/i,
+    /payment terms?/i,
+    /pricing/i,
+    /عرض مالي/i
+  ],
+  strategicCreative: [
+    /strategic planning/i,
+    /creativity/i,
+    /creative proposal/i,
+    /campaign strategy/i,
+    /brand strategy/i,
+    /استراتيجي|إبداعي|الحملة/i
+  ],
+  unknown: [
+    /submission requirements?/i,
+    /proposal requirements?/i,
+    /deliverables?/i
+  ]
+};
+
+function splitRequirementClauses(line: string): string[] {
+  return line
+    .split(/(?<=[.;؛])\s+|\s+\|\s+|\s+\/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function cleanDeliverableRequirementText(raw: string): string {
+  const cleaned = normalizeRequirementLine(raw)
+    .replace(/\[\s*vendor name\s*\]/gi, "")
+    .replace(/\s*\b(?:page|pg\.?)\s*\d+\b/gi, "")
+    .replace(/\(\s*\d{1,3}\s*\)\s*$/g, "")
+    .replace(/\s+[:\-]?\s*\d{1,3}\s*$/g, "")
+    .replace(/\bproject team\s*\d+\b/gi, "Project Team")
+    .replace(/\b(and|or|و)\s*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(cleaned))) {
+    return "";
+  }
+
+  return cleaned;
+}
+
+function inferDeliverableHeadingHint(line: string): DeliverableHeadingHint | null {
+  const normalized = normalizeRequirementLine(line);
+
+  const order: DeliverableHeadingHint[] = ["commercial", "technical", "strategicCreative", "unknown"];
+  for (const hint of order) {
+    if (DELIVERABLE_HINT_PATTERNS[hint].some((pattern) => pattern.test(normalized))) {
+      return hint;
+    }
+  }
+
+  return null;
+}
+
+function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
+  const lines = text.split(/\r?\n/);
+  const out: ScopedDeliverableLine[] = [];
+  let inSection = false;
+  let sectionLineCount = 0;
+  let currentHint: DeliverableHeadingHint = "unknown";
+
+  for (const raw of lines) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const normalized = normalizeRequirementLine(trimmed);
+    const headingHint = inferDeliverableHeadingHint(trimmed);
+    const startsSection = DELIVERABLE_SECTION_START_PATTERNS.some((pattern) => pattern.test(trimmed));
+    if (startsSection || headingHint !== null) {
+      inSection = true;
+      sectionLineCount = 0;
+      if (headingHint !== null) {
+        currentHint = headingHint;
+      }
+      if (REQUIREMENT_LINE_PATTERNS.explicit.test(normalized)) {
+        out.push({
+          text: normalized,
+          hint: currentHint,
+          explicit: true
+        });
+        sectionLineCount += 1;
+      }
+      continue;
+    }
+
+    if (inSection && DELIVERABLE_SECTION_STOP_PATTERNS.some((pattern) => pattern.test(trimmed)) && sectionLineCount > 0) {
+      inSection = false;
+      currentHint = "unknown";
+      sectionLineCount = 0;
+      continue;
+    }
+
+    if (!inSection) {
+      continue;
+    }
+
+    if (DELIVERABLE_NOISE_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+      continue;
+    }
+
+    const explicit = REQUIREMENT_LINE_PATTERNS.explicit.test(normalized);
+    if (!explicit && normalized.split(/\s+/).length < 3) {
+      continue;
+    }
+
+    out.push({
+      text: normalized,
+      hint: currentHint,
+      explicit
+    });
+    sectionLineCount += 1;
+    if (sectionLineCount >= 100) {
+      inSection = false;
+      currentHint = "unknown";
+      sectionLineCount = 0;
+    }
+  }
+
+  return out;
+}
+
+function extractDeliverables(text: string): DeliverableItem[] {
+  const scopedLines = collectDeliverableSectionLines(text).map((entry) => entry.text);
+  const allCandidates = scopedLines.length > 0
+    ? scopedLines
+    : text
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => REQUIREMENT_LINE_PATTERNS.explicit.test(line))
+        .filter((line) => /proposal|submission|deliverable|cv|resume|certificate|payment|pricing|commercial|financial|عرض|تقديم|مطلوب|شهادة|سيرة/i.test(line))
+        .slice(0, 120);
+
+  const deduped = new Set<string>();
+  const out: DeliverableItem[] = [];
+
+  for (const candidate of allCandidates) {
+    for (const clause of splitRequirementClauses(candidate)) {
+      const clean = cleanDeliverableRequirementText(clause);
+      if (!clean || clean.length < 16) {
+        continue;
+      }
+
+      if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(clean))) {
+        continue;
+      }
+
+      if (!/proposal|submission|deliverable|cv|resume|certificate|payment|pricing|commercial|financial|methodology|credentials|references|عرض|تقديم|مطلوب|شهادة|سيرة|الخبرات|الدفع|مالي|فني/i.test(clean)) {
+        continue;
+      }
+
+      const key = normalizeDedupeKey(clean);
+      if (!key || deduped.has(key)) {
+        continue;
+      }
+
+      deduped.add(key);
+      out.push({
+        item: clean,
+        source: "verbatim"
+      });
+
+      if (out.length >= 16) {
+        return out;
+      }
+    }
+  }
+
+  return out;
+}
 const REQUIREMENT_LINE_PATTERNS = {
   explicit: /(must|shall|required|should include|should be included|include the following|submit|submitted|provide|to include|يجب|مطلوب|تقديم|إرفاق|يشمل|ينبغي)/i,
   technical: /(technical proposal|executive summary|methodology|approach|credentials?|team|cv\b|resume|references?|certificate|vendor profile|track record|عرض فني|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الخبرات)/i,
   commercial: /(commercial proposal|financial proposal|pricing|price|payment terms?|tax|subtotal|grand total|fees?|cost|quotation|budget|عرض مالي|مالي|تجاري|الدفع|ضريبة|تكلفة|سعر)/i,
-  strategicCreative: /(strategic|strategy|creative|creativity|brand|campaign|positioning|messaging|communication|concept|creative direction|visual|design|narrative|localization|storytelling|marcom|استراتيجي|إبداع|إبداعي|علامة|حملة|تصميم|رسائل|تموضع|سردي)/i
+  strategicCreative: /(strategic\s+(proposal|plan|framework|approach)|creative\s+(proposal|brief|concept|direction)|campaign\s+(strategy|concept|plan)|brand\s+(strategy|positioning|messaging|localization)|positioning|messaging framework|communication framework|استراتيجي|إبداعي|الحملة|التموضع|الرسائل)/i
 };
 
 function normalizeRequirementLine(raw: string): string {
@@ -205,6 +431,9 @@ function classifyDeliverableCategory(line: string): DeliverableCategory | null {
 }
 
 function inferDeliverableTitle(line: string, category: DeliverableCategory): string {
+  if (/project team|account team|team composition|consultants?|smes?|\bcv\b|resume/i.test(line)) {
+    return "Team Composition and CVs";
+  }
   if (/executive summary/i.test(line)) {
     return "Executive Summary";
   }
@@ -218,10 +447,22 @@ function inferDeliverableTitle(line: string, category: DeliverableCategory): str
     return "Team Composition and CVs";
   }
   if (/commercial proposal|financial proposal|pricing|price|tax|subtotal|grand total|fees?|cost/i.test(line)) {
+    if (/alternative commercial proposal/i.test(line)) {
+      return "Alternative Commercial Proposal";
+    }
+    if (/encrypted file|password|separately/i.test(line)) {
+      return "Encrypted Commercial Submission";
+    }
+    if (/subtotal|grand total|tax|pricing|price|fees?|cost/i.test(line)) {
+      return "Pricing Breakdown and Totals";
+    }
     return "Commercial and Financial Proposal";
   }
   if (/payment terms?/i.test(line)) {
     return "Payment Terms";
+  }
+  if (/consortium|joint venture|subcontractor|legal document|nda|non[-\s]?disclosure/i.test(line)) {
+    return "Consortium and Legal Documentation";
   }
   if (/strategic|strategy|positioning|messaging|communication/i.test(line)) {
     return "Strategic Framework";
@@ -260,12 +501,49 @@ function buildDeliverableRequirements(
     source: "verbatim" | "inferred"
   ): void => {
     const cleanTitle = title.replace(/\s+/g, " ").trim();
-    const cleanDescription = description.replace(/\s+/g, " ").trim();
+    const cleanDescription = truncateAtWordBoundary(description.replace(/\s+/g, " ").trim(), 220);
     if (!cleanTitle || !cleanDescription) {
       return;
     }
+    if (cleanDescription.split(/\s+/).length < 4) {
+      return;
+    }
+    if (/^[A-Za-z]+\s+\d+$/i.test(cleanDescription) || /^\d+$/.test(cleanDescription)) {
+      return;
+    }
+    if (/^project team$/i.test(cleanDescription)) {
+      return;
+    }
 
-    const key = `${category}|${normalizeDedupeKey(cleanTitle)}|${normalizeDedupeKey(cleanDescription)}`;
+    const normalizedTitle = normalizeDedupeKey(cleanTitle);
+    const normalizedDescription = normalizeDedupeKey(cleanDescription);
+    if (!normalizedTitle || !normalizedDescription) {
+      return;
+    }
+
+    const sameTitleCount = grouped[category].filter(
+      (item) => normalizeDedupeKey(item.title) === normalizedTitle
+    ).length;
+    if (sameTitleCount >= 3) {
+      return;
+    }
+
+    const hasNearDuplicate = grouped[category].some((item) => {
+      const existingTitle = normalizeDedupeKey(item.title);
+      const existingDescription = normalizeDedupeKey(item.description);
+      if (existingTitle !== normalizedTitle) {
+        return false;
+      }
+      return (
+        existingDescription.includes(normalizedDescription) ||
+        normalizedDescription.includes(existingDescription)
+      );
+    });
+    if (hasNearDuplicate) {
+      return;
+    }
+
+    const key = `${category}|${normalizedTitle}|${normalizedDescription}`;
     if (seen.has(key)) {
       return;
     }
@@ -278,32 +556,71 @@ function buildDeliverableRequirements(
     });
   };
 
-  const candidateLines = `${text}\n${evaluationCriteria}`
+  const sectionLines = collectDeliverableSectionLines(text);
+  const evaluationRequirementLines: ScopedDeliverableLine[] = evaluationCriteria
     .split(/\r?\n/)
-    .map(normalizeRequirementLine)
-    .filter((line) => line.length >= 12)
-    .filter((line) => !/^evaluation criteria$/i.test(line))
-    .filter((line) => !/^scope of work$/i.test(line))
-    .slice(0, 240);
+    .map(cleanDeliverableRequirementText)
+    .filter((line) => line.length >= 14)
+    .filter((line) => /proposal|submission|deliverable|project management|certificate|credentials|cv|resume|payment|pricing|commercial|financial|technical|creative|strategy|عرض|تقديم|مطلوب|شهادة|سيرة|مالي|فني/i.test(line))
+    .map((line) => ({
+      text: line,
+      hint: inferDeliverableHeadingHint(line) ?? "unknown",
+      explicit: REQUIREMENT_LINE_PATTERNS.explicit.test(line)
+    }))
+    .slice(0, 80);
 
-  for (const line of candidateLines) {
-    const category = classifyDeliverableCategory(line);
-    if (!category) {
-      continue;
+  const candidateLines = [...sectionLines, ...evaluationRequirementLines].slice(0, 260);
+  for (const candidateLine of candidateLines) {
+    for (const clause of splitRequirementClauses(candidateLine.text)) {
+      const line = cleanDeliverableRequirementText(clause);
+      if (!line || line.length < 14) {
+        continue;
+      }
+
+      if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(line))) {
+        continue;
+      }
+
+      const category =
+        candidateLine.hint !== "unknown"
+          ? candidateLine.hint
+          : classifyDeliverableCategory(line);
+      if (!category) {
+        continue;
+      }
+
+      const explicitSignal =
+        candidateLine.explicit ||
+        REQUIREMENT_LINE_PATTERNS.explicit.test(line) ||
+        /proposal|submission|deliverable|must|shall|required|should include|to include|submitted?|provide|عرض|تقديم|مطلوب|يجب/i.test(line);
+
+      const hasArtifactSignal =
+        /proposal|submission|deliverable|certificate|credentials|cv|resume|profile|references|methodology|approach|payment|pricing|quotation|plan|framework|عرض|تقديم|شهادة|سيرة|منهجية|ملف|الدفع|تسعير|خطة/i.test(line);
+
+      // Prevent strategic bucket contamination from generic brand/project prose.
+      if (
+        category === "strategicCreative" &&
+        !/(creative|campaign|concept|direction|positioning|messaging|strategic|strategy|brand localization|brand strategy|إبداع|حملة|استراتيجي|التموضع)/i.test(line)
+      ) {
+        continue;
+      }
+
+      if (!explicitSignal && !hasArtifactSignal) {
+        continue;
+      }
+
+      if (category !== "strategicCreative" && !hasArtifactSignal) {
+        continue;
+      }
+
+      const source: "verbatim" | "inferred" = explicitSignal ? "verbatim" : "inferred";
+      addItem(category, inferDeliverableTitle(line, category), line, source);
     }
-
-    const source: "verbatim" | "inferred" = REQUIREMENT_LINE_PATTERNS.explicit.test(line)
-      ? "verbatim"
-      : category === "strategicCreative"
-        ? "inferred"
-        : "verbatim";
-
-    addItem(category, inferDeliverableTitle(line, category), line, source);
   }
 
   for (const deliverable of requiredDeliverables) {
-    const clean = normalizeRequirementLine(deliverable.item);
-    if (!clean) {
+    const clean = cleanDeliverableRequirementText(deliverable.item);
+    if (!clean || clean.length < 12) {
       continue;
     }
     const category = classifyDeliverableCategory(clean);
@@ -666,6 +983,14 @@ const EVALUATION_HEADING_NOISE = [
   /^technical evaluation$/i
 ];
 
+function splitEvaluationSentences(line: string): string[] {
+  return line
+    .split(/(?<=[.;!?؟])\s+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 12)
+    .map((part) => part.replace(/[.;]+$/g, "").trim());
+}
+
 function sanitizeEvaluationCriteria(criteriaText: string): string {
   const lines = criteriaText.split(/\r?\n/);
   const seen = new Set<string>();
@@ -706,7 +1031,14 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
 
     if (previousWasNumberedHeading) {
       previousWasNumberedHeading = false;
-      output.push(line);
+      const sentenceParts = splitEvaluationSentences(line);
+      if (sentenceParts.length > 1) {
+        for (const part of sentenceParts) {
+          output.push(`• ${part}`);
+        }
+      } else {
+        output.push(`• ${line}`);
+      }
       continue;
     }
 
@@ -715,7 +1047,14 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
       continue;
     }
 
-    output.push(`• ${line}`);
+    const sentenceParts = splitEvaluationSentences(line);
+    if (sentenceParts.length > 1) {
+      for (const part of sentenceParts) {
+        output.push(`• ${part}`);
+      }
+    } else {
+      output.push(`• ${line}`);
+    }
   }
 
   if (output.length === 0) {
