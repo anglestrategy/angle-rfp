@@ -13,6 +13,29 @@
     { "item": "Technical proposal", "source": "verbatim" },
     { "item": "Financial proposal", "source": "verbatim" }
   ],
+  "deliverableRequirements": {
+    "technical": [
+      {
+        "title": "Technical Proposal Submission",
+        "description": "Submit a technical proposal with methodology, team credentials, and relevant project experience.",
+        "source": "verbatim"
+      }
+    ],
+    "commercial": [
+      {
+        "title": "Commercial and Financial Proposal",
+        "description": "Submit a separate commercial proposal including payment terms and tax-compliant pricing.",
+        "source": "verbatim"
+      }
+    ],
+    "strategicCreative": [
+      {
+        "title": "Strategic and Creative Proposal",
+        "description": "Present strategic planning and creative direction aligned with evaluation criteria.",
+        "source": "inferred"
+      }
+    ]
+  },
   "importantDates": [
     { "title": "Submission Deadline", "date": "2026-03-15", "type": "submission_deadline", "isCritical": true }
   ],

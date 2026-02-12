@@ -40,6 +40,9 @@ public struct ExtractedRFPData: Identifiable, Codable {
     /// 8. What deliverables need to be submitted for this RFP?
     var requiredDeliverables: [Deliverable]?
 
+    /// Structured proposal deliverable requirements grouped by proposal type.
+    var deliverableRequirements: DeliverableRequirements?
+
     /// 9. Important Dates (deadlines, Q&A windows, submission dates)
     var importantDates: [ImportantDate]?
 
@@ -70,6 +73,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
          financialPotential: FinancialPotential? = nil,
          evaluationCriteria: String? = nil,
          requiredDeliverables: [Deliverable]? = nil,
+         deliverableRequirements: DeliverableRequirements? = nil,
          importantDates: [ImportantDate]? = nil,
          submissionMethodRequirements: String? = nil,
          beautifiedText: BeautifiedFields? = nil,
@@ -86,6 +90,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
         self.financialPotential = financialPotential
         self.evaluationCriteria = evaluationCriteria
         self.requiredDeliverables = requiredDeliverables
+        self.deliverableRequirements = deliverableRequirements
         self.importantDates = importantDates
         self.submissionMethodRequirements = submissionMethodRequirements
         self.beautifiedText = beautifiedText
@@ -106,7 +111,7 @@ public struct ExtractedRFPData: Identifiable, Codable {
         if scopeAnalysis != nil { filledCount += 1 }
         if financialPotential != nil { filledCount += 1 }
         if evaluationCriteria?.isEmpty == false { filledCount += 1 }
-        if requiredDeliverables?.isEmpty == false { filledCount += 1 }
+        if requiredDeliverables?.isEmpty == false || deliverableRequirements != nil { filledCount += 1 }
         if importantDates?.isEmpty == false { filledCount += 1 }
         if submissionMethodRequirements?.isEmpty == false { filledCount += 1 }
 
@@ -289,6 +294,30 @@ public struct Deliverable: Identifiable, Codable {
 public enum DeliverableSource: String, Codable {
     case verbatim   // Explicitly stated in RFP
     case inferred   // Derived from evaluation criteria or implied
+}
+
+public struct DeliverableRequirementItem: Identifiable, Codable {
+    public let id: UUID
+    let title: String
+    let description: String
+    let source: DeliverableSource
+
+    public init(id: UUID = UUID(), title: String, description: String, source: DeliverableSource = .verbatim) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.source = source
+    }
+}
+
+public struct DeliverableRequirements: Codable {
+    var technical: [DeliverableRequirementItem]
+    var commercial: [DeliverableRequirementItem]
+    var strategicCreative: [DeliverableRequirementItem]
+
+    var isEmpty: Bool {
+        technical.isEmpty && commercial.isEmpty && strategicCreative.isEmpty
+    }
 }
 
 // MARK: - Analysis Warning

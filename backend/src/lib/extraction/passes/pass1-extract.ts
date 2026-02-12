@@ -6,6 +6,18 @@ export interface DeliverableItem {
   source: "verbatim" | "inferred";
 }
 
+export interface DeliverableRequirementItem {
+  title: string;
+  description: string;
+  source: "verbatim" | "inferred";
+}
+
+export interface DeliverableRequirements {
+  technical: DeliverableRequirementItem[];
+  commercial: DeliverableRequirementItem[];
+  strategicCreative: DeliverableRequirementItem[];
+}
+
 export interface Pass1Output {
   clientName: string;
   clientNameArabic: string | null;
@@ -15,6 +27,7 @@ export interface Pass1Output {
   scopeOfWork: string;
   evaluationCriteria: string;
   requiredDeliverables: DeliverableItem[];
+  deliverableRequirements: DeliverableRequirements;
   importantDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>;
   submissionRequirements: {
     method: string;
@@ -157,6 +170,183 @@ function extractDeliverables(text: string): DeliverableItem[] {
     item,
     source: "verbatim" as const
   }));
+}
+
+type DeliverableCategory = "technical" | "commercial" | "strategicCreative";
+
+const REQUIREMENT_LINE_PATTERNS = {
+  explicit: /(must|shall|required|should include|should be included|include the following|submit|submitted|provide|to include|يجب|مطلوب|تقديم|إرفاق|يشمل|ينبغي)/i,
+  technical: /(technical proposal|executive summary|methodology|approach|credentials?|team|cv\b|resume|references?|certificate|vendor profile|track record|عرض فني|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الخبرات)/i,
+  commercial: /(commercial proposal|financial proposal|pricing|price|payment terms?|tax|subtotal|grand total|fees?|cost|quotation|budget|عرض مالي|مالي|تجاري|الدفع|ضريبة|تكلفة|سعر)/i,
+  strategicCreative: /(strategic|strategy|creative|creativity|brand|campaign|positioning|messaging|communication|concept|creative direction|visual|design|narrative|localization|storytelling|marcom|استراتيجي|إبداع|إبداعي|علامة|حملة|تصميم|رسائل|تموضع|سردي)/i
+};
+
+function normalizeRequirementLine(raw: string): string {
+  return raw
+    .replace(/^#{1,6}\s*/, "")
+    .replace(/^\s*(?:[-*•▪‣●]|\d+[.)]|[ivx]+\.)\s+/iu, "")
+    .replace(/\*\*/g, "")
+    .replace(/`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function classifyDeliverableCategory(line: string): DeliverableCategory | null {
+  if (REQUIREMENT_LINE_PATTERNS.commercial.test(line)) {
+    return "commercial";
+  }
+  if (REQUIREMENT_LINE_PATTERNS.technical.test(line)) {
+    return "technical";
+  }
+  if (REQUIREMENT_LINE_PATTERNS.strategicCreative.test(line)) {
+    return "strategicCreative";
+  }
+  return null;
+}
+
+function inferDeliverableTitle(line: string, category: DeliverableCategory): string {
+  if (/executive summary/i.test(line)) {
+    return "Executive Summary";
+  }
+  if (/methodology|approach/i.test(line)) {
+    return "Methodology and Approach";
+  }
+  if (/credentials?|profile|references?|track record/i.test(line)) {
+    return "Agency Credentials and References";
+  }
+  if (/\bcv\b|resume|team composition|account team/i.test(line)) {
+    return "Team Composition and CVs";
+  }
+  if (/commercial proposal|financial proposal|pricing|price|tax|subtotal|grand total|fees?|cost/i.test(line)) {
+    return "Commercial and Financial Proposal";
+  }
+  if (/payment terms?/i.test(line)) {
+    return "Payment Terms";
+  }
+  if (/strategic|strategy|positioning|messaging|communication/i.test(line)) {
+    return "Strategic Framework";
+  }
+  if (/creative|concept|creative direction|visual|design|campaign/i.test(line)) {
+    return "Creative Direction and Campaign Plan";
+  }
+
+  const words = line.split(/\s+/).slice(0, 8).join(" ").trim();
+  if (!words) {
+    return category === "technical"
+      ? "Technical Requirement"
+      : category === "commercial"
+        ? "Commercial Requirement"
+        : "Strategic and Creative Requirement";
+  }
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function buildDeliverableRequirements(
+  text: string,
+  evaluationCriteria: string,
+  requiredDeliverables: DeliverableItem[]
+): DeliverableRequirements {
+  const grouped: DeliverableRequirements = {
+    technical: [],
+    commercial: [],
+    strategicCreative: []
+  };
+  const seen = new Set<string>();
+
+  const addItem = (
+    category: DeliverableCategory,
+    title: string,
+    description: string,
+    source: "verbatim" | "inferred"
+  ): void => {
+    const cleanTitle = title.replace(/\s+/g, " ").trim();
+    const cleanDescription = description.replace(/\s+/g, " ").trim();
+    if (!cleanTitle || !cleanDescription) {
+      return;
+    }
+
+    const key = `${category}|${normalizeDedupeKey(cleanTitle)}|${normalizeDedupeKey(cleanDescription)}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+
+    grouped[category].push({
+      title: cleanTitle,
+      description: cleanDescription,
+      source
+    });
+  };
+
+  const candidateLines = `${text}\n${evaluationCriteria}`
+    .split(/\r?\n/)
+    .map(normalizeRequirementLine)
+    .filter((line) => line.length >= 12)
+    .filter((line) => !/^evaluation criteria$/i.test(line))
+    .filter((line) => !/^scope of work$/i.test(line))
+    .slice(0, 240);
+
+  for (const line of candidateLines) {
+    const category = classifyDeliverableCategory(line);
+    if (!category) {
+      continue;
+    }
+
+    const source: "verbatim" | "inferred" = REQUIREMENT_LINE_PATTERNS.explicit.test(line)
+      ? "verbatim"
+      : category === "strategicCreative"
+        ? "inferred"
+        : "verbatim";
+
+    addItem(category, inferDeliverableTitle(line, category), line, source);
+  }
+
+  for (const deliverable of requiredDeliverables) {
+    const clean = normalizeRequirementLine(deliverable.item);
+    if (!clean) {
+      continue;
+    }
+    const category = classifyDeliverableCategory(clean);
+    if (!category) {
+      continue;
+    }
+    addItem(category, inferDeliverableTitle(clean, category), clean, deliverable.source);
+  }
+
+  const hasStrategicSignal =
+    REQUIREMENT_LINE_PATTERNS.strategicCreative.test(text) ||
+    REQUIREMENT_LINE_PATTERNS.strategicCreative.test(evaluationCriteria);
+
+  if (grouped.technical.length === 0) {
+    addItem(
+      "technical",
+      "Technical Proposal Submission",
+      "Prepare a technical proposal with methodology, team credentials, and relevant experience aligned to the RFP scope.",
+      "inferred"
+    );
+  }
+  if (grouped.commercial.length === 0) {
+    addItem(
+      "commercial",
+      "Commercial Proposal Submission",
+      "Prepare a commercial/financial proposal including pricing structure and payment terms as required by the RFP.",
+      "inferred"
+    );
+  }
+  if (grouped.strategicCreative.length === 0 && hasStrategicSignal) {
+    addItem(
+      "strategicCreative",
+      "Strategic and Creative Proposal",
+      "Develop a strategic and creative proposal responding to brand strategy, positioning, and campaign creativity criteria in the RFP.",
+      "inferred"
+    );
+  }
+
+  grouped.technical = grouped.technical.slice(0, 8);
+  grouped.commercial = grouped.commercial.slice(0, 8);
+  grouped.strategicCreative = grouped.strategicCreative.slice(0, 8);
+
+  return grouped;
 }
 
 function normalizeDedupeKey(value: string): string {
@@ -650,6 +840,16 @@ function mapClaudeToPass1Output(
         source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
       }))
     ),
+    deliverableRequirements: buildDeliverableRequirements(
+      text,
+      sanitizeEvaluationCriteria(normalizeStructuredText(claude.evaluationCriteria || "")),
+      dedupeDeliverables(
+        claude.requiredDeliverables.map((d) => ({
+          item: typeof d === "string" ? d : d.item,
+          source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
+        }))
+      )
+    ),
     importantDates,
     submissionRequirements: {
       method: claude.submissionRequirements.method || "Unknown",
@@ -731,6 +931,11 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     scopeOfWork: sanitizeScopeForAnalysis(scopeOfWork),
     evaluationCriteria: sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
     requiredDeliverables: dedupeDeliverables(requiredDeliverables),
+    deliverableRequirements: buildDeliverableRequirements(
+      text,
+      sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
+      dedupeDeliverables(requiredDeliverables)
+    ),
     importantDates,
     submissionRequirements,
     warnings,

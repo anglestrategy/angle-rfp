@@ -30,6 +30,18 @@ export interface DeliverableItemV1 {
   source: "verbatim" | "inferred";
 }
 
+export interface DeliverableRequirementItemV1 {
+  title: string;
+  description: string;
+  source: "verbatim" | "inferred";
+}
+
+export interface DeliverableRequirementsV1 {
+  technical: DeliverableRequirementItemV1[];
+  commercial: DeliverableRequirementItemV1[];
+  strategicCreative: DeliverableRequirementItemV1[];
+}
+
 export interface ExtractedRfpDataV1 {
   schemaVersion: "1.0.0";
   analysisId: string;
@@ -42,6 +54,7 @@ export interface ExtractedRfpDataV1 {
   scopeOfWork: string;
   evaluationCriteria: string;
   requiredDeliverables: DeliverableItemV1[];
+  deliverableRequirements?: DeliverableRequirementsV1;
   importantDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>;
   submissionRequirements: {
     method: string;
@@ -165,6 +178,7 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     scopeOfWork: pass1.scopeOfWork,
     evaluationCriteria: pass1.evaluationCriteria,
     requiredDeliverables: pass1.requiredDeliverables,
+    deliverableRequirements: pass1.deliverableRequirements,
     importantDates: pass1.importantDates,
     submissionRequirements: pass1.submissionRequirements,
     redFlags: pass3.redFlags,

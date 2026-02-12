@@ -686,6 +686,7 @@ final class BackendAnalysisClient {
                     source: deliverable.source == "inferred" ? .inferred : .verbatim
                 )
             },
+            deliverableRequirements: mapDeliverableRequirements(from: extracted.deliverableRequirements),
             importantDates: extracted.importantDates.map { item in
                 ImportantDate(
                     title: item.title,
@@ -702,6 +703,28 @@ final class BackendAnalysisClient {
             completeness: extracted.completenessScore,
             confidenceScores: extracted.confidenceScores
         )
+    }
+
+    private func mapDeliverableRequirements(from payload: DeliverableRequirementsV1?) -> DeliverableRequirements? {
+        guard let payload = payload else { return nil }
+
+        func mapItems(_ items: [DeliverableRequirementItemV1]) -> [DeliverableRequirementItem] {
+            items.map { item in
+                DeliverableRequirementItem(
+                    title: item.title,
+                    description: item.description,
+                    source: item.source == "inferred" ? .inferred : .verbatim
+                )
+            }
+        }
+
+        let mapped = DeliverableRequirements(
+            technical: mapItems(payload.technical),
+            commercial: mapItems(payload.commercial),
+            strategicCreative: mapItems(payload.strategicCreative)
+        )
+
+        return mapped.isEmpty ? nil : mapped
     }
 
     private func mapBeautifiedText(from payload: BeautifiedFieldsV1?) -> BeautifiedFields? {

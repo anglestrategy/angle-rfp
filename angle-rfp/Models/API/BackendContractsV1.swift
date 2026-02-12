@@ -132,6 +132,18 @@ struct DeliverableV1: Codable {
     }
 }
 
+struct DeliverableRequirementItemV1: Codable {
+    let title: String
+    let description: String
+    let source: String
+}
+
+struct DeliverableRequirementsV1: Codable {
+    let technical: [DeliverableRequirementItemV1]
+    let commercial: [DeliverableRequirementItemV1]
+    let strategicCreative: [DeliverableRequirementItemV1]
+}
+
 struct ExtractedRFPDataV1Payload: Codable {
     let schemaVersion: String
     let analysisId: String
@@ -144,6 +156,7 @@ struct ExtractedRFPDataV1Payload: Codable {
     let scopeOfWork: String
     let evaluationCriteria: String
     let requiredDeliverables: [DeliverableV1]
+    let deliverableRequirements: DeliverableRequirementsV1?
     let importantDates: [ImportantDateV1]
     let submissionRequirements: SubmissionRequirementsV1
     let redFlags: [RedFlagV1]

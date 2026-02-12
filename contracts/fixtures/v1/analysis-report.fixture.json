@@ -16,6 +16,29 @@
     "scopeOfWork": "Exact RFP scope text.",
     "evaluationCriteria": "Exact RFP evaluation text.",
     "requiredDeliverables": [{ "item": "Technical proposal", "source": "verbatim" }],
+    "deliverableRequirements": {
+      "technical": [
+        {
+          "title": "Technical Proposal Submission",
+          "description": "Submit methodology, credentials, and team profile in the technical proposal.",
+          "source": "verbatim"
+        }
+      ],
+      "commercial": [
+        {
+          "title": "Commercial and Financial Proposal",
+          "description": "Submit a separate commercial proposal with pricing and payment terms.",
+          "source": "verbatim"
+        }
+      ],
+      "strategicCreative": [
+        {
+          "title": "Strategic and Creative Proposal",
+          "description": "Include strategic planning and creative approach aligned to evaluation criteria.",
+          "source": "inferred"
+        }
+      ]
+    },
     "importantDates": [
       { "title": "Submission Deadline", "date": "2026-03-15", "type": "submission_deadline", "isCritical": true }
     ],

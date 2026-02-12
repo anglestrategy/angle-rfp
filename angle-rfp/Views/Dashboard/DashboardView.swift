@@ -66,7 +66,7 @@ struct DashboardView: View {
     var body: some View {
         SceneContainer {
             ScrollView {
-                VStack(alignment: .leading, spacing: 32) {
+                VStack(alignment: .leading, spacing: 40) {
                     // Hero header
                     heroSection
 
@@ -106,12 +106,13 @@ struct DashboardView: View {
                     // Actions footer
                     actionsSection
                 }
-                .padding(40)
+                .padding(.horizontal, 40)
+                .padding(.vertical, 48)
             }
         }
         .opacity(isRevealed ? 1 : 0)
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) {
+            withAnimation(.easeOut(duration: 0.4)) {
                 isRevealed = true
             }
         }
@@ -120,20 +121,29 @@ struct DashboardView: View {
     // MARK: - Hero Section
 
     private var heroSection: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(data.clientName ?? "Unknown Client")
-                    .font(.custom("Urbanist", size: 36).weight(.bold))
-                    .foregroundColor(DesignSystem.Palette.Text.primary)
+        VStack(alignment: .leading, spacing: 24) {
+            // Overline
+            Text("ANALYSIS COMPLETE")
+                .font(.custom("IBM Plex Mono", size: 10).weight(.medium))
+                .tracking(2)
+                .foregroundColor(DesignSystem.Palette.Text.muted)
 
-                Text(data.projectName ?? "RFP Analysis")
-                    .font(.custom("Urbanist", size: 20).weight(.medium))
-                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+            // Client and score row
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(data.clientName ?? "Unknown Client")
+                        .font(.custom("Urbanist", size: 36).weight(.bold))
+                        .foregroundColor(DesignSystem.Palette.Text.primary)
+
+                    Text(data.projectName ?? "RFP Analysis")
+                        .font(.custom("Urbanist", size: 16))
+                        .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                }
+
+                Spacer()
+
+                ScoreHero(score: financialScore, recommendation: recommendationLevel)
             }
-
-            Spacer()
-
-            ScoreHero(score: financialScore, recommendation: recommendationLevel)
         }
     }
 
@@ -223,14 +233,68 @@ struct DashboardView: View {
 
     private func evaluationSection(_ criteria: String) -> some View {
         DashboardSection("Evaluation Criteria") {
-            VStack(alignment: .leading) {
-                BeautifiedTextView(
-                    beautifiedText: data.beautifiedText?.evaluationCriteria,
-                    fallbackText: criteria
-                )
+            EvaluationCriteriaView(
+                beautifiedText: data.beautifiedText?.evaluationCriteria,
+                fallbackText: criteria
+            )
+        }
+    }
+
+    // MARK: - Deliverables Section
+
+    private func deliverablesSection(_ deliverables: [Deliverable]) -> some View {
+        DashboardSection("Deliverables") {
+            VStack(alignment: .leading, spacing: 20) {
+                if let grouped = data.deliverableRequirements, !grouped.isEmpty {
+                    deliverableRequirementGroup(
+                        title: "Technical Requirements",
+                        items: grouped.technical
+                    )
+                    deliverableRequirementGroup(
+                        title: "Commercial Requirements",
+                        items: grouped.commercial
+                    )
+                    deliverableRequirementGroup(
+                        title: "Strategic and Creative Requirements",
+                        items: grouped.strategicCreative
+                    )
+                } else {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(deliverables.enumerated()), id: \.element.id) { index, deliverable in
+                            HStack(alignment: .center, spacing: 12) {
+                                Circle()
+                                    .fill(DesignSystem.Palette.Accent.primary)
+                                    .frame(width: 5, height: 5)
+
+                                Text(deliverable.item)
+                                    .font(.custom("Urbanist", size: 14))
+                                    .foregroundColor(DesignSystem.Palette.Text.primary)
+
+                                Spacer()
+
+                                Text(deliverable.source == .verbatim ? "Verbatim" : "Inferred")
+                                    .font(.custom("IBM Plex Mono", size: 10))
+                                    .foregroundColor(deliverable.source == .verbatim
+                                        ? DesignSystem.Palette.Text.muted
+                                        : DesignSystem.Palette.Accent.primary)
+                            }
+                            .padding(.vertical, 12)
+                            .overlay(
+                                Group {
+                                    if index < deliverables.count - 1 {
+                                        Rectangle()
+                                            .fill(Color.white.opacity(0.04))
+                                            .frame(height: 1)
+                                    }
+                                },
+                                alignment: .bottom
+                            )
+                        }
+                    }
+                }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(DesignSystem.Palette.Background.elevated)
@@ -242,47 +306,48 @@ struct DashboardView: View {
         }
     }
 
-    // MARK: - Deliverables Section
+    private func deliverableRequirementGroup(title: String, items: [DeliverableRequirementItem]) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.custom("Urbanist", size: 14).weight(.semibold))
+                .foregroundColor(DesignSystem.Palette.Text.primary)
 
-    private func deliverablesSection(_ deliverables: [Deliverable]) -> some View {
-        DashboardSection("Deliverables") {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(deliverables) { deliverable in
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(DesignSystem.Palette.Semantic.success)
-                        Text(deliverable.item)
-                            .font(.custom("Urbanist", size: 14))
-                            .foregroundColor(DesignSystem.Palette.Text.secondary)
-                        Spacer()
-                        // Source tag
-                        Text(deliverable.source == .verbatim ? "Verbatim" : "Inferred")
-                            .font(.custom("Urbanist", size: 10).weight(.medium))
-                            .foregroundColor(deliverable.source == .verbatim
-                                ? DesignSystem.Palette.Semantic.success
-                                : DesignSystem.Palette.Accent.primary)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                    .fill(deliverable.source == .verbatim
-                                        ? DesignSystem.Palette.Semantic.success.opacity(0.15)
-                                        : DesignSystem.Palette.Accent.primary.opacity(0.15))
-                            )
+            if items.isEmpty {
+                Text("No explicit requirements extracted for this section.")
+                    .font(.custom("Urbanist", size: 13))
+                    .foregroundColor(DesignSystem.Palette.Text.tertiary)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(items) { item in
+                        HStack(alignment: .top, spacing: 10) {
+                            Circle()
+                                .fill(DesignSystem.Palette.Accent.primary)
+                                .frame(width: 5, height: 5)
+                                .padding(.top, 7)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.title)
+                                    .font(.custom("Urbanist", size: 13).weight(.semibold))
+                                    .foregroundColor(DesignSystem.Palette.Text.primary)
+
+                                Text(item.description)
+                                    .font(.custom("Urbanist", size: 13))
+                                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                                    .lineSpacing(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+
+                            Spacer(minLength: 8)
+
+                            Text(item.source == .verbatim ? "Verbatim" : "Inferred")
+                                .font(.custom("IBM Plex Mono", size: 10))
+                                .foregroundColor(item.source == .verbatim
+                                    ? DesignSystem.Palette.Text.muted
+                                    : DesignSystem.Palette.Accent.primary)
+                        }
                     }
                 }
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DesignSystem.Palette.Background.elevated)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.04), lineWidth: 1)
-                    )
-            )
         }
     }
 
@@ -298,24 +363,21 @@ struct DashboardView: View {
 
     private func submissionSection(_ requirements: String) -> some View {
         DashboardSection("Submission Requirements") {
-            VStack(alignment: .leading, spacing: 12) {
-                // Parse the submission requirements into structured rows
-                ForEach(requirements.components(separatedBy: "\n"), id: \.self) { line in
-                    if !line.isEmpty {
-                        SubmissionRow(line: line)
-                    }
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DesignSystem.Palette.Background.elevated)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.04), lineWidth: 1)
-                    )
-            )
+            Text(requirements)
+                .font(.custom("Urbanist", size: 14))
+                .foregroundColor(DesignSystem.Palette.Text.secondary)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(20)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(DesignSystem.Palette.Background.elevated)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.white.opacity(0.04), lineWidth: 1)
+                        )
+                )
         }
     }
 
@@ -324,22 +386,14 @@ struct DashboardView: View {
     private var actionsSection: some View {
         HStack {
             Button(action: onNewAnalysis) {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.counterclockwise")
-                    Text("Analyze Another")
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(DesignSystem.Palette.Text.muted)
+                        .frame(width: 6, height: 6)
+                    Text("Analyze another")
+                        .font(.custom("Urbanist", size: 13).weight(.medium))
+                        .foregroundColor(DesignSystem.Palette.Text.muted)
                 }
-                .font(.custom("Urbanist", size: 14).weight(.medium))
-                .foregroundColor(DesignSystem.Palette.Text.secondary)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(DesignSystem.Palette.Background.surface)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.white.opacity(0.06), lineWidth: 1)
-                        )
-                )
             }
             .buttonStyle(.plain)
 
@@ -347,70 +401,22 @@ struct DashboardView: View {
 
             Button(action: { onExport(.pdf) }) {
                 HStack(spacing: 8) {
-                    Image(systemName: "arrow.down.doc")
                     Text("Export PDF")
+                        .font(.custom("Urbanist", size: 14).weight(.semibold))
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 12, weight: .semibold))
                 }
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(DesignSystem.Palette.Accent.primary)
+                )
             }
-            .buttonStyle(.accentGradient)
+            .buttonStyle(.plain)
         }
-        .padding(.top, 16)
-    }
-}
-
-// MARK: - Submission Row Component
-
-private struct SubmissionRow: View {
-    let line: String
-
-    private var icon: String {
-        if line.hasPrefix("Method:") {
-            return "arrow.up.doc.fill"
-        } else if line.hasPrefix("Format:") {
-            return "doc.fill"
-        } else if line.hasPrefix("Email:") {
-            return "envelope.fill"
-        } else if line.hasPrefix("Address:") {
-            return "building.2.fill"
-        } else if line.hasPrefix("Copies:") {
-            return "doc.on.doc.fill"
-        } else {
-            return "info.circle.fill"
-        }
-    }
-
-    private var label: String {
-        if let colonIndex = line.firstIndex(of: ":") {
-            return String(line[..<colonIndex])
-        }
-        return ""
-    }
-
-    private var value: String {
-        if let colonIndex = line.firstIndex(of: ":") {
-            let afterColon = line.index(after: colonIndex)
-            return String(line[afterColon...]).trimmingCharacters(in: .whitespaces)
-        }
-        return line
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 14))
-                .foregroundColor(DesignSystem.Palette.Accent.primary)
-                .frame(width: 20)
-
-            Text(label)
-                .font(.custom("Urbanist", size: 13).weight(.medium))
-                .foregroundColor(DesignSystem.Palette.Text.tertiary)
-                .frame(width: 60, alignment: .leading)
-
-            Text(value)
-                .font(.custom("Urbanist", size: 14))
-                .foregroundColor(DesignSystem.Palette.Text.secondary)
-
-            Spacer()
-        }
+        .padding(.top, 24)
     }
 }
 

@@ -40,6 +40,9 @@ describe("analyzeRfpInput", () => {
     expect(result.scopeOfWork.length).toBeGreaterThan(0);
     expect(result.evaluationCriteria.length).toBeGreaterThan(0);
     expect(result.requiredDeliverables.length).toBeGreaterThan(0);
+    expect(result.deliverableRequirements).toBeDefined();
+    expect(result.deliverableRequirements?.technical.length).toBeGreaterThan(0);
+    expect(result.deliverableRequirements?.commercial.length).toBeGreaterThan(0);
     expect(result.importantDates.length).toBeGreaterThan(0);
   });
 
@@ -115,6 +118,31 @@ describe("analyzeRfpInput", () => {
     expect(result.evaluationCriteria).not.toContain("##");
     expect(result.evaluationCriteria).not.toContain("**");
     expect(result.evaluationCriteria).toMatch(/team experience|commercial|\d+%/i);
+  });
+
+  test("groups deliverable requirements into technical, commercial, and strategic creative", async () => {
+    const groupedDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Submission Format",
+        "The technical proposals should include: Executive Summary, Methodology, Vendor profile and references.",
+        "The commercial proposals should include: pricing breakdown, payment terms, subtotal and grand total.",
+        "Evaluation Criteria",
+        "Strategic Planning & Creativity",
+        "Showcase strategic launch campaign concepts and creative direction."
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: groupedDoc.analysisId,
+      parsedDocument: groupedDoc
+    });
+
+    expect(result.deliverableRequirements?.technical.length ?? 0).toBeGreaterThan(0);
+    expect(result.deliverableRequirements?.commercial.length ?? 0).toBeGreaterThan(0);
+    expect(result.deliverableRequirements?.strategicCreative.length ?? 0).toBeGreaterThan(0);
   });
 
   test("detects conflicts in submission deadlines", async () => {
