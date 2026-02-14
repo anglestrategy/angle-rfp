@@ -1,4 +1,5 @@
 import type { ProviderDocument } from "@/lib/research/providers/brave";
+import { fetchWithRetry } from "@/lib/ops/retriable-fetch";
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -22,13 +23,23 @@ export async function queryFirecrawl(
     ];
   }
 
-  const response = await fetchFn("https://api.firecrawl.dev/v1/scrape", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({ url })
+  const response = await fetchWithRetry({
+    url: "https://api.firecrawl.dev/v1/scrape",
+    operationName: "Firecrawl scrape",
+    fetchFn,
+    timeoutMs: 20_000,
+    maxAttempts: 2,
+    baseDelayMs: 800,
+    maxDelayMs: 5_000,
+    retryOnStatusCodes: [408, 425, 429, 500, 502, 503, 504],
+    buildInit: () => ({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({ url })
+    })
   });
 
   if (!response.ok) {

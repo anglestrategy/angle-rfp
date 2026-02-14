@@ -366,6 +366,13 @@ function inferRetries(error: unknown): number {
   if (/after retries/i.test(message)) {
     return 2;
   }
+  const afterAttemptsMatch = message.match(/after\s+(\d+)\s+attempts?/i);
+  if (afterAttemptsMatch?.[1]) {
+    const attempts = Number(afterAttemptsMatch[1]);
+    if (Number.isFinite(attempts) && attempts > 1) {
+      return attempts - 1;
+    }
+  }
   const match = message.match(/attempt\s+(\d+)\/(\d+)/i);
   if (!match || !match[2]) {
     return 0;
@@ -579,6 +586,15 @@ export async function researchClientInput(
     };
   });
 
+  const uniqueSources = Array.from(new Set(docs.map((doc) => doc.source)));
+  const healthyProviders = providerStatsPayload.filter((provider) => provider.finalStatus !== "failed");
+  if (healthyProviders.length < 2) {
+    warnings.push("Research quality degraded: fewer than two providers returned usable evidence.");
+  }
+  if (uniqueSources.length < 3) {
+    warnings.push("Research evidence density is low; validate findings before acting.");
+  }
+
   const output: ClientResearchV1 = {
     schemaVersion: "1.0.0",
     analysisId: input.analysisId,
@@ -608,7 +624,7 @@ export async function researchClientInput(
     ],
     redFlags: warnings.length > 2 ? ["High provider volatility"] : [],
     researchMetadata: {
-      sourcesUsed: Array.from(new Set(docs.map((doc) => doc.source))).length,
+      sourcesUsed: uniqueSources.length,
       englishSources,
       arabicSources,
       overallConfidence,

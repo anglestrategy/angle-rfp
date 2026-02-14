@@ -83,6 +83,45 @@ function detectFormat(fileName: string, mimeType: string): ParsedFormat {
   });
 }
 
+function shouldUseUnstructuredParser(params: {
+  analysisProfile: AnalysisProfile;
+  detectedFormat: ParsedFormat;
+  needsOcr: boolean;
+  pageCount: number;
+  rawTextLength: number;
+  warnings: string[];
+}): boolean {
+  if (params.detectedFormat === "txt") {
+    return false;
+  }
+
+  const forceAll = process.env.UNSTRUCTURED_FORCE_ALL === "1";
+  if (forceAll) {
+    return true;
+  }
+
+  const warningSignal = params.warnings.some((warning) =>
+    /limited|no direct text extracted|unable to extract|image-only|fallback/i.test(warning)
+  );
+  const lowTextDensity =
+    params.detectedFormat === "pdf"
+      ? params.rawTextLength / Math.max(1, params.pageCount) < 900
+      : params.rawTextLength < 7_000;
+  const largePdf = params.detectedFormat === "pdf" && params.pageCount >= 45;
+  const structuredHint = params.detectedFormat === "docx" && params.rawTextLength < 12_000;
+
+  if (params.analysisProfile === "fast") {
+    return params.needsOcr && (warningSignal || lowTextDensity);
+  }
+
+  if (params.analysisProfile === "balanced") {
+    return params.needsOcr || warningSignal || lowTextDensity;
+  }
+
+  // high_assurance: selective premium parsing, not unconditional.
+  return params.needsOcr || warningSignal || lowTextDensity || largePdf || structuredHint;
+}
+
 function assertLimits(fileName: string, fileBytes: Buffer): void {
   if (fileBytes.length > MAX_FILE_BYTES) {
     throw makeError(413, "file_too_large", `File ${fileName} exceeds ${MAX_FILE_BYTES} bytes`, "parse-document", {
@@ -173,11 +212,14 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
   }
 
   if (detectedFormat !== "txt" && process.env.UNSTRUCTURED_API_KEY) {
-    const shouldUseUnstructured =
-      analysisProfile === "high_assurance" ||
-      needsOcr ||
-      rawText.length < 4000 ||
-      warnings.some((warning) => /limited|no direct text extracted/i.test(warning));
+    const shouldUseUnstructured = shouldUseUnstructuredParser({
+      analysisProfile,
+      detectedFormat,
+      needsOcr,
+      pageCount,
+      rawTextLength: rawText.length,
+      warnings
+    });
 
     if (shouldUseUnstructured) {
       try {

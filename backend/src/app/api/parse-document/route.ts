@@ -6,6 +6,9 @@ import { reserveUserDailyAnalysis, registerAnalysisUsage } from "@/lib/ops/cost-
 import { parseDocumentInput } from "@/lib/parsing/parse-document";
 import { parseBearerToken } from "@/lib/security/auth";
 
+// Allows long-running parse requests (OCR/Unstructured) on serverless platforms.
+export const maxDuration = 300;
+
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
 

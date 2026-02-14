@@ -1,4 +1,5 @@
 import type { ProviderDocument } from "@/lib/research/providers/brave";
+import { fetchWithRetry } from "@/lib/ops/retriable-fetch";
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -22,15 +23,25 @@ export async function queryTavily(
     ];
   }
 
-  const response = await fetchFn("https://api.tavily.com/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query,
-      max_results: 5
+  const response = await fetchWithRetry({
+    url: "https://api.tavily.com/search",
+    operationName: "Tavily search",
+    fetchFn,
+    timeoutMs: 15_000,
+    maxAttempts: 3,
+    baseDelayMs: 600,
+    maxDelayMs: 4_000,
+    retryOnStatusCodes: [408, 425, 429, 500, 502, 503, 504],
+    buildInit: () => ({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        max_results: 5
+      })
     })
   });
 

@@ -1,3 +1,5 @@
+import { fetchWithRetry } from "@/lib/ops/retriable-fetch";
+
 export interface ProviderDocument {
   key: string;
   value: string;
@@ -21,14 +23,10 @@ function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export async function queryBrave(
   query: string,
   fetchFn: typeof fetch = fetch,
-  maxRetries = 3
+  maxRetries = 4
 ): Promise<ProviderDocument[]> {
   const token = process.env.BRAVE_SEARCH_API_KEY;
   if (!token) {
@@ -49,50 +47,36 @@ export async function queryBrave(
   url.searchParams.set("q", query);
   url.searchParams.set("count", "5");
 
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const response = await fetchFn(url, {
-        headers: {
-          "X-Subscription-Token": token,
-          Accept: "application/json"
-        }
-      });
-
-      if (response.status === 429) {
-        // Rate limited - exponential backoff
-        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-        console.warn(`Brave API rate limited, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
-        await sleep(delay);
-        continue;
+  const response = await fetchWithRetry({
+    url,
+    operationName: "Brave search",
+    fetchFn,
+    timeoutMs: 15_000,
+    maxAttempts: Math.max(1, maxRetries),
+    baseDelayMs: 1_000,
+    maxDelayMs: 8_000,
+    retryOnStatusCodes: [408, 425, 429, 500, 502, 503, 504],
+    buildInit: () => ({
+      headers: {
+        "X-Subscription-Token": token,
+        Accept: "application/json"
       }
+    })
+  });
 
-      if (!response.ok) {
-        throw new Error(`Brave request failed: ${response.status}`);
-      }
-
-      const payload = (await response.json()) as BraveApiResponse;
-      const docs = payload.web?.results ?? [];
-
-      return docs.slice(0, 3).map((doc) => ({
-        key: "newsSignal",
-        value: `${doc.title} ${doc.description ?? ""}`.trim(),
-        source: doc.url,
-        tier: 2,
-        sourceDate: todayIsoDate(),
-        category: "news"
-      }));
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Retry on network errors with exponential backoff
-      if (attempt < maxRetries - 1) {
-        const delay = Math.pow(2, attempt) * 500;
-        await sleep(delay);
-      }
-    }
+  if (!response.ok) {
+    throw new Error(`Brave request failed: ${response.status}`);
   }
 
-  throw lastError ?? new Error("Brave request failed after retries");
+  const payload = (await response.json()) as BraveApiResponse;
+  const docs = payload.web?.results ?? [];
+
+  return docs.slice(0, 3).map((doc) => ({
+    key: "newsSignal",
+    value: `${doc.title} ${doc.description ?? ""}`.trim(),
+    source: doc.url,
+    tier: 2,
+    sourceDate: todayIsoDate(),
+    category: "news"
+  }));
 }

@@ -8,6 +8,7 @@ import {
   resetBudgetTracking
 } from "@/lib/ops/cost-budget";
 import { redactLogMetadata, redactLogText } from "@/lib/ops/log-redaction";
+import { fetchWithRetry } from "@/lib/ops/retriable-fetch";
 
 describe("rate limiter", () => {
   test("enforces bucket capacity and refill", () => {
@@ -93,5 +94,85 @@ describe("log redaction", () => {
 
     expect(metadata.token).toBe("[REDACTED]");
     expect((metadata.nested as Record<string, unknown>).email).toBe("[REDACTED]");
+  });
+});
+
+describe("retriable fetch", () => {
+  test("retries on retryable HTTP status and eventually succeeds", async () => {
+    const responses = [429, 503, 200];
+    let callCount = 0;
+    const fetchFn: typeof fetch = async () => {
+      const status = responses[Math.min(callCount, responses.length - 1)] ?? 500;
+      callCount += 1;
+      return new Response(JSON.stringify({ ok: status === 200 }), {
+        status,
+        headers: { "Content-Type": "application/json" }
+      });
+    };
+
+    const response = await fetchWithRetry({
+      url: "https://example.com/test",
+      operationName: "retry-status-test",
+      fetchFn,
+      timeoutMs: 1_000,
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 2,
+      jitterRatio: 0,
+      buildInit: () => ({ method: "GET" })
+    });
+
+    expect(callCount).toBe(3);
+    expect(response.status).toBe(200);
+  });
+
+  test("throws after max attempts on network-style errors", async () => {
+    let callCount = 0;
+    const fetchFn: typeof fetch = async () => {
+      callCount += 1;
+      throw new TypeError("fetch failed");
+    };
+
+    await expect(
+      fetchWithRetry({
+        url: "https://example.com/unavailable",
+        operationName: "network-failure-test",
+        fetchFn,
+        timeoutMs: 1_000,
+        maxAttempts: 3,
+        baseDelayMs: 1,
+        maxDelayMs: 2,
+        jitterRatio: 0,
+        buildInit: () => ({ method: "GET" })
+      })
+    ).rejects.toThrow(/failed after 3 attempts/i);
+
+    expect(callCount).toBe(3);
+  });
+
+  test("does not retry non-retryable status codes", async () => {
+    let callCount = 0;
+    const fetchFn: typeof fetch = async () => {
+      callCount += 1;
+      return new Response(JSON.stringify({ error: "bad request" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" }
+      });
+    };
+
+    const response = await fetchWithRetry({
+      url: "https://example.com/bad-request",
+      operationName: "non-retryable-status-test",
+      fetchFn,
+      timeoutMs: 1_000,
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 2,
+      jitterRatio: 0,
+      buildInit: () => ({ method: "GET" })
+    });
+
+    expect(callCount).toBe(1);
+    expect(response.status).toBe(400);
   });
 });

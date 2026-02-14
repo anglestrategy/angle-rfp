@@ -1,3 +1,5 @@
+import { fetchWithRetry } from "@/lib/ops/retriable-fetch";
+
 export interface UnstructuredParseResult {
   text: string;
   warnings: string[];
@@ -52,19 +54,32 @@ export async function parseWithUnstructured(input: {
   const endpoint = process.env.UNSTRUCTURED_API_URL?.trim() || "https://api.unstructuredapp.io/general/v0/general";
   const fetchFn = input.fetchFn ?? fetch;
 
-  const formData = new FormData();
-  formData.append("files", toBlob(input.fileBytes), input.fileName);
-  formData.append("strategy", "hi_res");
-  formData.append("skip_infer_table_types", "false");
-  formData.append("languages", "eng,ara");
+  const timeoutMs = Number(process.env.UNSTRUCTURED_TIMEOUT_MS ?? 45_000);
+  const response = await fetchWithRetry({
+    url: endpoint,
+    operationName: "Unstructured parse",
+    fetchFn,
+    timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 45_000,
+    maxAttempts: 2,
+    baseDelayMs: 750,
+    maxDelayMs: 4_000,
+    retryOnStatusCodes: [408, 425, 429, 500, 502, 503, 504],
+    buildInit: () => {
+      const formData = new FormData();
+      formData.append("files", toBlob(input.fileBytes), input.fileName);
+      formData.append("strategy", process.env.UNSTRUCTURED_STRATEGY?.trim() || "hi_res");
+      formData.append("skip_infer_table_types", "false");
+      formData.append("languages", "eng,ara");
 
-  const response = await fetchFn(endpoint, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "unstructured-api-key": apiKey
-    },
-    body: formData
+      return {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "unstructured-api-key": apiKey
+        },
+        body: formData
+      };
+    }
   });
 
   if (!response.ok) {

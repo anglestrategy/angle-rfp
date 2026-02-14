@@ -122,6 +122,32 @@ describe("analyzeRfpInput", () => {
     expect(result.evaluationCriteria).toMatch(/team experience|commercial|\d+%/i);
   });
 
+  test("splits numbered criteria headings from inline narrative and keeps bullet formatting", async () => {
+    const inlineCriteriaDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Scope of Work",
+        "Develop local launch strategy and campaign rollout.",
+        "Evaluation Criteria",
+        "1. Agency Credentials, Team & KSA Experience (Weight not specified) Proven experience in developing brand strategy and localization frameworks for large initiatives.",
+        "2. Strategic Planning & Creativity (Weight not specified) Demonstrated understanding of Saudi consumers and clear localization positioning.",
+        "3. Project Management & Deliverables (Weight not specified) On-time delivery based on milestones and project execution timeline."
+      ].join("\\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: inlineCriteriaDoc.analysisId,
+      parsedDocument: inlineCriteriaDoc
+    });
+
+    expect(result.evaluationCriteria).toContain("1. Agency Credentials, Team & KSA Experience");
+    expect(result.evaluationCriteria).toContain("• Proven experience in developing brand strategy");
+    expect(result.evaluationCriteria).not.toContain("##");
+    expect(result.evaluationCriteria).not.toContain("```");
+  });
+
   test("groups deliverable requirements into technical, commercial, and strategic creative", async () => {
     const groupedDoc = {
       ...baseDocument,

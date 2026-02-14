@@ -1,4 +1,5 @@
 import type { ProviderDocument } from "@/lib/research/providers/brave";
+import { fetchWithRetry } from "@/lib/ops/retriable-fetch";
 
 interface ExaSearchResponse {
   results?: Array<{
@@ -53,21 +54,31 @@ export async function queryExa(
     ];
   }
 
-  const response = await fetchFn("https://api.exa.ai/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey
-    },
-    body: JSON.stringify({
-      query,
-      numResults: 5,
-      contents: {
-        text: true,
-        highlights: {
-          numSentences: 2
+  const response = await fetchWithRetry({
+    url: "https://api.exa.ai/search",
+    operationName: "Exa search",
+    fetchFn,
+    timeoutMs: 15_000,
+    maxAttempts: 3,
+    baseDelayMs: 600,
+    maxDelayMs: 4_000,
+    retryOnStatusCodes: [408, 425, 429, 500, 502, 503, 504],
+    buildInit: () => ({
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey
+      },
+      body: JSON.stringify({
+        query,
+        numResults: 5,
+        contents: {
+          text: true,
+          highlights: {
+            numSentences: 2
+          }
         }
-      }
+      })
     })
   });
 

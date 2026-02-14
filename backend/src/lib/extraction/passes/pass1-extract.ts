@@ -52,6 +52,25 @@ function bySectionName(
     return null;
   }
 
+  if (
+    match.startOffset < 0 ||
+    match.endOffset <= match.startOffset ||
+    match.endOffset > text.length
+  ) {
+    return null;
+  }
+
+  // Guard against stale offsets that point inside a token (can happen when text is rewritten in tests
+  // or if upstream parser offsets drift). In that case, fall back to heading-based extraction.
+  if (match.startOffset > 0) {
+    const prevChar = text[match.startOffset - 1] ?? "";
+    const currentChar = text[match.startOffset] ?? "";
+    const isTokenChar = /[\p{L}\p{N}]/u;
+    if (isTokenChar.test(prevChar) && isTokenChar.test(currentChar)) {
+      return null;
+    }
+  }
+
   return text.slice(match.startOffset, match.endOffset).trim() || null;
 }
 
@@ -225,7 +244,16 @@ const DELIVERABLE_CLAUSE_DROP_PATTERNS = [
   /as stated in this rfp/i,
   /on condition that such/i,
   /all proposal documents/i,
-  /no vendor may add/i
+  /no vendor may add/i,
+  /referred to as.*vendor/i,
+  /rectification shall be binding/i,
+  /legal validity whatsoever/i,
+  /the employer accepts no liability/i,
+  /shall provide its proposed payment terms.*however/i,
+  /the vendor decides to submit an alternative/i,
+  /once delivered to.*no vendor may add/i,
+  /^vendor$/i,
+  /^commercial proposals?\s+should\s+include/i
 ];
 
 const DELIVERABLE_HINT_PATTERNS: Record<DeliverableHeadingHint, RegExp[]> = {
@@ -269,6 +297,8 @@ function splitRequirementClauses(line: string): string[] {
 
 function cleanDeliverableRequirementText(raw: string): string {
   const cleaned = normalizeRequirementLine(raw)
+    .replace(/^[0-9]+[:.)]\s*/g, "")
+    .replace(/^[ivxlcdm]+[:.)]\s*/i, "")
     .replace(/\[\s*vendor name\s*\]/gi, "")
     .replace(/\s*\b(?:page|pg\.?)\s*\d+\b/gi, "")
     .replace(/\(\s*\d{1,3}\s*\)\s*$/g, "")
@@ -279,6 +309,9 @@ function cleanDeliverableRequirementText(raw: string): string {
     .replace(/^\s*(?:the\s+)?(?:following|below)\s+(?:sections?|areas?)\s*(?:within|in)?\s*(?:their\s+)?proposal\s*[:\-]?\s*/i, "")
     .replace(/\s{2,}/g, " ")
     .replace(/^(.{10,180}?)\s+\1$/i, "$1")
+    .replace(/^(?:referred to as\s+)?["“]?vendor["”]?\s*,?\s*/i, "")
+    .replace(/^\s*(?:the\s+)?commercial proposals?\s+should\s+include\s+the\s+following\s+sections?\s*:?\s*/i, "")
+    .replace(/^\s*(?:the\s+)?technical proposals?\s+should\s+include\s+the\s+following\s+sections?\s*:?\s*/i, "")
     .replace(/\s{2,}/g, " ")
     .trim();
 
@@ -287,6 +320,10 @@ function cleanDeliverableRequirementText(raw: string): string {
   }
 
   return cleaned;
+}
+
+function looksLikeRequirementStatement(line: string): boolean {
+  return /(must|shall|required|should include|submit|submitted|provide|attach|include|present|prepare|deliver|upload|تقديم|إرفاق|يشمل|يتضمن|يجب)/i.test(line);
 }
 
 const TECHNICAL_REQUIREMENT_SIGNALS = [
@@ -677,6 +714,11 @@ function buildDeliverableRequirements(
         continue;
       }
 
+      // Keep deliverables actionable; discard narrative/legal boilerplate.
+      if (candidateLine.origin === "section" && !looksLikeRequirementStatement(line) && !strongSignal) {
+        continue;
+      }
+
       if (
         candidateLine.origin === "section" &&
         !explicitSignal &&
@@ -777,7 +819,8 @@ function truncateAtWordBoundary(text: string, maxChars: number): string {
 }
 
 function normalizeStructuredText(input: string): string {
-  const lines = input.split(/\r?\n/);
+  const normalizedInput = input.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+  const lines = normalizedInput.split(/\r?\n/);
   const seen = new Set<string>();
   const output: string[] = [];
 
@@ -823,7 +866,7 @@ function normalizeStructuredText(input: string): string {
 
 function fallbackExecutiveSummarySeed(text: string): string {
   const lines = text
-    .split(/\r?\n/)
+    .split(/\r?\n|\\r\\n|\\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !/^client\s*[:：-]/i.test(line))
@@ -839,6 +882,16 @@ function fallbackExecutiveSummarySeed(text: string): string {
 function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
   const byKey = new Map<string, DeliverableItem>();
   const inferredCandidates: DeliverableItem[] = [];
+  const keepSignalPattern =
+    /(proposal|submit|submission|deliverable|certificate|credentials?|portfolio|track record|references?|\\bcv\\b|resume|methodology|approach|team|payment terms?|pricing|tax|commercial|financial|technical|عرض|تقديم|شهادة|سيرة|الدفع|مالي|فني)/i;
+  const verbatimDropPatterns = [
+    /referred to as.*vendor/i,
+    /no clarification.*binding/i,
+    /legal validity whatsoever/i,
+    /accepts no liability/i,
+    /no vendor may add/i,
+    /proposal documents will be submitted to/i
+  ];
 
   const inferredKeepPatterns = [
     /technical proposal/i,
@@ -873,6 +926,14 @@ function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
   for (const item of items) {
     const cleaned = item.item.replace(/\s+/g, " ").trim();
     if (!cleaned || cleaned.length < 4) {
+      continue;
+    }
+
+    if (verbatimDropPatterns.some((pattern) => pattern.test(cleaned))) {
+      continue;
+    }
+
+    if (!keepSignalPattern.test(cleaned)) {
       continue;
     }
 
@@ -937,6 +998,9 @@ const SCOPE_NON_WORK_PATTERNS = [
   /email submission/i,
   /nda|non[-\s]?disclosure/i,
   /must comprise|minimum\s+\d+%/i,
+  /research and analysis/i,
+  /market research/i,
+  /identify key learnings? from previous/i,
   /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|الشروط|اتفاقية/i
 ];
 
@@ -950,7 +1014,7 @@ const SCOPE_HEADING_PATTERNS = [
   /^important dates?$/i,
   /^program phases?.*/i,
   /^phase\s*\d+[:\s]/i,
-  /^(?:\d+\.?\s*)?(research and analysis|strategic foundation|local brand|local design system|brand book|post-launch plan|project management)$/i,
+  /^(?:\d+\.?\s*)?(research and analysis(?:\s*\/\s*benchmarks?)?|strategic foundation|local brand|local design system|brand book|post-launch plan|project management)$/i,
   /^نطاق العمل$/i
 ];
 
@@ -1079,7 +1143,8 @@ function splitEvaluationSentences(line: string): string[] {
 }
 
 function sanitizeEvaluationCriteria(criteriaText: string): string {
-  const lines = criteriaText.split(/\r?\n/);
+  const normalizedCriteria = criteriaText.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
+  const lines = normalizedCriteria.split(/\r?\n/);
   const seen = new Set<string>();
   const output: string[] = [];
   let previousWasNumberedHeading = false;
@@ -1103,6 +1168,19 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
 
     line = line.replace(/^(\d+)[)\-]\s+/, "$1. ");
 
+    let inlineTail: string | null = null;
+    const weightedInlineMatch = line.match(/^(\d+\.\s+.+?\(\s*weight[^)]*\))\s+(.{24,})$/i);
+    if (weightedInlineMatch?.[1] && weightedInlineMatch[2]) {
+      line = weightedInlineMatch[1].trim();
+      inlineTail = weightedInlineMatch[2].trim();
+    } else {
+      const colonInlineMatch = line.match(/^(\d+\.\s+[^:]{8,140}:)\s+(.{24,})$/i);
+      if (colonInlineMatch?.[1] && colonInlineMatch[2]) {
+        line = colonInlineMatch[1].trim();
+        inlineTail = colonInlineMatch[2].trim();
+      }
+    }
+
     const dedupeKey = normalizeDedupeKey(line);
     if (!dedupeKey || seen.has(dedupeKey)) {
       continue;
@@ -1111,8 +1189,15 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
     seen.add(dedupeKey);
 
     if (/^\d+\.\s/.test(line)) {
-      previousWasNumberedHeading = true;
+      previousWasNumberedHeading = inlineTail == null;
       output.push(line);
+      if (inlineTail) {
+        const sentenceParts = splitEvaluationSentences(inlineTail);
+        const parts = sentenceParts.length > 0 ? sentenceParts : [inlineTail];
+        for (const part of parts) {
+          output.push(`• ${truncateAtWordBoundary(part, 220)}`);
+        }
+      }
       continue;
     }
 
