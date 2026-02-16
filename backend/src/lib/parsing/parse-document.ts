@@ -10,7 +10,10 @@ export type ParsedFormat = "pdf" | "docx" | "txt";
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PAGES = 250;
-const MAX_EXTRACTED_CHARS = 2_000_000;
+// Increased from 500K to 1.5M to support 300+ page RFPs and improve analysis intelligence.
+// Claude can handle 200K context efficiently; more content = better extraction quality.
+const MAX_EXTRACTED_CHARS = 1_500_000;
+const DEFAULT_MAX_UNSTRUCTURED_BYTES = 18 * 1024 * 1024;
 
 const supportedMimeTypeToFormat: Record<string, ParsedFormat> = {
   "application/pdf": "pdf",
@@ -122,6 +125,14 @@ function shouldUseUnstructuredParser(params: {
   return params.needsOcr || warningSignal || lowTextDensity || largePdf || structuredHint;
 }
 
+function maxUnstructuredBytes(): number {
+  const fromEnvMb = Number(process.env.UNSTRUCTURED_MAX_MB ?? "");
+  if (Number.isFinite(fromEnvMb) && fromEnvMb > 0) {
+    return Math.floor(fromEnvMb * 1024 * 1024);
+  }
+  return DEFAULT_MAX_UNSTRUCTURED_BYTES;
+}
+
 function assertLimits(fileName: string, fileBytes: Buffer): void {
   if (fileBytes.length > MAX_FILE_BYTES) {
     throw makeError(413, "file_too_large", `File ${fileName} exceeds ${MAX_FILE_BYTES} bytes`, "parse-document", {
@@ -172,7 +183,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     sourceType = "docx";
     parserProvenance.push("docx_local");
   } else {
-    const result = parsePdfBuffer(input.fileBytes);
+    const result = await parsePdfBuffer(input.fileBytes);
     rawText = result.text;
     pageCount = result.pageCount;
     warnings.push(...result.warnings);
@@ -222,25 +233,31 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     });
 
     if (shouldUseUnstructured) {
-      try {
-        const unstructured = await parseWithUnstructured({
-          fileBytes: input.fileBytes,
-          fileName: input.fileName,
-          mimeType: input.mimeType
-        });
+      if (input.fileBytes.length > maxUnstructuredBytes()) {
+        warnings.push(
+          `Unstructured parser skipped for large file (${Math.round(input.fileBytes.length / (1024 * 1024))} MB).`
+        );
+      } else {
+        try {
+          const unstructured = await parseWithUnstructured({
+            fileBytes: input.fileBytes,
+            fileName: input.fileName,
+            mimeType: input.mimeType
+          });
 
-        if (unstructured && unstructured.text.length > Math.max(Math.floor(rawText.length * 0.75), 500)) {
-          rawText = unstructured.text;
-          sourceType = "unstructured";
-        }
-        parserProvenance.push("unstructured");
+          if (unstructured && unstructured.text.length > Math.max(Math.floor(rawText.length * 0.75), 500)) {
+            rawText = unstructured.text;
+            sourceType = "unstructured";
+          }
+          parserProvenance.push("unstructured");
 
-        if (unstructured?.warnings.length) {
-          warnings.push(...unstructured.warnings);
+          if (unstructured?.warnings.length) {
+            warnings.push(...unstructured.warnings);
+          }
+        } catch (error: unknown) {
+          const message = error instanceof Error ? error.message : String(error);
+          warnings.push(`Unstructured parser unavailable; continued with local parser. (${message})`);
         }
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        warnings.push(`Unstructured parser unavailable; continued with local parser. (${message})`);
       }
     }
   }

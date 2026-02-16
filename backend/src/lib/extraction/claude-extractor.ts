@@ -97,8 +97,10 @@ const ClaudeExtractedFieldsSchema = z.object({
 
 export type ClaudeExtractedFields = z.infer<typeof ClaudeExtractedFieldsSchema>;
 
-// Keep extraction context bounded for latency + stability.
-const MAX_INPUT_CHARS = 60_000;
+// Increased from 60K to 200K to give Claude more context for intelligent extraction.
+// This prevents double truncation (500K→60K) that caused poor analysis quality.
+// Claude Sonnet can efficiently handle 200K tokens (~570K chars), so 200K chars is safe.
+const MAX_INPUT_CHARS = 200_000;
 
 // Default timeout for Claude API requests.
 const API_TIMEOUT_MS = 120_000;
@@ -161,6 +163,28 @@ function buildFocusedExtractionInput(rawText: string): string {
 }
 
 const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Your job is to extract and CLEARLY STRUCTURE key information from RFP documents so busy executives can quickly understand what's being asked.
+
+CRITICAL INSTRUCTIONS FOR INTELLIGENT EXTRACTION:
+1. READ CAREFULLY: Scope, deliverables, and evaluation criteria are often in middle/end sections - read the entire document
+2. INFER INTELLIGENTLY: If information is implied but not explicit, extract it and mark source as "inferred"
+3. LOOK EVERYWHERE: Check headers, footers, tables, appendices for requirements
+4. BE THOROUGH: Extract ALL deliverables, not just the obvious ones
+5. CONTEXT MATTERS: If submission requirements reference other sections, find and extract that content
+6. CLIENT IDENTIFICATION: Look for the organization ISSUING the RFP (letterhead, "Issued by:", "Client:", Arabic "العميل")
+   - Common mistake: extracting bidder names instead of client name
+   - The client is WHO IS ASKING for proposals, not who will submit them
+
+EXTRACTION PRIORITIES (in order of importance):
+- Client name and project title (critical for accurate identification)
+- Project description and objectives
+- Complete scope of work (all phases, all deliverables)
+- Evaluation criteria (ALL factors with percentages)
+- Timeline and milestones
+- Budget constraints and payment terms
+- Submission requirements (format, copies, deadline)
+- Technical requirements and constraints
+
+If text is truncated, focus on extracting the MOST IMPORTANT sections first (client, scope, evaluation).
 
 Extract the following fields from this RFP document. Return ONLY valid JSON, no markdown or explanations.
 
@@ -231,6 +255,7 @@ RFP Document:
 export async function extractWithClaude(rawText: string): Promise<ClaudeExtractedFields> {
   const startTime = Date.now();
   console.log(`[Extraction] Starting at ${new Date().toISOString()}, timeout: ${API_TIMEOUT_MS}ms`);
+  console.log(`[Extraction] Input size: ${rawText.length} chars (will be focused to max ${MAX_INPUT_CHARS} chars)`);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
@@ -240,6 +265,14 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
   const anthropicProvider = createAnthropic({ apiKey });
 
   const focusedText = buildFocusedExtractionInput(rawText);
+
+  // Log if truncation occurred
+  if (focusedText.length < rawText.length) {
+    const truncationPercent = ((1 - focusedText.length / rawText.length) * 100).toFixed(1);
+    console.warn(`[Extraction] Truncated RFP from ${rawText.length} to ${focusedText.length} chars (${truncationPercent}% removed)`);
+  } else {
+    console.log(`[Extraction] Using full RFP content (${focusedText.length} chars, no truncation)`);
+  }
 
   // Create abort controller for request-level timeout
   const abortController = new AbortController();
