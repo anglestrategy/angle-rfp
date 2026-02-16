@@ -15,6 +15,18 @@ enum BackendPipelineStage {
     case score
     case render
     case export
+
+    var displayName: String {
+        switch self {
+        case .parse: return "Parsing"
+        case .extract: return "Extraction"
+        case .scope: return "Scope analysis"
+        case .research: return "Research"
+        case .score: return "Scoring"
+        case .render: return "Rendering"
+        case .export: return "Export"
+        }
+    }
 }
 
 struct BackendStageUpdate {
@@ -35,6 +47,7 @@ enum BackendAnalysisClientError: LocalizedError {
     case invalidResponse
     case httpError(statusCode: Int, message: String)
     case parseTimeout
+    case stageTimeout(stage: BackendPipelineStage, seconds: Int)
     case malformedResponse
     case localFileAccessFailed
 
@@ -50,6 +63,8 @@ enum BackendAnalysisClientError: LocalizedError {
             return "Backend request failed (\(code)): \(message)"
         case .parseTimeout:
             return "Parsing timed out on the backend. Please retry with a smaller file, or try again in a moment."
+        case .stageTimeout(let stage, let seconds):
+            return "\(stage.displayName) timed out after \(seconds)s. Please retry."
         case .malformedResponse:
             return "Backend response payload was malformed."
         case .localFileAccessFailed:
@@ -66,6 +81,21 @@ final class BackendAnalysisClient {
     private let decoder: JSONDecoder
     private let pdfParser = PDFParsingService()
     private let txtParser = TXTParsingService()
+
+    private enum Limits {
+        static let extractionRawTextChars = 350_000
+        static let extractionMaxTables = 40
+        static let extractionMaxEvidenceItems = 220
+    }
+
+    private enum StageTimeouts {
+        static let parse: TimeInterval = 330
+        static let extract: TimeInterval = 330
+        static let scope: TimeInterval = 180
+        static let research: TimeInterval = 210
+        static let score: TimeInterval = 180
+        static let export: TimeInterval = 120
+    }
 
     private enum Config {
         static let baseURLDefaultsKey = "backend.baseURL"
@@ -105,43 +135,59 @@ final class BackendAnalysisClient {
         onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.12, warnings: []))
         let parsed: ParsedDocumentV1
         if shouldUseBackendParsing() {
-            parsed = try await parseDocumentViaBackend(
-                analysisId: analysisId,
-                traceId: traceId,
-                documentURL: documentURL
-            )
+            parsed = try await withStageTimeout(stage: .parse, seconds: StageTimeouts.parse) {
+                try await self.parseDocumentViaBackend(
+                    analysisId: analysisId,
+                    traceId: traceId,
+                    documentURL: documentURL
+                )
+            }
         } else {
-            parsed = try await parseDocumentLocally(
-                analysisId: analysisId,
-                documentURL: documentURL,
-                onProgress: { progress in
-                    onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.12 + 0.1 * progress, warnings: []))
-                }
-            )
+            parsed = try await withStageTimeout(stage: .parse, seconds: StageTimeouts.parse) {
+                try await self.parseDocumentLocally(
+                    analysisId: analysisId,
+                    documentURL: documentURL,
+                    onProgress: { progress in
+                        onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.12 + 0.1 * progress, warnings: []))
+                    }
+                )
+            }
         }
         allWarnings.append(contentsOf: parsed.warnings)
         onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.22, warnings: parsed.warnings))
 
+        let extractionDocument = compactParsedDocumentForExtraction(parsed)
+
         onStageUpdate(BackendStageUpdate(stage: .extract, progress: 0.28, warnings: []))
-        let extractedEnvelope: ApiEnvelope<ExtractedRFPDataV1Payload> = try await postJSON(
-            path: "/api/analyze-rfp",
-            traceId: traceId,
-            body: AnalyzeRfpRequestV1(analysisId: analysisId, parsedDocument: parsed)
-        )
+        let extractedEnvelope: ApiEnvelope<ExtractedRFPDataV1Payload> = try await withStageTimeout(
+            stage: .extract,
+            seconds: StageTimeouts.extract
+        ) {
+            try await self.postJSON(
+                path: "/api/analyze-rfp",
+                traceId: traceId,
+                body: AnalyzeRfpRequestV1(analysisId: analysisId, parsedDocument: extractionDocument)
+            )
+        }
         let extracted = try extractedEnvelope.requireData()
         allWarnings.append(contentsOf: extractedEnvelope.warnings + extracted.warnings)
         onStageUpdate(BackendStageUpdate(stage: .extract, progress: 0.42, warnings: extracted.warnings))
 
         onStageUpdate(BackendStageUpdate(stage: .scope, progress: 0.48, warnings: []))
-        let scopeEnvelope: ApiEnvelope<ScopeAnalysisV1Payload> = try await postJSON(
-            path: "/api/analyze-scope",
-            traceId: traceId,
-            body: AnalyzeScopeRequestV1(
-                analysisId: analysisId,
-                scopeOfWork: extracted.scopeOfWork,
-                language: parsed.primaryLanguage
+        let scopeEnvelope: ApiEnvelope<ScopeAnalysisV1Payload> = try await withStageTimeout(
+            stage: .scope,
+            seconds: StageTimeouts.scope
+        ) {
+            try await self.postJSON(
+                path: "/api/analyze-scope",
+                traceId: traceId,
+                body: AnalyzeScopeRequestV1(
+                    analysisId: analysisId,
+                    scopeOfWork: extracted.scopeOfWork,
+                    language: parsed.primaryLanguage
+                )
             )
-        )
+        }
         let scope = try scopeEnvelope.requireData()
         allWarnings.append(contentsOf: scopeEnvelope.warnings + scope.warnings)
         onStageUpdate(BackendStageUpdate(stage: .scope, progress: 0.58, warnings: scope.warnings))
@@ -149,22 +195,27 @@ final class BackendAnalysisClient {
         onStageUpdate(BackendStageUpdate(stage: .research, progress: 0.64, warnings: []))
         let research: ClientResearchV1Payload
         do {
-            let researchEnvelope: ApiEnvelope<ClientResearchV1Payload> = try await postJSON(
-                path: "/api/research-client",
-                traceId: traceId,
-                body: ResearchClientRequestV1(
-                    analysisId: analysisId,
-                    clientName: extracted.clientName,
-                    clientNameArabic: extracted.clientNameArabic,
-                    country: "SA",
-                    rfpContext: RFPContextV1(
-                        projectName: extracted.projectName,
-                        projectDescription: extracted.projectDescription,
-                        scopeOfWork: extracted.scopeOfWork,
-                        industry: nil // Could be inferred from scope in the future
+            let researchEnvelope: ApiEnvelope<ClientResearchV1Payload> = try await withStageTimeout(
+                stage: .research,
+                seconds: StageTimeouts.research
+            ) {
+                try await self.postJSON(
+                    path: "/api/research-client",
+                    traceId: traceId,
+                    body: ResearchClientRequestV1(
+                        analysisId: analysisId,
+                        clientName: extracted.clientName,
+                        clientNameArabic: extracted.clientNameArabic,
+                        country: "SA",
+                        rfpContext: RFPContextV1(
+                            projectName: extracted.projectName,
+                            projectDescription: extracted.projectDescription,
+                            scopeOfWork: extracted.scopeOfWork,
+                            industry: nil // Could be inferred from scope in the future
+                        )
                     )
                 )
-            )
+            }
             research = try researchEnvelope.requireData()
             allWarnings.append(contentsOf: researchEnvelope.warnings + (research.warnings ?? []))
             onStageUpdate(BackendStageUpdate(stage: .research, progress: 0.74, warnings: research.warnings ?? []))
@@ -177,16 +228,21 @@ final class BackendAnalysisClient {
         }
 
         onStageUpdate(BackendStageUpdate(stage: .score, progress: 0.80, warnings: []))
-        let scoreEnvelope: ApiEnvelope<FinancialScoreV1Payload> = try await postJSON(
-            path: "/api/calculate-score",
-            traceId: traceId,
-            body: CalculateScoreRequestV1(
-                analysisId: analysisId,
-                extractedRfp: extracted,
-                scopeAnalysis: scope,
-                clientResearch: research
+        let scoreEnvelope: ApiEnvelope<FinancialScoreV1Payload> = try await withStageTimeout(
+            stage: .score,
+            seconds: StageTimeouts.score
+        ) {
+            try await self.postJSON(
+                path: "/api/calculate-score",
+                traceId: traceId,
+                body: CalculateScoreRequestV1(
+                    analysisId: analysisId,
+                    extractedRfp: extracted,
+                    scopeAnalysis: scope,
+                    clientResearch: research
+                )
             )
-        )
+        }
         let score = try scoreEnvelope.requireData()
         allWarnings.append(contentsOf: scoreEnvelope.warnings)
         onStageUpdate(BackendStageUpdate(stage: .score, progress: 0.88, warnings: scoreEnvelope.warnings))
@@ -210,11 +266,16 @@ final class BackendAnalysisClient {
 
         onStageUpdate(BackendStageUpdate(stage: .export, progress: 0.97, warnings: []))
         do {
-            let exportEnvelope: ApiEnvelope<[String: JSONValue]> = try await postJSON(
-                path: "/api/export",
-                traceId: traceId,
-                body: ExportRequestV1(analysisId: analysisId, report: report, format: "link")
-            )
+            let exportEnvelope: ApiEnvelope<[String: JSONValue]> = try await withStageTimeout(
+                stage: .export,
+                seconds: StageTimeouts.export
+            ) {
+                try await self.postJSON(
+                    path: "/api/export",
+                    traceId: traceId,
+                    body: ExportRequestV1(analysisId: analysisId, report: report, format: "link")
+                )
+            }
             allWarnings.append(contentsOf: exportEnvelope.warnings)
         } catch {
             allWarnings.append("Export stage degraded: \(error.localizedDescription)")
@@ -261,7 +322,7 @@ final class BackendAnalysisClient {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 180
+        request.timeoutInterval = 300
         request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
@@ -522,7 +583,7 @@ final class BackendAnalysisClient {
         let endpoint = config.baseURL.appendingPathComponent(cleanedPath)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 180
+        request.timeoutInterval = timeoutInterval(for: cleanedPath)
         request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
@@ -547,6 +608,84 @@ final class BackendAnalysisClient {
         }
 
         return envelope
+    }
+
+    private func timeoutInterval(for path: String) -> TimeInterval {
+        switch path {
+        case "api/analyze-rfp":
+            return 330
+        case "api/research-client":
+            return 240
+        case "api/calculate-score":
+            return 210
+        default:
+            return 180
+        }
+    }
+
+    private func withStageTimeout<T>(
+        stage: BackendPipelineStage,
+        seconds: TimeInterval,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask {
+                try await operation()
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                throw BackendAnalysisClientError.stageTimeout(stage: stage, seconds: Int(seconds))
+            }
+
+            guard let firstResult = try await group.next() else {
+                throw BackendAnalysisClientError.invalidResponse
+            }
+            group.cancelAll()
+            return firstResult
+        }
+    }
+
+    private func compactParsedDocumentForExtraction(_ parsed: ParsedDocumentV1) -> ParsedDocumentV1 {
+        if parsed.rawText.count <= Limits.extractionRawTextChars &&
+            parsed.tables.count <= Limits.extractionMaxTables &&
+            parsed.evidenceMap.count <= Limits.extractionMaxEvidenceItems {
+            return parsed
+        }
+
+        let truncatedRawText = String(parsed.rawText.prefix(Limits.extractionRawTextChars))
+        let maxOffset = truncatedRawText.count
+        let trimmedSections = parsed.sections.compactMap { section -> ParsedSectionV1? in
+            let start = min(max(section.startOffset, 0), maxOffset)
+            let end = min(max(section.endOffset, 0), maxOffset)
+            guard end > start else { return nil }
+            return ParsedSectionV1(name: section.name, startOffset: start, endOffset: end)
+        }
+
+        let trimmedEvidence = parsed.evidenceMap.prefix(Limits.extractionMaxEvidenceItems).map { item in
+            let start = min(max(item.charStart, 0), maxOffset)
+            let end = min(max(item.charEnd, 0), maxOffset)
+            return EvidenceMapItemV1(
+                page: item.page,
+                charStart: start,
+                charEnd: max(start, end),
+                excerpt: String(item.excerpt.prefix(320)),
+                sourceType: item.sourceType
+            )
+        }
+
+        return ParsedDocumentV1(
+            schemaVersion: parsed.schemaVersion,
+            analysisId: parsed.analysisId,
+            detectedFormat: parsed.detectedFormat,
+            primaryLanguage: parsed.primaryLanguage,
+            rawText: truncatedRawText,
+            sections: trimmedSections,
+            tables: Array(parsed.tables.prefix(Limits.extractionMaxTables)),
+            evidenceMap: Array(trimmedEvidence),
+            parseConfidence: parsed.parseConfidence,
+            ocrStats: parsed.ocrStats,
+            warnings: parsed.warnings
+        )
     }
 
     private func multipartBody(
