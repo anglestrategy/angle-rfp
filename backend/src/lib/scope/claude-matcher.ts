@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateObject } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import type { AgencyService } from "@/lib/scope/taxonomy-loader";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
-import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 const ScopeMatchSchema = z.object({
   scopeItem: z.string(),
@@ -24,23 +24,6 @@ export interface ClaudeScopeMatch {
   reasoning: string;
 }
 
-function extractJsonObjectCandidate(text: string): string | null {
-  const withoutFence = text.replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
-  const start = withoutFence.indexOf("{");
-  const end = withoutFence.lastIndexOf("}");
-  if (start < 0 || end <= start) {
-    return null;
-  }
-  return withoutFence.slice(start, end + 1);
-}
-
-function repairJsonCandidate(input: string): string {
-  return input
-    .replace(/,\s*([}\]])/g, "$1")
-    .replace(/\u201c|\u201d/g, "\"")
-    .replace(/\u2018|\u2019/g, "'");
-}
-
 export async function matchScopeWithClaude(
   scopeItems: string[],
   services: AgencyService[]
@@ -50,11 +33,7 @@ export async function matchScopeWithClaude(
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY environment variable is not set");
   }
-
-  const client = new Anthropic({
-    apiKey,
-    timeout: 120000  // 2 minutes
-  });
+  const anthropicProvider = createAnthropic({ apiKey });
 
   // Build the service taxonomy list
   const serviceList = services.map(s => `- ${s.category}: ${s.service}`).join("\n");
@@ -104,26 +83,18 @@ Return JSON only:
   ]
 }`;
 
-  const response = await runWithClaudeSonnetModel((model) =>
-    client.messages.create({
-      model,
-      temperature: 0,
-      max_tokens: 2200,
-      messages: [{ role: "user", content: prompt }]
-    })
-  );
-
-  const textContent = response.content.find(block => block.type === "text");
-  if (!textContent || textContent.type !== "text") {
-    throw new Error("No text response from Claude API");
-  }
-
   try {
-    const parsed = parseJsonFromModelText(textContent.text, {
-      context: "Claude scope matching",
-      expectedType: "object"
-    });
-    const validated = ClaudeMatchResponseSchema.parse(parsed);
+    const result = await runWithClaudeSonnetModel((model) =>
+      generateObject({
+        model: anthropicProvider(model),
+        schema: ClaudeMatchResponseSchema,
+        temperature: 0,
+        maxOutputTokens: 2200,
+        timeout: { totalMs: 120_000 },
+        prompt
+      })
+    );
+    const validated = ClaudeMatchResponseSchema.parse(result.object);
 
     return validated.matches.map(m => ({
       scopeItem: m.scopeItem,
@@ -133,27 +104,9 @@ Return JSON only:
       reasoning: m.reasoning
     }));
   } catch (error) {
-    const candidate = extractJsonObjectCandidate(textContent.text);
-    if (candidate) {
-      try {
-        const repaired = repairJsonCandidate(candidate);
-        const parsed = JSON.parse(repaired);
-        const validated = ClaudeMatchResponseSchema.parse(parsed);
-        return validated.matches.map(m => ({
-          scopeItem: m.scopeItem,
-          service: m.matchedService || "No direct match",
-          class: m.matchClass,
-          confidence: m.confidence,
-          reasoning: m.reasoning
-        }));
-      } catch {
-        // continue to normalized error path below
-      }
-    }
-
     if (error instanceof z.ZodError) {
       throw new Error(`Claude match response validation failed: ${error.issues.map(e => e.message).join(", ")}`);
     }
-    throw new Error(`Failed to parse Claude match response: ${error}`);
+    throw new Error(`Claude scope matching failed: ${error}`);
   }
 }

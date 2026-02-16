@@ -1,4 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateObject } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { makeError } from "@/lib/api/errors";
 import { InMemoryCircuitBreaker } from "@/lib/ops/circuit-breaker";
@@ -15,7 +16,6 @@ import {
 } from "@/lib/research/provider-router";
 import { resolveClaims } from "@/lib/research/trust-resolver";
 import { runWithClaudeHaikuModel } from "@/lib/ai/model-resolver";
-import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 export interface ResearchClientInput {
   analysisId: string;
@@ -145,8 +145,7 @@ async function generateSmartQueries(input: ResearchClientInput): Promise<{ engli
   if (!apiKey || !input.rfpContext) {
     return buildBasicQueries(input);
   }
-
-  const client = new Anthropic({ apiKey, timeout: 60000 });  // 1 minute for query generation
+  const anthropicProvider = createAnthropic({ apiKey });
 
   const context = input.rfpContext;
   const contextSummary = [
@@ -185,26 +184,17 @@ Return JSON only:
 }`;
 
   try {
-    const response = await runWithClaudeHaikuModel((model) =>
-      client.messages.create({
-        model,
+    const result = await runWithClaudeHaikuModel((model) =>
+      generateObject({
+        model: anthropicProvider(model),
+        schema: ResearchQueriesSchema,
         temperature: 0,
-        max_tokens: 1000,
-        messages: [{ role: "user", content: prompt }]
+        maxOutputTokens: 1000,
+        timeout: { totalMs: 60_000 },
+        prompt
       })
     );
-
-    const textContent = response.content.find(block => block.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      return buildBasicQueries(input);
-    }
-
-    const parsed = parseJsonFromModelText(textContent.text, {
-      context: "Smart query generation",
-      expectedType: "object"
-    });
-    const validated = ResearchQueriesSchema.parse(parsed);
-    return validated;
+    return result.object;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Smart query generation failed, using basic queries:", message);

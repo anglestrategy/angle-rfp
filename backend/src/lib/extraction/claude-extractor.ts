@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateObject } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
-import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 function coerceString(value: unknown, fallback = ""): string {
   if (typeof value === "string") {
@@ -234,45 +234,27 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
   if (!apiKey) {
     throw new Error("ANTHROPIC_API_KEY environment variable is not set");
   }
-
-  const client = new Anthropic({
-    apiKey,
-    timeout: API_TIMEOUT_MS
-  });
+  const anthropicProvider = createAnthropic({ apiKey });
 
   const focusedText = buildFocusedExtractionInput(rawText);
 
-  const response = await runWithClaudeSonnetModel((model) =>
-    client.messages.create({
-      model,
-      temperature: 0,
-      max_tokens: 8000,
-      messages: [
-        {
-          role: "user",
-          content: EXTRACTION_PROMPT + focusedText
-        }
-      ]
-    })
-  );
-
-  const textContent = response.content.find((block) => block.type === "text");
-  if (!textContent || textContent.type !== "text") {
-    throw new Error("No text response from Claude API");
-  }
-
   try {
-    const rawParsed = parseJsonFromModelText(textContent.text, {
-      context: "Claude extraction",
-      expectedType: "object"
-    });
-    // Validate and apply defaults using Zod schema
-    const validated = ClaudeExtractedFieldsSchema.parse(rawParsed);
-    return validated;
+    const result = await runWithClaudeSonnetModel((model) =>
+      generateObject({
+        model: anthropicProvider(model),
+        schema: ClaudeExtractedFieldsSchema,
+        temperature: 0,
+        maxOutputTokens: 8000,
+        timeout: { totalMs: API_TIMEOUT_MS },
+        prompt: EXTRACTION_PROMPT + focusedText
+      })
+    );
+
+    return result.object;
   } catch (parseError) {
     if (parseError instanceof z.ZodError) {
       throw new Error(`Claude response validation failed: ${parseError.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`);
     }
-    throw new Error(`Failed to parse Claude response as JSON: ${parseError}`);
+    throw new Error(`Claude structured extraction failed: ${parseError}`);
   }
 }

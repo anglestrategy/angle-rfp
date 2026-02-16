@@ -1,7 +1,7 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { generateObject } from "ai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import { z } from "zod";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
-import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
 const BeautifiedTextSchema = z.object({
   formatted: z.string(),
@@ -494,11 +494,7 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
   if (!apiKey) {
     return deterministicBeautify(rawText, fieldName);
   }
-
-  const client = new Anthropic({
-    apiKey,
-    timeout: 120000  // 2 minutes
-  });
+  const anthropicProvider = createAnthropic({ apiKey });
 
   try {
     const prompt =
@@ -507,28 +503,17 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
         : fieldName === "Project Description"
           ? PROJECT_DESCRIPTION_BEAUTIFY_PROMPT
           : BEAUTIFY_PROMPT;
-    const response = await runWithClaudeSonnetModel((model) =>
-      client.messages.create({
-        model,
+    const result = await runWithClaudeSonnetModel((model) =>
+      generateObject({
+        model: anthropicProvider(model),
+        schema: BeautifiedTextSchema,
         temperature: 0,
-        max_tokens: 4000,
-        messages: [{
-          role: "user",
-          content: `${prompt}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
-        }]
+        maxOutputTokens: 4000,
+        timeout: { totalMs: 120_000 },
+        prompt: `${prompt}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
       })
     );
-
-    const textContent = response.content.find(block => block.type === "text");
-    if (!textContent || textContent.type !== "text") {
-      throw new Error("No text response");
-    }
-
-    const parsed = parseJsonFromModelText(textContent.text, {
-      context: `Text beautification (${fieldName})`,
-      expectedType: "object"
-    });
-    const validated = BeautifiedTextSchema.parse(parsed);
+    const validated = BeautifiedTextSchema.parse(result.object);
 
     if (fieldName === "Scope of Work") {
       return normalizeScopeStructure(validated);
