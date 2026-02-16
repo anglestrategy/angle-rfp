@@ -90,9 +90,9 @@ final class BackendAnalysisClient {
 
     private enum StageTimeouts {
         static let parse: TimeInterval = 330
-        static let extract: TimeInterval = 330
-        static let scope: TimeInterval = 180
-        static let research: TimeInterval = 210
+        static let extract: TimeInterval = 660  // Increased to 11 minutes to match backend maxDuration (600s) + buffer
+        static let scope: TimeInterval = 200    // Increased to match backend timeout (180s) + buffer
+        static let research: TimeInterval = 330 // Increased to match backend timeout (300s) + buffer
         static let score: TimeInterval = 180
         static let export: TimeInterval = 120
     }
@@ -119,8 +119,8 @@ final class BackendAnalysisClient {
     private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = 90
-        configuration.timeoutIntervalForResource = 240
+        configuration.timeoutIntervalForRequest = 120  // Increased to 2 minutes (matches backend Claude API timeout)
+        configuration.timeoutIntervalForResource = 720 // Increased to 12 minutes (matches backend maxDuration + buffer)
         return URLSession(configuration: configuration)
     }
 
@@ -613,9 +613,11 @@ final class BackendAnalysisClient {
     private func timeoutInterval(for path: String) -> TimeInterval {
         switch path {
         case "api/analyze-rfp":
-            return 330
+            return 660  // Increased to 11 minutes to match backend maxDuration (600s) + buffer
         case "api/research-client":
-            return 240
+            return 330  // Increased to match backend timeout (300s) + buffer
+        case "api/analyze-scope":
+            return 200  // Increased to match backend timeout (180s) + buffer
         case "api/calculate-score":
             return 210
         default:
