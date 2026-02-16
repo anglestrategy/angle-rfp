@@ -130,6 +130,8 @@ struct ContentView: View {
     @State private var clientInfo: ClientInformation?
     @State private var showSettings = false
     @State private var backendConfigured = false
+    @State private var analysisTask: Task<Void, Never>? = nil
+    @State private var activeAnalysisRunID: UUID? = nil
 
     // Demo mode can be enabled with ANGLE_DEMO_MODE=1
     private let useDemoMode = ProcessInfo.processInfo.environment["ANGLE_DEMO_MODE"] == "1"
@@ -220,8 +222,7 @@ struct ContentView: View {
             .transition(.opacity.combined(with: .move(edge: .trailing)))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(DesignSystem.Palette.Background.base)
-        .ignoresSafeArea()
+        .background(DesignSystem.Palette.Background.base.ignoresSafeArea())
         .environment(\.motionPreference, selectedMotionPreference)
         .onAppear {
             checkAPIKeyStatus()
@@ -555,14 +556,22 @@ struct ContentView: View {
             return
         }
 
+        cancelActiveAnalysis()
+        let runID = UUID()
+        activeAnalysisRunID = runID
+        currentStage = .parsing
+        analysisProgress = 0
+        parsingWarnings = []
+
         withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
             appState = .analyzing(documentName: url.lastPathComponent)
         }
 
-        performAnalysis(documentURL: url)
+        performAnalysis(documentURL: url, runID: runID)
     }
 
     private func runQuickDemo() {
+        cancelActiveAnalysis()
         withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
             appState = .analyzing(documentName: "Demo RFP")
         }
@@ -570,6 +579,7 @@ struct ContentView: View {
     }
 
     private func cancelAnalysis() {
+        cancelActiveAnalysis()
         withAnimation(DesignSystem.Animation.standard(for: selectedMotionPreference)) {
             appState = .upload
             currentStage = .parsing
@@ -579,6 +589,7 @@ struct ContentView: View {
     }
 
     private func startNewAnalysis() {
+        cancelActiveAnalysis()
         withAnimation(DesignSystem.Animation.standard(for: selectedMotionPreference)) {
             uploadQueue = []
             extractedData = nil
@@ -600,16 +611,17 @@ struct ContentView: View {
 
     // MARK: - Analysis Process
 
-    private func performAnalysis(documentURL: URL) {
+    private func performAnalysis(documentURL: URL, runID: UUID) {
         if useDemoMode {
             performMockAnalysis(documentName: documentURL.lastPathComponent)
             return
         }
 
-        Task {
+        analysisTask = Task {
             do {
                 let result = try await backendClient.analyze(documentURL: documentURL) { update in
                     Task { @MainActor in
+                        guard activeAnalysisRunID == runID else { return }
                         updateStage(analysisStage(from: update.stage), progress: update.progress)
                         if !update.warnings.isEmpty {
                             parsingWarnings = Array(Set(parsingWarnings + update.warnings)).sorted()
@@ -618,6 +630,7 @@ struct ContentView: View {
                 }
 
                 await MainActor.run {
+                    guard activeAnalysisRunID == runID else { return }
                     withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
                         self.extractedData = result.extractedData
                         self.clientInfo = result.clientInfo
@@ -626,16 +639,37 @@ struct ContentView: View {
                         self.analysisProgress = 1.0
                         self.appState = .dashboard(data: result.extractedData, clientInfo: result.clientInfo)
                     }
+                    analysisTask = nil
+                    activeAnalysisRunID = nil
+                }
+            } catch is CancellationError {
+                await MainActor.run {
+                    if activeAnalysisRunID == runID {
+                        analysisTask = nil
+                        activeAnalysisRunID = nil
+                    }
                 }
             } catch {
                 await MainActor.run {
-                    // Keep the user on the progress screen so the failure is visible (instead of snapping back to upload).
+                    guard activeAnalysisRunID == runID else { return }
+                    // Keep the user on the progress screen so the failure is visible,
+                    // but do not mark the flow as "Complete" when the backend failed.
+                    if self.currentStage == .complete {
+                        self.currentStage = .parsing
+                    }
                     parsingWarnings = Array(Set(parsingWarnings + ["Analysis failed: \(error.localizedDescription)"])).sorted()
-                    currentStage = .complete
                     analysisProgress = max(analysisProgress, 0.12)
+                    analysisTask = nil
+                    activeAnalysisRunID = nil
                 }
             }
         }
+    }
+
+    private func cancelActiveAnalysis() {
+        analysisTask?.cancel()
+        analysisTask = nil
+        activeAnalysisRunID = nil
     }
 
     // MARK: - Demo Mode
@@ -843,13 +877,18 @@ struct ContentView: View {
 
     @MainActor
     private func updateStage(_ stage: AnalysisStage, progress: Double) {
-        currentStage = stage
-        analysisProgress = progress
+        let clampedProgress = max(0, min(progress, 1))
+        if stage.rawValue > currentStage.rawValue {
+            currentStage = stage
+        } else if stage == .parsing && currentStage == .parsing {
+            currentStage = stage
+        }
+        analysisProgress = max(analysisProgress, clampedProgress)
     }
 
     @MainActor
     private func updateProgress(_ progress: Double) {
-        analysisProgress = progress
+        analysisProgress = max(analysisProgress, max(0, min(progress, 1)))
     }
 }
 
@@ -865,27 +904,146 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            // Header
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CONFIGURATION")
+                        .font(.custom("IBM Plex Mono", size: 10).weight(.medium))
+                        .tracking(2)
+                        .foregroundColor(DesignSystem.Palette.Text.muted)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: DesignSystem.Spacing.lg) {
-                    settingsCard {
-                        tokenSection
-                    }
-
-                    settingsCard {
-                        motionSection
-                    }
+                    Text("Settings")
+                        .font(.custom("Urbanist", size: 28).weight(.bold))
+                        .foregroundColor(DesignSystem.Palette.Text.primary)
                 }
-                .padding(.horizontal, DesignSystem.Spacing.lg)
-                .padding(.vertical, DesignSystem.Spacing.lg)
+
+                Spacer()
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(DesignSystem.Palette.Text.muted)
+                }
+                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 32)
+            .padding(.top, 32)
+            .padding(.bottom, 28)
+
+            // Divider
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+
+            // Content
+            VStack(alignment: .leading, spacing: 24) {
+                // Token label
+                Text("Access Token")
+                    .font(.custom("Urbanist", size: 14).weight(.semibold))
+                    .foregroundColor(DesignSystem.Palette.Text.primary)
+
+                // Token field
+                HStack(spacing: 0) {
+                    Group {
+                        if revealToken {
+                            TextField("", text: $backendToken, prompt: Text("Paste your token here")
+                                .foregroundColor(DesignSystem.Palette.Text.muted.opacity(0.5)))
+                        } else {
+                            SecureField("", text: $backendToken, prompt: Text("Paste your token here")
+                                .foregroundColor(DesignSystem.Palette.Text.muted.opacity(0.5)))
+                        }
+                    }
+                    .font(.custom("IBM Plex Mono", size: 13))
+                    .foregroundColor(DesignSystem.Palette.Text.primary)
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+
+                    Spacer()
+
+                    Button(action: { revealToken.toggle() }) {
+                        Image(systemName: revealToken ? "eye.slash" : "eye")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(DesignSystem.Palette.Text.muted)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(DesignSystem.Palette.Background.elevated)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                        )
+                )
+
+                // Helper text
+                Text("Stored securely in your macOS Keychain")
+                    .font(.custom("Urbanist", size: 11))
+                    .foregroundColor(DesignSystem.Palette.Text.muted)
+
+                Spacer()
+
+                // Actions row
+                HStack {
+                    // Clear button
+                    Button(action: { showClearConfirm = true }) {
+                        Text("Clear")
+                            .font(.custom("Urbanist", size: 13).weight(.medium))
+                            .foregroundColor(DesignSystem.Palette.Text.muted)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    // Success indicator
+                    if showSaveSuccess {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(DesignSystem.Palette.Semantic.success)
+                                .frame(width: 6, height: 6)
+                            Text("Saved")
+                                .font(.custom("Urbanist", size: 13))
+                                .foregroundColor(DesignSystem.Palette.Semantic.success)
+                        }
+                        .padding(.trailing, 16)
+                        .transition(.opacity)
+                    }
+
+                    // Save button
+                    Button(action: saveAPIKeys) {
+                        HStack(spacing: 8) {
+                            if isSaving {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                                    .tint(.white)
+                            } else {
+                                Text("Save")
+                                    .font(.custom("Urbanist", size: 14).weight(.semibold))
+                            }
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(DesignSystem.Palette.Accent.primary)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSaving || backendToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.vertical, 28)
         }
-        .frame(width: 640, height: 520)
+        .frame(width: 480, height: 340)
         .background(DesignSystem.Palette.Background.base)
         .onAppear {
             loadExistingKeys()
         }
+        .animation(.easeOut(duration: 0.2), value: showSaveSuccess)
         .confirmationDialog(
             "Clear access token?",
             isPresented: $showClearConfirm,
@@ -896,191 +1054,7 @@ struct SettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the saved token from your Keychain. You can paste a new token anytime.")
-        }
-    }
-
-    private func settingsCard<Content: View>(@ViewBuilder content: @escaping () -> Content) -> some View {
-        RunwayCardSurface(role: .neutral, cornerRadius: 14, contentPadding: 18) {
-            content()
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Settings")
-                    .font(.custom("Urbanist", size: 22).weight(.bold))
-                    .foregroundColor(DesignSystem.Palette.Text.primary)
-
-                Text("Securely configure your access token and motion preference.")
-                    .font(.custom("Urbanist", size: 12).weight(.medium))
-                    .foregroundColor(DesignSystem.Palette.Text.tertiary)
-            }
-
-            Spacer()
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(DesignSystem.Palette.Text.secondary)
-                    .frame(width: 32, height: 32)
-                    .background(
-                        Circle()
-                            .fill(DesignSystem.Palette.Background.surface)
-                            .overlay(
-                                Circle().stroke(Color.white.opacity(0.08), lineWidth: 1)
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, DesignSystem.Spacing.lg)
-        .padding(.vertical, DesignSystem.Spacing.md)
-        .background(
-            Rectangle()
-                .fill(DesignSystem.Palette.Background.base)
-                .overlay(
-                    Rectangle()
-                        .fill(Color.white.opacity(0.06))
-                        .frame(height: 1),
-                    alignment: .bottom
-                )
-        )
-    }
-
-    private var tokenSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Access Token")
-                        .font(.custom("Urbanist", size: 17).weight(.semibold))
-                        .foregroundColor(DesignSystem.Palette.Text.primary)
-
-                    Text("Paste the token you received. It is stored securely in your macOS Keychain.")
-                        .font(.custom("Urbanist", size: 12).weight(.medium))
-                        .foregroundColor(DesignSystem.Palette.Text.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
-
-                Text("Cloud backend")
-                    .font(.custom("Urbanist", size: 11).weight(.semibold))
-                    .foregroundColor(DesignSystem.Palette.Text.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.06))
-                    )
-            }
-
-            tokenField
-
-            HStack(alignment: .center) {
-                if showSaveSuccess {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(DesignSystem.success)
-                        Text("Saved")
-                            .font(.custom("Urbanist", size: 12).weight(.semibold))
-                            .foregroundColor(DesignSystem.success)
-                    }
-                } else {
-                    Text("You only need to do this once on this Mac.")
-                        .font(.custom("Urbanist", size: 12).weight(.medium))
-                        .foregroundColor(DesignSystem.Palette.Text.tertiary)
-                }
-
-                Spacer()
-
-                Button(action: saveAPIKeys) {
-                    if isSaving {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                    } else {
-                        Text("Save")
-                    }
-                }
-                .buttonStyle(.accent)
-                .disabled(isSaving || backendToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
-
-            HStack {
-                Button(role: .destructive) {
-                    showClearConfirm = true
-                } label: {
-                    Text("Clear Token")
-                        .font(.custom("Urbanist", size: 12).weight(.semibold))
-                        .foregroundColor(DesignSystem.Palette.Semantic.error)
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-            }
-        }
-    }
-
-    private var tokenField: some View {
-        HStack(spacing: 10) {
-            Group {
-                if revealToken {
-                    TextField("Paste token", text: $backendToken)
-                } else {
-                    SecureField("Paste token", text: $backendToken)
-                }
-            }
-            .textFieldStyle(.plain)
-            .font(.custom("Urbanist", size: 13).weight(.medium))
-            .foregroundColor(DesignSystem.Palette.Text.primary)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(DesignSystem.Palette.Background.surface)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                    )
-            )
-            .autocorrectionDisabled()
-
-            Button(action: { revealToken.toggle() }) {
-                Image(systemName: revealToken ? "eye.slash" : "eye")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(DesignSystem.Palette.Text.secondary)
-                    .frame(width: 36, height: 36)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(DesignSystem.Palette.Background.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .stroke(Color.white.opacity(0.1), lineWidth: 1)
-                            )
-                    )
-            }
-            .buttonStyle(.plain)
-            .help(revealToken ? "Hide token" : "Show token")
-        }
-    }
-
-    private var motionSection: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("Motion")
-                .font(.custom("Urbanist", size: 17).weight(.semibold))
-                .foregroundColor(DesignSystem.Palette.Text.primary)
-
-            Picker("Motion Preference", selection: $motionPreference) {
-                ForEach(MotionPreference.allCases) { preference in
-                    Text(preference.title).tag(preference)
-                }
-            }
-            .pickerStyle(.segmented)
-
-            Text(motionPreference.summary)
-                .font(.custom("Urbanist", size: 12).weight(.medium))
-                .foregroundColor(DesignSystem.Palette.Text.secondary)
+            Text("This removes the saved token from Keychain.")
         }
     }
 
@@ -1096,7 +1070,6 @@ struct SettingsView: View {
             do {
                 try APIKeySetup.storeBackendConfiguration(
                     token: backendToken,
-                    // Ensure we do not persist a backend URL in the UI; production URL is built-in.
                     baseURL: ""
                 )
 

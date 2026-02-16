@@ -188,13 +188,11 @@ const DELIVERABLE_SECTION_START_PATTERNS = [
   /submission format/i,
   /submission requirements?/i,
   /proposal requirements?/i,
-  /deliverables?/i,
   /technical proposals?\s+should\s+include/i,
   /commercial proposals?\s+should\s+include/i,
-  /technical proposal/i,
-  /commercial proposal/i,
-  /financial proposal/i,
-  /صيغة التقديم|متطلبات التقديم|متطلبات العرض|التسليمات|المخرجات|العرض الفني|العرض المالي|معايير التقييم/i
+  /technical proposal submission/i,
+  /commercial proposal submission/i,
+  /صيغة التقديم|متطلبات التقديم|متطلبات العرض|العرض الفني|العرض المالي/i
 ];
 
 const DELIVERABLE_SECTION_STOP_PATTERNS = [
@@ -206,8 +204,15 @@ const DELIVERABLE_SECTION_STOP_PATTERNS = [
   /^submission method$/i,
   /^executive summary$/i,
   /^project description$/i,
+  /^terms?\s*&?\s*conditions?$/i,
+  /^general conditions?$/i,
+  /^contract conditions?$/i,
+  /^instructions to bidders$/i,
+  /^legal/i,
+  /^annex/i,
   /^نطاق العمل$/i,
-  /^الشروط الخاصة$/i,
+  /^الشروط(?:\s+الخاصة)?$/i,
+  /^الشروط والأحكام$/i,
   /^الجدول الزمني$/i
 ];
 
@@ -252,8 +257,21 @@ const DELIVERABLE_CLAUSE_DROP_PATTERNS = [
   /shall provide its proposed payment terms.*however/i,
   /the vendor decides to submit an alternative/i,
   /once delivered to.*no vendor may add/i,
+  /terms?\s*&?\s*conditions?/i,
+  /general conditions?/i,
+  /contract conditions?/i,
+  /instructions to bidders?/i,
+  /confidentiality|liability|governing law|indemnif/i,
   /^vendor$/i,
-  /^commercial proposals?\s+should\s+include/i
+  /^commercial proposals?\s+should\s+include/i,
+  /consortium|joint venture|subcontractor/i,
+  /business continuity/i,
+  /disaster recovery/i,
+  /public\s*-\s*key infrastructure/i,
+  /internet-?based standards/i,
+  /cybersecurity/i,
+  /network (?:architecture|infrastructure|security)/i,
+  /infrastructure (?:security|operations|standards)/i
 ];
 
 const DELIVERABLE_HINT_PATTERNS: Record<DeliverableHeadingHint, RegExp[]> = {
@@ -372,6 +390,49 @@ function hasSignal(line: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(line));
 }
 
+const TECHNICAL_SUBMISSION_HINTS = [
+  /technical proposal/i,
+  /executive summary/i,
+  /methodology|approach/i,
+  /team composition|account team|consultants?/i,
+  /\bcv\b|resume/i,
+  /credentials?|references?|track record|vendor profile/i,
+  /certificate/i,
+  /project management plan|risk management plan|communication.*framework|scheduling management/i,
+  /عرض فني|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الخبرات/
+];
+
+const COMMERCIAL_SUBMISSION_HINTS = [
+  /commercial proposal|financial proposal/i,
+  /pricing|price|fees?|cost|quotation|quote/i,
+  /payment terms?/i,
+  /encrypted file|password/i,
+  /subtotal|grand total|tax/i,
+  /عرض مالي|مالي|تجاري|الدفع|ضريبة|تكلفة|سعر/
+];
+
+const STRATEGIC_CREATIVE_SUBMISSION_HINTS = [
+  /strategic planning|strategic framework|strategy/i,
+  /creative proposal|creative direction|creative concept/i,
+  /campaign strategy|campaign concept/i,
+  /brand strategy|brand positioning|messaging framework/i,
+  /استراتيجي|إبداعي|الحملة|التموضع|الرسائل/
+];
+
+function isSubmissionDeliverableLine(line: string, category: DeliverableCategory): boolean {
+  if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(line))) {
+    return false;
+  }
+
+  if (category === "technical") {
+    return hasSignal(line, TECHNICAL_SUBMISSION_HINTS);
+  }
+  if (category === "commercial") {
+    return hasSignal(line, COMMERCIAL_SUBMISSION_HINTS);
+  }
+  return hasSignal(line, STRATEGIC_CREATIVE_SUBMISSION_HINTS);
+}
+
 function inferDeliverableHeadingHint(line: string): DeliverableHeadingHint | null {
   const normalized = normalizeRequirementLine(line);
 
@@ -458,14 +519,7 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
 
 function extractDeliverables(text: string): DeliverableItem[] {
   const scopedLines = collectDeliverableSectionLines(text).map((entry) => entry.text);
-  const allCandidates = scopedLines.length > 0
-    ? scopedLines
-    : text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => REQUIREMENT_LINE_PATTERNS.explicit.test(line))
-        .filter((line) => /proposal|submission|deliverable|cv|resume|certificate|payment|pricing|commercial|financial|عرض|تقديم|مطلوب|شهادة|سيرة/i.test(line))
-        .slice(0, 120);
+  const allCandidates = scopedLines;
 
   const deduped = new Set<string>();
   const out: DeliverableItem[] = [];
@@ -481,7 +535,7 @@ function extractDeliverables(text: string): DeliverableItem[] {
         continue;
       }
 
-      if (!/proposal|submission|deliverable|cv|resume|certificate|payment|pricing|commercial|financial|methodology|credentials|references|عرض|تقديم|مطلوب|شهادة|سيرة|الخبرات|الدفع|مالي|فني/i.test(clean)) {
+      if (!/proposal|submission|cv|resume|certificate|payment|pricing|commercial|financial|methodology|credentials|references|عرض|تقديم|مطلوب|شهادة|سيرة|الخبرات|الدفع|مالي|فني/i.test(clean)) {
         continue;
       }
 
@@ -565,9 +619,6 @@ function inferDeliverableTitle(line: string, category: DeliverableCategory): str
   if (/payment terms?/i.test(line)) {
     return "Payment Terms";
   }
-  if (/consortium|joint venture|subcontractor|legal document|nda|non[-\s]?disclosure/i.test(line)) {
-    return "Consortium and Legal Documentation";
-  }
   if (/strategic|strategy|positioning|messaging|communication/i.test(line)) {
     return "Strategic Framework";
   }
@@ -584,6 +635,113 @@ function inferDeliverableTitle(line: string, category: DeliverableCategory): str
         : "Strategic and Creative Requirement";
   }
   return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+function emptyDeliverableRequirements(): DeliverableRequirements {
+  return {
+    technical: [],
+    commercial: [],
+    strategicCreative: []
+  };
+}
+
+function hasDeliverableRequirementContent(value: DeliverableRequirements): boolean {
+  return (
+    value.technical.length > 0 ||
+    value.commercial.length > 0 ||
+    value.strategicCreative.length > 0
+  );
+}
+
+function normalizeCategoryItems(
+  category: DeliverableCategory,
+  items: Array<{ title: string; description: string; source: "verbatim" | "inferred" }>
+): DeliverableRequirementItem[] {
+  const out: DeliverableRequirementItem[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items) {
+    const cleanTitle = truncateAtWordBoundary(normalizeRequirementLine(item.title), 110);
+    const cleanDescription = truncateAtWordBoundary(
+      cleanDeliverableRequirementText(item.description || item.title),
+      220
+    );
+
+    if (!cleanDescription || cleanDescription.length < 14) {
+      continue;
+    }
+    if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(cleanDescription))) {
+      continue;
+    }
+    if (!isSubmissionDeliverableLine(cleanDescription, category)) {
+      continue;
+    }
+
+    const resolvedTitle = cleanTitle || inferDeliverableTitle(cleanDescription, category);
+    const key = `${normalizeDedupeKey(resolvedTitle)}|${normalizeDedupeKey(cleanDescription)}`;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    out.push({
+      title: resolvedTitle,
+      description: cleanDescription,
+      source: item.source
+    });
+
+    if (out.length >= 8) {
+      break;
+    }
+  }
+
+  return out;
+}
+
+function buildDeliverableRequirementsFromClaude(
+  claude: ClaudeExtractedFields
+): DeliverableRequirements {
+  if (!claude.deliverableRequirements) {
+    return emptyDeliverableRequirements();
+  }
+
+  return {
+    technical: normalizeCategoryItems("technical", claude.deliverableRequirements.technical),
+    commercial: normalizeCategoryItems("commercial", claude.deliverableRequirements.commercial),
+    strategicCreative: normalizeCategoryItems("strategicCreative", claude.deliverableRequirements.strategicCreative)
+  };
+}
+
+function mergeDeliverableRequirements(
+  primary: DeliverableRequirements,
+  fallback: DeliverableRequirements
+): DeliverableRequirements {
+  const mergeCategory = (
+    first: DeliverableRequirementItem[],
+    second: DeliverableRequirementItem[]
+  ): DeliverableRequirementItem[] => {
+    const merged: DeliverableRequirementItem[] = [];
+    const seen = new Set<string>();
+
+    for (const item of [...first, ...second]) {
+      const key = `${normalizeDedupeKey(item.title)}|${normalizeDedupeKey(item.description)}`;
+      if (!key || seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push(item);
+      if (merged.length >= 8) {
+        break;
+      }
+    }
+    return merged;
+  };
+
+  return {
+    technical: mergeCategory(primary.technical, fallback.technical),
+    commercial: mergeCategory(primary.commercial, fallback.commercial),
+    strategicCreative: mergeCategory(primary.strategicCreative, fallback.strategicCreative)
+  };
 }
 
 function buildDeliverableRequirements(
@@ -661,22 +819,7 @@ function buildDeliverableRequirements(
   };
 
   const sectionLines = collectDeliverableSectionLines(text);
-  const evaluationRequirementLines: ScopedDeliverableLine[] = evaluationCriteria
-    .split(/\r?\n/)
-    .map(cleanDeliverableRequirementText)
-    .filter((line) => line.length >= 14)
-    .filter((line) =>
-      hasSignal(line, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS)
-    )
-    .map((line) => ({
-      text: line,
-      hint: "strategicCreative" as const,
-      explicit: false,
-      origin: "evaluation" as const
-    }))
-    .slice(0, 40);
-
-  const candidateLines = [...sectionLines, ...evaluationRequirementLines].slice(0, 260);
+  const candidateLines = sectionLines.slice(0, 260);
   for (const candidateLine of candidateLines) {
     for (const clause of splitRequirementClauses(candidateLine.text)) {
       const line = cleanDeliverableRequirementText(clause);
@@ -695,6 +838,10 @@ function buildDeliverableRequirements(
             ? candidateLine.hint
             : classifyDeliverableCategory(line);
       if (!category) {
+        continue;
+      }
+
+      if (!isSubmissionDeliverableLine(line, category)) {
         continue;
       }
 
@@ -998,9 +1145,6 @@ const SCOPE_NON_WORK_PATTERNS = [
   /email submission/i,
   /nda|non[-\s]?disclosure/i,
   /must comprise|minimum\s+\d+%/i,
-  /research and analysis/i,
-  /market research/i,
-  /identify key learnings? from previous/i,
   /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|الشروط|اتفاقية/i
 ];
 
@@ -1236,6 +1380,105 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
   return output.join("\n");
 }
 
+function evaluationStructureScore(text: string): number {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const headingCount = lines.filter((line) => /^\d+\.\s/.test(line)).length;
+  const bulletCount = lines.filter((line) => /^•\s+/.test(line)).length;
+  return headingCount * 3 + bulletCount;
+}
+
+function buildEvaluationCriteriaFromTables(
+  tables: AnalyzeRfpInput["parsedDocument"]["tables"]
+): string | null {
+  const rows: Array<{ group: string; detail: string }> = [];
+
+  for (const table of tables) {
+    const headers = table.headers.map((header) => header.toLowerCase());
+    const criteriaColIndex = headers.findIndex((header) =>
+      /(criteria|criterion|category|معيار|المعيار)/i.test(header)
+    );
+    const detailColIndex = headers.findIndex((header) =>
+      /(description|details?|requirements?|weight|score|الوصف|تفاصيل|متطلبات|وزن)/i.test(header)
+    );
+
+    if (criteriaColIndex < 0 || detailColIndex < 0) {
+      continue;
+    }
+
+    for (const row of table.rows) {
+      const group = cleanDeliverableRequirementText(row[criteriaColIndex] ?? "");
+      const detail = cleanDeliverableRequirementText(row[detailColIndex] ?? "");
+      if (!group || !detail) {
+        continue;
+      }
+      if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(detail))) {
+        continue;
+      }
+      rows.push({ group, detail });
+    }
+  }
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const grouped = new Map<string, string[]>();
+  for (const row of rows) {
+    const key = row.group;
+    const details = grouped.get(key) ?? [];
+    const normalized = normalizeDedupeKey(row.detail);
+    if (!details.some((entry) => normalizeDedupeKey(entry) === normalized)) {
+      details.push(row.detail);
+    }
+    grouped.set(key, details);
+  }
+
+  const output: string[] = [];
+  let index = 1;
+  for (const [group, details] of grouped.entries()) {
+    output.push(`${index}. ${truncateAtWordBoundary(group, 120)}`);
+    for (const detail of details.slice(0, 6)) {
+      output.push(`• ${truncateAtWordBoundary(detail, 220)}`);
+    }
+    output.push("");
+    index += 1;
+  }
+
+  const formatted = output.join("\n").trim();
+  return formatted.length > 0 ? formatted : null;
+}
+
+function buildEvaluationCriteriaFromSource(
+  parsedDocument: AnalyzeRfpInput["parsedDocument"]
+): string {
+  const text = parsedDocument.rawText;
+  const sectionText = bySectionName(text, parsedDocument.sections, ["evaluation_criteria"]);
+  const tableText = buildEvaluationCriteriaFromTables(parsedDocument.tables);
+  const headingText = extractExactBlock(text, /evaluation\s+criteria|technical\s+evaluation\s+criteria|معايير\s+التقييم/i, 3500);
+  const candidate = sectionText ?? tableText ?? headingText ?? "";
+  return sanitizeEvaluationCriteria(normalizeStructuredText(candidate));
+}
+
+function chooseBestEvaluationCriteria(primary: string, fallback: string): string {
+  const primaryMissing = /not explicitly found/i.test(primary) || primary.trim().length < 80;
+  if (primaryMissing && fallback.trim().length > 0) {
+    return fallback;
+  }
+
+  const primaryScore = evaluationStructureScore(primary);
+  const fallbackScore = evaluationStructureScore(fallback);
+
+  if (primaryScore >= 6) {
+    return primary;
+  }
+
+  if (fallbackScore > primaryScore + 4 && fallback.trim().length > 0) {
+    return fallback;
+  }
+
+  return primary;
+}
+
 function dedupeImportantDates(
   dates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
 ): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
@@ -1287,9 +1530,30 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
 
 function mapClaudeToPass1Output(
   claude: ClaudeExtractedFields,
-  text: string
+  parsedDocument: AnalyzeRfpInput["parsedDocument"]
 ): Pass1Output {
+  const text = parsedDocument.rawText;
   const warnings: string[] = [];
+  const sourceEvaluation = buildEvaluationCriteriaFromSource(parsedDocument);
+  const claudeEvaluation = sanitizeEvaluationCriteria(
+    normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
+  );
+  const mergedEvaluation = chooseBestEvaluationCriteria(claudeEvaluation, sourceEvaluation);
+  const requiredDeliverables = dedupeDeliverables(
+    claude.requiredDeliverables.map((d) => ({
+      item: typeof d === "string" ? d : d.item,
+      source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
+    }))
+  );
+  const heuristicDeliverableRequirements = buildDeliverableRequirements(
+    text,
+    mergedEvaluation,
+    requiredDeliverables
+  );
+  const claudeDeliverableRequirements = buildDeliverableRequirementsFromClaude(claude);
+  const mergedDeliverableRequirements = hasDeliverableRequirementContent(claudeDeliverableRequirements)
+    ? mergeDeliverableRequirements(claudeDeliverableRequirements, heuristicDeliverableRequirements)
+    : heuristicDeliverableRequirements;
 
   // Map Claude date types to our format with isCritical flag
   const mappedDates = claude.importantDates.map((d) => ({
@@ -1342,25 +1606,9 @@ function mapClaudeToPass1Output(
       normalizeStructuredText(claude.projectDescription || fallbackExecutiveSummarySeed(text))
     ),
     scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
-    evaluationCriteria: sanitizeEvaluationCriteria(
-      normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
-    ),
-    requiredDeliverables: dedupeDeliverables(
-      claude.requiredDeliverables.map((d) => ({
-        item: typeof d === "string" ? d : d.item,
-        source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
-      }))
-    ),
-    deliverableRequirements: buildDeliverableRequirements(
-      text,
-      sanitizeEvaluationCriteria(normalizeStructuredText(claude.evaluationCriteria || "")),
-      dedupeDeliverables(
-        claude.requiredDeliverables.map((d) => ({
-          item: typeof d === "string" ? d : d.item,
-          source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
-        }))
-      )
-    ),
+    evaluationCriteria: mergedEvaluation,
+    requiredDeliverables,
+    deliverableRequirements: mergedDeliverableRequirements,
     importantDates,
     submissionRequirements: {
       method: claude.submissionRequirements.method || "Unknown",
@@ -1455,13 +1703,23 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   };
 }
 
-export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1Output> {
-  const text = input.parsedDocument.rawText;
+function shouldAllowRegexFallback(): boolean {
+  if (process.env.RFP_ALLOW_REGEX_FALLBACK === "1") {
+    return true;
+  }
+  // Local/test environments without Anthropic key should still be runnable.
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return true;
+  }
+  const profile = process.env.ANALYSIS_PROFILE?.trim().toLowerCase() || "high_assurance";
+  return profile !== "high_assurance";
+}
 
+export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1Output> {
   // Try Claude extraction first
   try {
-    const claudeResult = await extractWithClaude(text);
-    return mapClaudeToPass1Output(claudeResult, text);
+    const claudeResult = await extractWithClaude(input.parsedDocument.rawText);
+    return mapClaudeToPass1Output(claudeResult, input.parsedDocument);
   } catch (error) {
     console.error(
       "Claude extraction failed, using fallback:",
@@ -1469,6 +1727,11 @@ export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1O
         ? { message: error.message, stack: error.stack }
         : error
     );
+    if (!shouldAllowRegexFallback()) {
+      throw new Error(
+        "Claude extraction failed in high-assurance mode; regex fallback is disabled."
+      );
+    }
     return runPass1ExtractionFallback(input);
   }
 }

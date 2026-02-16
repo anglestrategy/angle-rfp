@@ -13,6 +13,18 @@ const DeliverableSchema = z.union([
   })
 ]);
 
+const DeliverableRequirementEntrySchema = z.object({
+  title: z.string().default(""),
+  description: z.string().default(""),
+  source: z.enum(["verbatim", "inferred"]).default("verbatim")
+});
+
+const DeliverableRequirementGroupsSchema = z.object({
+  technical: z.array(DeliverableRequirementEntrySchema).default([]),
+  commercial: z.array(DeliverableRequirementEntrySchema).default([]),
+  strategicCreative: z.array(DeliverableRequirementEntrySchema).default([])
+});
+
 // Schema for runtime validation of Claude's response
 const ClaudeExtractedFieldsSchema = z.object({
   clientName: z.string().default(""),
@@ -21,6 +33,11 @@ const ClaudeExtractedFieldsSchema = z.object({
   scopeOfWork: z.string().default(""),
   evaluationCriteria: z.string().default(""),
   requiredDeliverables: z.array(DeliverableSchema).default([]),
+  deliverableRequirements: DeliverableRequirementGroupsSchema.default({
+    technical: [],
+    commercial: [],
+    strategicCreative: []
+  }),
   importantDates: z.array(z.object({
     title: z.string(),
     date: z.string(),
@@ -62,6 +79,11 @@ Extract the following fields from this RFP document. Return ONLY valid JSON, no 
   "scopeOfWork": "Core in-scope work items only, concise bullet lines (max 12)",
   "evaluationCriteria": "Well-structured criteria with weights (see format below)",
   "requiredDeliverables": [{"item": "Technical Proposal", "source": "verbatim"}, {"item": "Past Project Portfolio", "source": "inferred"}],
+  "deliverableRequirements": {
+    "technical": [{"title": "...", "description": "...", "source": "verbatim|inferred"}],
+    "commercial": [{"title": "...", "description": "...", "source": "verbatim|inferred"}],
+    "strategicCreative": [{"title": "...", "description": "...", "source": "verbatim|inferred"}]
+  },
   "importantDates": [{"title": "...", "date": "YYYY-MM-DD", "type": "submission_deadline|qa_deadline|presentation|other"}],
   "submissionRequirements": {"method": "Email|Portal|Physical", "email": "...", "format": "PDF|Word", "physicalAddress": "...", "copies": null}
 }
@@ -81,6 +103,14 @@ For evaluationCriteria:
 - Use plain text only (no markdown headings, no **bold**, no code fences).
 - Prefer a clean numbered format:
 "1. [Criteria Name] (XX%)\\n[Short explanation]\\n\\n2. [Criteria Name] (XX%)\\n[Short explanation]\\n\\n3. [Criteria Name] (XX%)\\n[Short explanation]"
+- Preserve table group boundaries when criteria comes from a table.
+
+For deliverableRequirements:
+- Fill only actual proposal submission requirements (what we need to prepare/submit in the pitch).
+- Group items under technical, commercial, strategicCreative.
+- Exclude legal boilerplate, definitions, liabilities, and terms/conditions text.
+- Exclude generic contract clauses unless they explicitly require a submission artifact.
+- Keep each description concise and actionable (one requirement per item).
 
 EXTRACTION RULES:
 1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".
@@ -89,12 +119,17 @@ EXTRACTION RULES:
 4. requiredDeliverables: Specific items to submit with source tagging:
    - "source": "verbatim" if explicitly stated in RFP (e.g., "Submit technical proposal")
    - "source": "inferred" if derived from evaluation criteria or implied requirements
-5. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
-6. Skip page numbers, headers, footers, table of contents entries.
-7. Do NOT duplicate section headings. Each heading should appear only once in scopeOfWork/evaluationCriteria.
-8. Keep scope bullets concise and non-redundant; never output long phase-by-phase prose.
-9. Bid/tender response deadlines belong in importantDates, not scopeOfWork.
-10. Do NOT repeat the same criterion text under multiple numbered sections.
+5. deliverableRequirements:
+   - technical: proposal artifacts such as methodology, credentials, team/CVs, references, certificates.
+   - commercial: pricing, commercial/financial proposal, payment terms, tax/subtotal/grand-total if requested.
+   - strategicCreative: strategic/creative proposal requirements derived from scope/evaluation criteria.
+   - NEVER include terms-and-conditions boilerplate or non-submission legal text.
+6. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
+7. Skip page numbers, headers, footers, table of contents entries.
+8. Do NOT duplicate section headings. Each heading should appear only once in scopeOfWork/evaluationCriteria.
+9. Keep scope bullets concise and non-redundant; never output long phase-by-phase prose.
+10. Bid/tender response deadlines belong in importantDates, not scopeOfWork.
+11. Do NOT repeat the same criterion text under multiple numbered sections.
 
 IMPORTANT: Your output should be READABLE and EXECUTIVE-LEVEL. Prioritize concise decision-useful content, not full document copy.
 

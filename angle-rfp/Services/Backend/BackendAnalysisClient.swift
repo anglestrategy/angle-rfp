@@ -34,6 +34,7 @@ enum BackendAnalysisClientError: LocalizedError {
     case invalidBaseURL
     case invalidResponse
     case httpError(statusCode: Int, message: String)
+    case parseTimeout
     case malformedResponse
     case localFileAccessFailed
 
@@ -47,6 +48,8 @@ enum BackendAnalysisClientError: LocalizedError {
             return "Backend returned an invalid response."
         case .httpError(let code, let message):
             return "Backend request failed (\(code)): \(message)"
+        case .parseTimeout:
+            return "Parsing timed out on the backend. Please retry with a smaller file, or try again in a moment."
         case .malformedResponse:
             return "Backend response payload was malformed."
         case .localFileAccessFailed:
@@ -70,16 +73,25 @@ final class BackendAnalysisClient {
         static let tokenEnvKey = "BACKEND_APP_TOKEN"
         /// Production backend base URL. This is safe to ship in the app; access is still gated by token.
         static let productionBaseURL = "https://angle-rfp.onrender.com"
-        /// If set to "1", the app will upload the file to the backend `/api/parse-document`.
-        /// Default is local parsing to avoid large uploads and reduce backend costs.
+        /// Legacy flag. If explicitly set, this overrides the parsing mode in DEBUG builds.
         static let useBackendParsingEnv = "ANGLE_USE_BACKEND_PARSING"
+        /// Explicitly force local parsing for diagnostics.
+        static let forceLocalParsingEnv = "ANGLE_FORCE_LOCAL_PARSING"
     }
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = BackendAnalysisClient.makeDefaultSession()) {
         self.session = session
         self.encoder = JSONEncoder()
         self.decoder = JSONDecoder()
         self.encoder.outputFormatting = .withoutEscapingSlashes
+    }
+
+    private static func makeDefaultSession() -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.waitsForConnectivity = true
+        configuration.timeoutIntervalForRequest = 90
+        configuration.timeoutIntervalForResource = 240
+        return URLSession(configuration: configuration)
     }
 
     func analyze(
@@ -249,7 +261,7 @@ final class BackendAnalysisClient {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 300  // 5 minutes for large file uploads
+        request.timeoutInterval = 180
         request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
@@ -261,7 +273,15 @@ final class BackendAnalysisClient {
             fileData: fileData
         )
 
-        let (data, response) = try await session.data(for: request)
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            if let urlError = error as? URLError, urlError.code == .timedOut {
+                throw BackendAnalysisClientError.parseTimeout
+            }
+            throw error
+        }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BackendAnalysisClientError.invalidResponse
         }
@@ -277,7 +297,20 @@ final class BackendAnalysisClient {
     }
 
     private func shouldUseBackendParsing() -> Bool {
-        ProcessInfo.processInfo.environment[Config.useBackendParsingEnv] == "1"
+        let environment = ProcessInfo.processInfo.environment
+        if environment[Config.forceLocalParsingEnv] == "1" {
+            return false
+        }
+
+#if DEBUG
+        if let legacy = environment[Config.useBackendParsingEnv] {
+            return legacy == "1"
+        }
+#endif
+
+        // Production default: always backend-first parsing so quality pipeline
+        // (Unstructured/OCR/table/evidence handling) is applied consistently.
+        return true
     }
 
     private func parseDocumentLocally(

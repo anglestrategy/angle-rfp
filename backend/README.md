@@ -14,7 +14,14 @@ This folder contains the Next.js backend for angle/RFP.
 - `EXA_API_KEY`
 - `FIRECRAWL_API_KEY`
 - `SHARE_LINK_BASE_URL`
-- `GOOGLE_VISION_API_KEY`
+- `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT`
+- `AZURE_DOCUMENT_INTELLIGENCE_KEY`
+- `AZURE_DOCUMENT_INTELLIGENCE_API_VERSION`
+- `OCR_AZURE_SUBMIT_TIMEOUT_MS`
+- `OCR_AZURE_POLL_TIMEOUT_MS`
+- `OCR_AZURE_POLL_INTERVAL_MS`
+- `OCR_AZURE_MAX_POLL_ATTEMPTS`
+- `GOOGLE_VISION_API_KEY` (legacy compatibility only)
 - `UNSTRUCTURED_API_KEY`
 - `UNSTRUCTURED_API_URL`
 - `AGENCY_SUPPORTS_MARKET_RESEARCH`
@@ -48,6 +55,7 @@ If one of those values is provided, the backend logs a warning and falls back to
 
 - Local parser remains the fast path.
 - If `UNSTRUCTURED_API_KEY` is set, parser can automatically use Unstructured for low-text / complex layouts.
+- If `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_KEY` are set, OCR fallback is executed through Azure Document Intelligence.
 - If Unstructured is unavailable, backend falls back to local parser and emits warnings.
 
 ## Render deployment

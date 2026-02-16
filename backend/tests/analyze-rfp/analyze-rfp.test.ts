@@ -209,6 +209,40 @@ describe("analyzeRfpInput", () => {
     expect(combined).not.toMatch(/:\s*15\b/);
   });
 
+  test("excludes legal boilerplate from deliverable requirements", async () => {
+    const legalNoiseDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Submission Format",
+        "The technical proposals should include: Executive summary, methodology, team composition and CVs.",
+        "The commercial proposals should include: commercial proposal submitted separately in encrypted file with payment terms.",
+        "Terms and Conditions",
+        "No clarification, explanation, interpretation, or rectification shall be binding or have any legal validity whatsoever.",
+        "The Employer accepts no liability for any Vendor costs incurred in connection with this process.",
+        "Once delivered, no Vendor may add, amend, or withdraw the proposal."
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: legalNoiseDoc.analysisId,
+      parsedDocument: legalNoiseDoc
+    });
+
+    const descriptions = [
+      ...(result.deliverableRequirements?.technical ?? []),
+      ...(result.deliverableRequirements?.commercial ?? []),
+      ...(result.deliverableRequirements?.strategicCreative ?? [])
+    ].map((item) => item.description.toLowerCase());
+    const combined = descriptions.join("\n");
+
+    expect(combined).not.toContain("legal validity");
+    expect(combined).not.toContain("accepts no liability");
+    expect(combined).not.toContain("no vendor may add");
+    expect(combined).toMatch(/methodology|executive summary|commercial proposal|payment terms/);
+  });
+
   test("detects conflicts in submission deadlines", async () => {
     const conflictDoc = {
       ...baseDocument,
