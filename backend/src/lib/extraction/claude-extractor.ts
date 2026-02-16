@@ -85,7 +85,7 @@ const ClaudeExtractedFieldsSchema = z.object({
         return Number.isFinite(parsed) ? parsed : null;
       }
       return null;
-    }, z.number().int().nullable())
+    }, z.number().nullable())
   }).default({
     method: "Unknown",
     email: null,
