@@ -173,6 +173,34 @@ function dedupeItems(items: string[]): string[] {
   return output;
 }
 
+function deterministicBeautify(rawText: string, fieldName: string): BeautifiedText {
+  const normalized = rawText
+    .replace(/```/g, "")
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/\s+\n/g, "\n")
+    .trim();
+
+  const fallback: BeautifiedText = {
+    formatted: normalized,
+    sections: [{ type: "paragraph", content: normalized }]
+  };
+
+  if (fieldName === "Scope of Work") {
+    return normalizeScopeStructure(fallback);
+  }
+
+  if (fieldName === "Project Description") {
+    return normalizeProjectDescriptionStructure(fallback);
+  }
+
+  if (fieldName === "Evaluation Criteria") {
+    return normalizeEvaluationCriteriaStructure(fallback);
+  }
+
+  return fallback;
+}
+
 function isScopeNoiseLine(line: string): boolean {
   const normalized = normalizeBulletItem(line).toLowerCase();
   if (!normalized) {
@@ -314,6 +342,35 @@ function normalizeScopeStructure(result: BeautifiedText): BeautifiedText {
 }
 
 function normalizeEvaluationCriteriaStructure(result: BeautifiedText): BeautifiedText {
+  const looksLikeGroupHeading = (line: string): boolean => {
+    const cleaned = line.replace(/^\d+\.\s*/, "").trim();
+    if (!cleaned) {
+      return false;
+    }
+    const wordCount = cleaned.split(/\s+/).length;
+    if (wordCount < 2 || wordCount > 14) {
+      return false;
+    }
+    if (/[.:;!?]/.test(cleaned)) {
+      return false;
+    }
+    if (/\(weight|not specified|\d+%\)/i.test(cleaned)) {
+      return true;
+    }
+    if (/(credentials|experience|planning|creativity|management|deliverables|technical|commercial|strategic|معايير|الخبرة|التخطيط|الإبداع|الإدارة)/i.test(cleaned)) {
+      return true;
+    }
+    const letters = cleaned.replace(/[^A-Za-z]/g, "");
+    if (letters.length >= 6) {
+      const uppercase = cleaned.replace(/[^A-Z]/g, "").length;
+      const ratio = uppercase / letters.length;
+      if (ratio >= 0.45) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const sourceLines = result.sections
     .flatMap((section) => {
       if (section.type === "bullet_list" || section.type === "numbered_list") {
@@ -343,6 +400,7 @@ function normalizeEvaluationCriteriaStructure(result: BeautifiedText): Beautifie
 
   const grouped: Array<{ heading: string; bullets: string[] }> = [];
   let current: { heading: string; bullets: string[] } | null = null;
+  let autoHeadingIndex = 1;
 
   for (const rawLine of normalizedLines) {
     const line = rawLine.replace(/^(\d+)[)\-]\s+/, "$1. ");
@@ -355,6 +413,18 @@ function normalizeEvaluationCriteriaStructure(result: BeautifiedText): Beautifie
       continue;
     }
 
+    if (looksLikeGroupHeading(line)) {
+      if (current) {
+        grouped.push(current);
+      }
+      current = {
+        heading: `${autoHeadingIndex}. ${line}`,
+        bullets: []
+      };
+      autoHeadingIndex += 1;
+      continue;
+    }
+
     const normalized = line.replace(/^\s*(?:[-*•▪‣●])\s+/u, "").trim();
     if (!normalized) {
       continue;
@@ -362,9 +432,10 @@ function normalizeEvaluationCriteriaStructure(result: BeautifiedText): Beautifie
 
     if (!current) {
       current = {
-        heading: "1. Evaluation Criteria",
+        heading: `${autoHeadingIndex}. Evaluation Criteria`,
         bullets: []
       };
+      autoHeadingIndex += 1;
     }
     current.bullets.push(truncateAtWordBoundary(normalized, 220));
   }
@@ -413,16 +484,15 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     };
   }
 
+  // Default behavior: deterministic formatter only.
+  // Enable model-driven beautification explicitly via env for experiments.
+  if (process.env.ENABLE_CLAUDE_BEAUTIFY !== "1") {
+    return deterministicBeautify(rawText, fieldName);
+  }
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    const fallback: BeautifiedText = {
-      formatted: rawText,
-      sections: [{ type: "paragraph", content: rawText }]
-    };
-    if (fieldName === "Evaluation Criteria") {
-      return normalizeEvaluationCriteriaStructure(fallback);
-    }
-    return fallback;
+    return deterministicBeautify(rawText, fieldName);
   }
 
   const client = new Anthropic({
@@ -476,15 +546,7 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Text beautification failed for ${fieldName}:`, message);
-    // Fallback: return with basic paragraph structure
-    const fallback: BeautifiedText = {
-      formatted: rawText,
-      sections: [{ type: "paragraph", content: rawText }]
-    };
-    if (fieldName === "Evaluation Criteria") {
-      return normalizeEvaluationCriteriaStructure(fallback);
-    }
-    return fallback;
+    return deterministicBeautify(rawText, fieldName);
   }
 }
 

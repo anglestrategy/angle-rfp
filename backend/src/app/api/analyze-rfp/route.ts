@@ -5,8 +5,8 @@ import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { analyzeRfpInput } from "@/lib/extraction/analyze-rfp";
 import { registerAnalysisUsage } from "@/lib/ops/cost-budget";
 
-// Extend timeout for Claude API calls (Pro plan required for >10s)
-export const maxDuration = 60;
+// Extraction can include one high-context model pass; keep an explicit budget.
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);

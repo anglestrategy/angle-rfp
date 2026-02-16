@@ -25,6 +25,7 @@ This folder contains the Next.js backend for angle/RFP.
 - `UNSTRUCTURED_API_KEY`
 - `UNSTRUCTURED_API_URL`
 - `AGENCY_SUPPORTS_MARKET_RESEARCH`
+- `ENABLE_CLAUDE_BEAUTIFY` (`0` recommended; `1` enables extra model beautification pass)
 
 ### Optional model overrides
 
@@ -57,6 +58,11 @@ If one of those values is provided, the backend logs a warning and falls back to
 - If `UNSTRUCTURED_API_KEY` is set, parser can automatically use Unstructured for low-text / complex layouts.
 - If `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_KEY` are set, OCR fallback is executed through Azure Document Intelligence.
 - If Unstructured is unavailable, backend falls back to local parser and emits warnings.
+
+### Beautification behavior
+
+- Default mode is deterministic formatting (stable and lower-latency).
+- Set `ENABLE_CLAUDE_BEAUTIFY=1` only if you want an additional model pass for stylistic formatting.
 
 ## Render deployment
 

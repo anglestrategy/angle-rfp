@@ -61,12 +61,68 @@ const ClaudeExtractedFieldsSchema = z.object({
 
 export type ClaudeExtractedFields = z.infer<typeof ClaudeExtractedFieldsSchema>;
 
-// Maximum characters to send to Claude API to stay within token limits
-// (~25k tokens at ~4 chars/token, with buffer for prompt)
-const MAX_INPUT_CHARS = 100_000;
+// Keep extraction context bounded for latency + stability.
+const MAX_INPUT_CHARS = 60_000;
 
-// Default timeout for Claude API requests (3 minutes for large documents)
-const API_TIMEOUT_MS = 180_000;
+// Default timeout for Claude API requests.
+const API_TIMEOUT_MS = 120_000;
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function sectionWindow(rawText: string, pattern: RegExp, maxChars = 9_000): string | null {
+  const match = pattern.exec(rawText);
+  if (!match || typeof match.index !== "number") {
+    return null;
+  }
+
+  const start = Math.max(0, match.index - 800);
+  const end = Math.min(rawText.length, start + maxChars);
+  const window = rawText.slice(start, end).trim();
+  return window.length > 120 ? window : null;
+}
+
+function buildFocusedExtractionInput(rawText: string): string {
+  const chunks: string[] = [];
+  const push = (label: string, value: string | null | undefined) => {
+    if (!value) {
+      return;
+    }
+    const normalized = normalizeWhitespace(value);
+    if (!normalized) {
+      return;
+    }
+    chunks.push(`[${label}]\n${normalized}`);
+  };
+
+  push("document_start", rawText.slice(0, 14_000));
+  push("scope_section", sectionWindow(rawText, /scope\s+of\s+work|statement\s+of\s+work|نطاق\s+العمل/iu));
+  push("evaluation_section", sectionWindow(rawText, /evaluation\s+criteria|technical\s+evaluation|معايير\s+التقييم/iu));
+  push("deliverables_section", sectionWindow(rawText, /deliverables?|submission\s+format|technical\s+proposal|commercial\s+proposal|المخرجات|التسليم|المقترح/iu));
+  push("dates_section", sectionWindow(rawText, /important\s+dates|timeline|deadline|موعد|تاريخ/iu));
+  push("submission_section", sectionWindow(rawText, /submission\s+requirements?|طريقة\s+التقديم|email|portal|format/iu));
+
+  // Keep a tail snippet for late-document requirements.
+  push("document_end", rawText.slice(Math.max(0, rawText.length - 8_000)));
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    const key = chunk.slice(0, 400).toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(chunk);
+  }
+
+  const focused = deduped.join("\n\n");
+  if (!focused) {
+    return normalizeWhitespace(rawText.slice(0, MAX_INPUT_CHARS));
+  }
+  return normalizeWhitespace(focused).slice(0, MAX_INPUT_CHARS);
+}
 
 const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Your job is to extract and CLEARLY STRUCTURE key information from RFP documents so busy executives can quickly understand what's being asked.
 
@@ -148,7 +204,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
     timeout: API_TIMEOUT_MS
   });
 
-  const truncatedText = rawText.slice(0, MAX_INPUT_CHARS);
+  const focusedText = buildFocusedExtractionInput(rawText);
 
   const response = await runWithClaudeSonnetModel((model) =>
     client.messages.create({
@@ -158,7 +214,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
       messages: [
         {
           role: "user",
-          content: EXTRACTION_PROMPT + truncatedText
+          content: EXTRACTION_PROMPT + focusedText
         }
       ]
     })

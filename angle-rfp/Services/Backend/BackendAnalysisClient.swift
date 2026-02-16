@@ -88,7 +88,7 @@ final class BackendAnalysisClient {
 
     private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
-        configuration.waitsForConnectivity = true
+        configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 90
         configuration.timeoutIntervalForResource = 240
         return URLSession(configuration: configuration)
@@ -522,7 +522,7 @@ final class BackendAnalysisClient {
         let endpoint = config.baseURL.appendingPathComponent(cleanedPath)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 300  // 5 minutes for Claude API + potential cold start
+        request.timeoutInterval = 180
         request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
