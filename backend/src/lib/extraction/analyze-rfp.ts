@@ -140,16 +140,27 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   const pass5 = runPass5Conflicts(input, pass1);
 
   // Run text beautification in parallel for key content fields
+  // TODO: Re-enable after timeout fixes are validated
+  // Temporarily disabled to reduce timeout pressure (saves 3x120s = 360s of Claude API calls)
+  const ENABLE_BEAUTIFIER = false;
+
   let beautifiedText: ExtractedRfpDataV1["beautifiedText"];
-  try {
-    beautifiedText = await beautifyExtractedFields({
-      projectDescription: pass1.projectDescription,
-      scopeOfWork: pass1.scopeOfWork,
-      evaluationCriteria: pass1.evaluationCriteria
-    });
-  } catch (error) {
-    console.error("Text beautification failed:", error);
-    // Continue without beautified text - it's enhancement, not critical
+  let beautifierError: string | null = null;
+  if (ENABLE_BEAUTIFIER) {
+    try {
+      beautifiedText = await beautifyExtractedFields({
+        projectDescription: pass1.projectDescription,
+        scopeOfWork: pass1.scopeOfWork,
+        evaluationCriteria: pass1.evaluationCriteria
+      });
+    } catch (error) {
+      console.error("Text beautification failed:", error);
+      beautifiedText = null; // Explicit fallback
+      beautifierError = error instanceof Error ? error.message : "Unknown beautification error";
+      // Continue without beautified text - it's enhancement, not critical
+    }
+  } else {
+    console.log("[Beautifier] Disabled temporarily - will re-enable after timeout fixes are validated");
   }
 
   const mergedConfidence: Record<string, number> & { overall: number } = {
@@ -223,7 +234,14 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     missingInformation: pass4.missingInformation,
     confidenceScores: mergedConfidence,
     completenessScore: pass4.completenessScore,
-    warnings: [...pass1.warnings, ...pass2.warnings, ...pass3.warnings, ...pass4.warnings, ...pass5.warnings],
+    warnings: [
+      ...pass1.warnings,
+      ...pass2.warnings,
+      ...pass3.warnings,
+      ...pass4.warnings,
+      ...pass5.warnings,
+      ...(beautifierError ? [`Text beautification timed out or failed: ${beautifierError}`] : [])
+    ],
     qualityFlags: Array.from(qualityFlags),
     quality: {
       status,

@@ -229,6 +229,9 @@ RFP Document:
 `;
 
 export async function extractWithClaude(rawText: string): Promise<ClaudeExtractedFields> {
+  const startTime = Date.now();
+  console.log(`[Extraction] Starting at ${new Date().toISOString()}, timeout: ${API_TIMEOUT_MS}ms`);
+
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
@@ -238,6 +241,13 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
 
   const focusedText = buildFocusedExtractionInput(rawText);
 
+  // Create abort controller for request-level timeout
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => {
+    console.error(`[Extraction] Timeout triggered after ${API_TIMEOUT_MS}ms, aborting request`);
+    abortController.abort();
+  }, API_TIMEOUT_MS);
+
   try {
     const result = await runWithClaudeSonnetModel((model) =>
       generateObject({
@@ -245,13 +255,20 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracte
         schema: ClaudeExtractedFieldsSchema,
         temperature: 0,
         maxOutputTokens: 8000,
-        timeout: { totalMs: API_TIMEOUT_MS },
+        abortSignal: abortController.signal,
         prompt: EXTRACTION_PROMPT + focusedText
       })
     );
 
+    clearTimeout(timeoutId);
+    const duration = Date.now() - startTime;
+    console.log(`[Extraction] Completed successfully in ${duration}ms`);
     return result.object;
   } catch (parseError) {
+    clearTimeout(timeoutId);
+    const duration = Date.now() - startTime;
+    console.error(`[Extraction] Failed after ${duration}ms:`, parseError);
+
     if (parseError instanceof z.ZodError) {
       throw new Error(`Claude response validation failed: ${parseError.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`);
     }

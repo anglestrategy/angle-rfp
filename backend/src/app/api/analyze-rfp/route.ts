@@ -6,7 +6,12 @@ import { analyzeRfpInput } from "@/lib/extraction/analyze-rfp";
 import { registerAnalysisUsage } from "@/lib/ops/cost-budget";
 
 // Extraction can include one high-context model pass; keep an explicit budget.
-export const maxDuration = 300;
+// Increased to 600s (10 min) to accommodate:
+// - Pass 1 extraction: 120s
+// - Pass 2-5 analysis: 30s each
+// - Beautifier (when enabled): 360s (3x120s parallel calls)
+// - Buffer: 60s
+export const maxDuration = 600;
 
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
