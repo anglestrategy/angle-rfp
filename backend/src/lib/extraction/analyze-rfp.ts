@@ -155,7 +155,7 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
       });
     } catch (error) {
       console.error("Text beautification failed:", error);
-      beautifiedText = null; // Explicit fallback
+      beautifiedText = undefined; // Explicit fallback (use undefined, not null)
       beautifierError = error instanceof Error ? error.message : "Unknown beautification error";
       // Continue without beautified text - it's enhancement, not critical
     }
