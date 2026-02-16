@@ -3,6 +3,26 @@ import { z } from "zod";
 import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
 import { parseJsonFromModelText } from "@/lib/ai/json-response";
 
+function coerceString(value: unknown, fallback = ""): string {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return fallback;
+}
+
+const nullableString = (fallback = "") =>
+  z.preprocess((value) => coerceString(value, fallback), z.string());
+
+const nullableOptionalString = () =>
+  z.preprocess((value) => {
+    const normalized = coerceString(value, "");
+    return normalized.length > 0 ? normalized : null;
+  }, z.string().nullable());
+
 // Schema for deliverables with source tagging
 const DeliverableSchema = z.union([
   // Support both old format (string) and new format (object with source)
@@ -14,8 +34,8 @@ const DeliverableSchema = z.union([
 ]);
 
 const DeliverableRequirementEntrySchema = z.object({
-  title: z.string().default(""),
-  description: z.string().default(""),
+  title: nullableString(""),
+  description: nullableString(""),
   source: z.enum(["verbatim", "inferred"]).default("verbatim")
 });
 
@@ -27,11 +47,11 @@ const DeliverableRequirementGroupsSchema = z.object({
 
 // Schema for runtime validation of Claude's response
 const ClaudeExtractedFieldsSchema = z.object({
-  clientName: z.string().default(""),
-  projectName: z.string().default(""),
-  projectDescription: z.string().default(""),
-  scopeOfWork: z.string().default(""),
-  evaluationCriteria: z.string().default(""),
+  clientName: nullableString(""),
+  projectName: nullableString(""),
+  projectDescription: nullableString(""),
+  scopeOfWork: nullableString(""),
+  evaluationCriteria: nullableString(""),
   requiredDeliverables: z.array(DeliverableSchema).default([]),
   deliverableRequirements: DeliverableRequirementGroupsSchema.default({
     technical: [],
@@ -39,17 +59,33 @@ const ClaudeExtractedFieldsSchema = z.object({
     strategicCreative: []
   }),
   importantDates: z.array(z.object({
-    title: z.string(),
-    date: z.string(),
+    title: nullableString(""),
+    date: nullableString(""),
     type: z.enum(["submission_deadline", "qa_deadline", "presentation", "other"]).default("other")
   })).default([]),
   submissionRequirements: z.object({
-    method: z.string().default("Unknown"),
-    email: z.string().nullable().default(null),
-    format: z.string().default("Unspecified"),
-    physicalAddress: z.string().nullable().default(null),
+    method: nullableString("Unknown"),
+    email: nullableOptionalString(),
+    format: nullableString("Unspecified"),
+    physicalAddress: nullableOptionalString(),
     // Handle both string and number from Claude (it sometimes returns "3" instead of 3)
-    copies: z.union([z.number(), z.string().transform(v => v ? parseInt(v, 10) : null)]).nullable().default(null)
+    copies: z.preprocess((value) => {
+      if (value === null || value === undefined || value === "") {
+        return null;
+      }
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return Math.floor(value);
+      }
+      if (typeof value === "string") {
+        const digits = value.match(/\d+/)?.[0];
+        if (!digits) {
+          return null;
+        }
+        const parsed = Number.parseInt(digits, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return null;
+    }, z.number().int().nullable())
   }).default({
     method: "Unknown",
     email: null,
