@@ -97,10 +97,10 @@ const ClaudeExtractedFieldsSchema = z.object({
 
 export type ClaudeExtractedFields = z.infer<typeof ClaudeExtractedFieldsSchema>;
 
-// Increased from 60K to 200K to give Claude more context for intelligent extraction.
-// This prevents double truncation (500K→60K) that caused poor analysis quality.
-// Claude Sonnet can efficiently handle 200K tokens (~570K chars), so 200K chars is safe.
-const MAX_INPUT_CHARS = 200_000;
+// Claude Sonnet 4 has 200K token context = ~570K characters.
+// With ~30K for prompts/responses, we can safely send 500K chars (full RFP, no truncation).
+// NO artificial limits - send the entire document for complete analysis.
+const MAX_INPUT_CHARS = 500_000;
 
 // Default timeout for Claude API requests.
 const API_TIMEOUT_MS = 120_000;
@@ -122,44 +122,19 @@ function sectionWindow(rawText: string, pattern: RegExp, maxChars = 9_000): stri
 }
 
 function buildFocusedExtractionInput(rawText: string): string {
-  const chunks: string[] = [];
-  const push = (label: string, value: string | null | undefined) => {
-    if (!value) {
-      return;
-    }
-    const normalized = normalizeWhitespace(value);
-    if (!normalized) {
-      return;
-    }
-    chunks.push(`[${label}]\n${normalized}`);
-  };
+  // SEND THE ENTIRE DOCUMENT - NO SNIPPETS, NO "FOCUSING"
+  // Claude Sonnet 4 can handle 500K chars easily, and we need complete context for intelligent analysis.
+  // The old "focused" approach extracted only ~60K chars of snippets, causing poor quality.
 
-  push("document_start", rawText.slice(0, 14_000));
-  push("scope_section", sectionWindow(rawText, /scope\s+of\s+work|statement\s+of\s+work|نطاق\s+العمل/iu));
-  push("evaluation_section", sectionWindow(rawText, /evaluation\s+criteria|technical\s+evaluation|معايير\s+التقييم/iu));
-  push("deliverables_section", sectionWindow(rawText, /deliverables?|submission\s+format|technical\s+proposal|commercial\s+proposal|المخرجات|التسليم|المقترح/iu));
-  push("dates_section", sectionWindow(rawText, /important\s+dates|timeline|deadline|موعد|تاريخ/iu));
-  push("submission_section", sectionWindow(rawText, /submission\s+requirements?|طريقة\s+التقديم|email|portal|format/iu));
+  const normalized = normalizeWhitespace(rawText);
 
-  // Keep a tail snippet for late-document requirements.
-  push("document_end", rawText.slice(Math.max(0, rawText.length - 8_000)));
-
-  const deduped: string[] = [];
-  const seen = new Set<string>();
-  for (const chunk of chunks) {
-    const key = chunk.slice(0, 400).toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    deduped.push(chunk);
+  // Only truncate if document exceeds Claude's context limit (500K chars)
+  if (normalized.length > MAX_INPUT_CHARS) {
+    console.warn(`[Extraction] Document exceeds ${MAX_INPUT_CHARS} chars, truncating from ${normalized.length}`);
+    return normalized.slice(0, MAX_INPUT_CHARS);
   }
 
-  const focused = deduped.join("\n\n");
-  if (!focused) {
-    return normalizeWhitespace(rawText.slice(0, MAX_INPUT_CHARS));
-  }
-  return normalizeWhitespace(focused).slice(0, MAX_INPUT_CHARS);
+  return normalized;
 }
 
 const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Your job is to extract and CLEARLY STRUCTURE key information from RFP documents so busy executives can quickly understand what's being asked.
