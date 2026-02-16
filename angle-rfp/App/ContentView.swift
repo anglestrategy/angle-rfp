@@ -126,6 +126,7 @@ struct ContentView: View {
     @State private var currentStage: AnalysisStage = .parsing
     @State private var analysisProgress: Double = 0
     @State private var parsingWarnings: [String] = []
+    @State private var analysisErrorMessage: String? = nil
     @State private var extractedData: ExtractedRFPData?
     @State private var clientInfo: ClientInformation?
     @State private var showSettings = false
@@ -206,8 +207,10 @@ struct ContentView: View {
                         currentStage: $currentStage,
                         progress: $analysisProgress,
                         parsingWarnings: $parsingWarnings,
+                        errorMessage: $analysisErrorMessage,
                         documentName: activeDocumentName,
-                        onCancel: cancelAnalysis
+                        onCancel: cancelAnalysis,
+                        onRetry: retryAnalysis
                     )
 
                 case .dashboard(let data, let info):
@@ -562,6 +565,7 @@ struct ContentView: View {
         currentStage = .parsing
         analysisProgress = 0
         parsingWarnings = []
+        analysisErrorMessage = nil
 
         withAnimation(DesignSystem.Animation.runway(for: selectedMotionPreference)) {
             appState = .analyzing(documentName: url.lastPathComponent)
@@ -585,7 +589,23 @@ struct ContentView: View {
             currentStage = .parsing
             analysisProgress = 0
             parsingWarnings = []
+            analysisErrorMessage = nil
         }
+    }
+
+    private func retryAnalysis() {
+        // Clear error and restart analysis with the current document
+        guard case .analyzing(let documentName) = appState else { return }
+        guard let url = uploadQueue.first(where: { $0.displayName == documentName })?.url else { return }
+
+        analysisErrorMessage = nil
+        parsingWarnings = []
+        currentStage = .parsing
+        analysisProgress = 0
+
+        let runID = UUID()
+        activeAnalysisRunID = runID
+        performAnalysis(documentURL: url, runID: runID)
     }
 
     private func startNewAnalysis() {
@@ -597,6 +617,7 @@ struct ContentView: View {
             currentStage = .parsing
             analysisProgress = 0
             parsingWarnings = []
+            analysisErrorMessage = nil
             appState = .upload
         }
     }
@@ -652,12 +673,12 @@ struct ContentView: View {
             } catch {
                 await MainActor.run {
                     guard activeAnalysisRunID == runID else { return }
-                    // Keep the user on the progress screen so the failure is visible,
-                    // but do not mark the flow as "Complete" when the backend failed.
+                    // Set error message for display in AnalysisProgressView
+                    analysisErrorMessage = "Analysis failed: \(error.localizedDescription)"
+                    // Keep the user on the progress screen so the failure is visible
                     if self.currentStage == .complete {
                         self.currentStage = .parsing
                     }
-                    parsingWarnings = Array(Set(parsingWarnings + ["Analysis failed: \(error.localizedDescription)"])).sorted()
                     analysisProgress = max(analysisProgress, 0.12)
                     analysisTask = nil
                     activeAnalysisRunID = nil
