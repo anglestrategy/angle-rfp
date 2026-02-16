@@ -97,10 +97,12 @@ const ClaudeExtractedFieldsSchema = z.object({
 
 export type ClaudeExtractedFields = z.infer<typeof ClaudeExtractedFieldsSchema>;
 
-// Claude Sonnet 4 has 200K token context = ~570K characters.
-// With ~30K for prompts/responses, we can safely send 500K chars (full RFP, no truncation).
-// NO artificial limits - send the entire document for complete analysis.
-const MAX_INPUT_CHARS = 500_000;
+// Claude Sonnet 4.5 has 200K token context.
+// Empirical token usage: ~1.7 chars per token (varies by language/formatting)
+// Budget: 200K tokens - 8K response - 25K prompt overhead = ~167K tokens available
+// Safe character limit: 167K tokens × 1.7 chars/token = ~284K characters
+// This ensures we stay well under the 200K token limit while maximizing input size.
+const MAX_INPUT_CHARS = 284_000;
 
 // Default timeout for Claude API requests.
 const API_TIMEOUT_MS = 120_000;
