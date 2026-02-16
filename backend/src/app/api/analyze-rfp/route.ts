@@ -31,7 +31,8 @@ export async function POST(request: NextRequest) {
     });
 
     const rawTextLength = typeof body.parsedDocument?.rawText === "string" ? body.parsedDocument.rawText.length : 0;
-    const estimatedTokens = Math.ceil(rawTextLength / 4) * 5;
+    // Claude Sonnet uses ~0.35 tokens per character on average
+    const estimatedTokens = Math.ceil(rawTextLength * 0.35);
     registerAnalysisUsage({
       analysisId: body.analysisId,
       tokens: estimatedTokens
