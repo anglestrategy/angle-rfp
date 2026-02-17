@@ -291,16 +291,12 @@ function classifyMatch(scopeItem: string, service: AgencyService, score: number)
 
   if (score < 0.15) {
     const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
-    return hasAgencySignal ? "uncertain" : "none";
+    return hasAgencySignal ? "partial" : "none";
   }
 
   const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
 
   const isPartialHint = PARTIAL_HINTS.some((pattern) => pattern.test(scopeItem) || pattern.test(service.service));
-  if (score < 0.35 && hasAgencySignal && !isPartialHint) {
-    return "uncertain";
-  }
-
   if (isPartialHint || score < 0.45) {
     return "partial";
   }
@@ -342,7 +338,7 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
         scopeItem,
         service: hasAgencySignal ? "Broad agency capability" : "No direct match",
         class: hasAgencySignal ? "uncertain" : "none",
-        confidence: hasAgencySignal ? 0.4 : 0.2,
+        confidence: hasAgencySignal ? 0.45 : 0.2,
         classificationSource: hasAgencySignal ? "token" : "rule"
       };
     }
@@ -351,8 +347,8 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
       return {
         scopeItem,
         service: hasAgencySignal ? bestService.service : "No direct match",
-        class: hasAgencySignal ? "uncertain" : "none",
-        confidence: hasAgencySignal ? 0.4 : 0.2,
+        class: hasAgencySignal ? "partial" : "none",
+        confidence: hasAgencySignal ? 0.5 : 0.2,
         classificationSource: "token"
       };
     }

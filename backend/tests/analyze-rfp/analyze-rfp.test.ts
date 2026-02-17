@@ -39,6 +39,7 @@ describe("analyzeRfpInput", () => {
     expect(result.projectName).toBeTruthy();
     expect(result.scopeOfWork.length).toBeGreaterThan(0);
     expect(result.evaluationCriteria.length).toBeGreaterThan(0);
+    expect((result.evaluationCriteriaStructured ?? []).length).toBeGreaterThanOrEqual(1);
     expect(result.requiredDeliverables.length).toBeGreaterThan(0);
     expect(result.deliverableRequirements).toBeDefined();
     expect(result.deliverableRequirements?.technical.length).toBeGreaterThan(0);
@@ -120,6 +121,7 @@ describe("analyzeRfpInput", () => {
     expect(result.evaluationCriteria).not.toContain("##");
     expect(result.evaluationCriteria).not.toContain("**");
     expect(result.evaluationCriteria).toMatch(/team experience|commercial|\d+%/i);
+    expect((result.evaluationCriteriaStructured ?? []).length).toBeGreaterThan(0);
   });
 
   test("splits numbered criteria headings from inline narrative and keeps bullet formatting", async () => {
@@ -171,6 +173,57 @@ describe("analyzeRfpInput", () => {
     expect(result.deliverableRequirements?.technical.length ?? 0).toBeGreaterThan(0);
     expect(result.deliverableRequirements?.commercial.length ?? 0).toBeGreaterThan(0);
     expect(result.deliverableRequirements?.strategicCreative.length ?? 0).toBeGreaterThan(0);
+
+    const allTitles = [
+      ...(result.deliverableRequirements?.technical ?? []),
+      ...(result.deliverableRequirements?.commercial ?? []),
+      ...(result.deliverableRequirements?.strategicCreative ?? [])
+    ].map((item) => item.title.toLowerCase().trim());
+    expect(new Set(allTitles).size).toBe(allTitles.length);
+  });
+
+  test("builds grouped criteria cleanly from evaluation table rows with merged-category style entries", async () => {
+    const tableDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Scope of Work",
+        "Develop launch strategy and campaign rollout."
+      ].join("\n"),
+      sections: [
+        { name: "scope_of_work", startOffset: 60, endOffset: 150 },
+        { name: "evaluation_criteria", startOffset: 151, endOffset: 300 }
+      ],
+      tables: [
+        {
+          title: "Technical Evaluation Criteria",
+          headers: ["Criteria", "Description"],
+          rows: [
+            ["Agency Credentials, Team & KSA Experience", "Proven experience in large-scale localization frameworks"],
+            ["", "Agency team includes senior strategists and creatives"],
+            ["Strategic Planning & Creativity", "Demonstrated understanding of local cultural behaviors"],
+            ["", "Translate insights into clear localization and campaign positioning"],
+            ["Project Management & Deliverables", "On-time delivery based on milestones and project timeline"]
+          ],
+          pages: [3],
+          confidence: 0.95
+        }
+      ]
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: tableDoc.analysisId,
+      parsedDocument: tableDoc
+    });
+
+    const groups = result.evaluationCriteriaStructured ?? [];
+    expect(groups.length).toBeGreaterThanOrEqual(3);
+    expect(groups.some((group) => /agency credentials/i.test(group.title))).toBe(true);
+    expect(groups.some((group) => /strategic planning/i.test(group.title))).toBe(true);
+    expect(groups.some((group) => /project management/i.test(group.title))).toBe(true);
+    expect(result.evaluationCriteria).not.toContain("##");
+    expect(result.evaluationCriteria).not.toContain("```");
   });
 
   test("filters noisy deliverable fragments and numeric artifacts", async () => {

@@ -49,6 +49,7 @@ export interface DeliverableRequirementItemV1 {
   title: string;
   description: string;
   source: "verbatim" | "inferred";
+  evidenceRef?: string;
 }
 
 export interface DeliverableRequirementsV1 {
@@ -68,6 +69,12 @@ export interface ExtractedRfpDataV1 {
   projectDescription: string;
   scopeOfWork: string;
   evaluationCriteria: string;
+  evaluationCriteriaStructured?: Array<{
+    title: string;
+    weight: string | null;
+    items: string[];
+    evidenceRefs: string[];
+  }>;
   requiredDeliverables: DeliverableItemV1[];
   deliverableRequirements?: DeliverableRequirementsV1;
   importantDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>;
@@ -201,6 +208,26 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   if ((pass1.evidence?.length ?? 0) < 4) {
     qualityFlags.add("low_evidence_density");
   }
+  if ((pass1.evaluationCriteriaStructured?.length ?? 0) < 2) {
+    qualityFlags.add("low_criteria_confidence");
+  }
+  const groupedDeliverables = pass1.deliverableRequirements;
+  const deliverableBucketCount = [
+    groupedDeliverables.technical.length > 0,
+    groupedDeliverables.commercial.length > 0,
+    groupedDeliverables.strategicCreative.length > 0
+  ].filter(Boolean).length;
+  if (deliverableBucketCount < 2) {
+    qualityFlags.add("low_deliverables_confidence");
+  }
+  const scopeLineCount = pass1.scopeOfWork
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("• "))
+    .length;
+  if (scopeLineCount < 2) {
+    qualityFlags.add("low_scope_confidence");
+  }
   const incompleteCoverage = pass1.warnings.some((warning) =>
     /coverage is incomplete|missing section hints/i.test(warning)
   );
@@ -236,6 +263,15 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   if (parseTruncated) {
     blockReasons.push("Parsed document was truncated by configured limits; full-document analysis is incomplete.");
   }
+  if (qualityFlags.has("low_scope_confidence")) {
+    blockReasons.push("Scope extraction confidence is low; review scope classification manually.");
+  }
+  if (qualityFlags.has("low_criteria_confidence")) {
+    blockReasons.push("Evaluation criteria grouping quality is low.");
+  }
+  if (qualityFlags.has("low_deliverables_confidence")) {
+    blockReasons.push("Deliverables grouping quality is low.");
+  }
   if (qualityFlags.has("conflicts_detected")) {
     blockReasons.push("Conflicting extracted values require manual review.");
   }
@@ -257,6 +293,7 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
     projectDescription: pass1.projectDescription,
     scopeOfWork: pass1.scopeOfWork,
     evaluationCriteria: pass1.evaluationCriteria,
+    evaluationCriteriaStructured: pass1.evaluationCriteriaStructured,
     requiredDeliverables: pass1.requiredDeliverables,
     deliverableRequirements: pass1.deliverableRequirements,
     importantDates: pass1.importantDates,

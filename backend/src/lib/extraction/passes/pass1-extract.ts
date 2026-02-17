@@ -14,12 +14,20 @@ export interface DeliverableRequirementItem {
   title: string;
   description: string;
   source: "verbatim" | "inferred";
+  evidenceRef?: string;
 }
 
 export interface DeliverableRequirements {
   technical: DeliverableRequirementItem[];
   commercial: DeliverableRequirementItem[];
   strategicCreative: DeliverableRequirementItem[];
+}
+
+export interface EvaluationCriteriaGroup {
+  title: string;
+  weight: string | null;
+  items: string[];
+  evidenceRefs: string[];
 }
 
 export interface Pass1Output {
@@ -30,6 +38,7 @@ export interface Pass1Output {
   projectDescription: string;
   scopeOfWork: string;
   evaluationCriteria: string;
+  evaluationCriteriaStructured: EvaluationCriteriaGroup[];
   requiredDeliverables: DeliverableItem[];
   deliverableRequirements: DeliverableRequirements;
   importantDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>;
@@ -522,7 +531,7 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
     const normalized = normalizeRequirementLine(trimmed);
     const headingHint = inferDeliverableHeadingHint(trimmed);
     const startsSection = DELIVERABLE_SECTION_START_PATTERNS.some((pattern) => pattern.test(trimmed));
-    if (startsSection || headingHint !== null) {
+    if (startsSection) {
       inSection = true;
       sectionLineCount = 0;
       if (headingHint !== null) {
@@ -537,6 +546,11 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
         });
         sectionLineCount += 1;
       }
+      continue;
+    }
+
+    if (inSection && headingHint !== null) {
+      currentHint = headingHint;
       continue;
     }
 
@@ -555,7 +569,7 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
       continue;
     }
 
-    const explicit = REQUIREMENT_LINE_PATTERNS.explicit.test(normalized);
+    const explicit = REQUIREMENT_LINE_PATTERNS.explicit.test(normalized) || looksLikeRequirementStatement(normalized);
     if (!explicit && normalized.split(/\s+/).length < 3) {
       continue;
     }
@@ -718,10 +732,9 @@ function hasDeliverableRequirementContent(value: DeliverableRequirements): boole
 
 function normalizeCategoryItems(
   category: DeliverableCategory,
-  items: Array<{ title: string; description: string; source: "verbatim" | "inferred" }>
+  items: Array<{ title: string; description: string; source: "verbatim" | "inferred"; evidenceRef?: string }>
 ): DeliverableRequirementItem[] {
-  const out: DeliverableRequirementItem[] = [];
-  const seen = new Set<string>();
+  const byTitle = new Map<string, DeliverableRequirementItem>();
 
   for (const item of items) {
     const cleanTitle = truncateAtWordBoundary(normalizeRequirementLine(item.title), 110);
@@ -729,14 +742,19 @@ function normalizeCategoryItems(
       cleanDeliverableRequirementText(item.description || item.title),
       220
     );
+    const cleanEvidenceRef = truncateAtWordBoundary(
+      cleanDeliverableRequirementText(item.evidenceRef || item.description || item.title),
+      180
+    );
 
-    if (!cleanDescription || cleanDescription.length < 10) {
+    if (!cleanDescription || cleanDescription.length < 6) {
       continue;
     }
     if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(cleanDescription))) {
       continue;
     }
-    if (!isConcreteDeliverableLine(cleanDescription)) {
+    const explicitRequirement = looksLikeRequirementStatement(cleanDescription);
+    if (!isConcreteDeliverableLine(cleanDescription) && !explicitRequirement) {
       continue;
     }
     if (!isSubmissionDeliverableLine(cleanDescription, category)) {
@@ -744,24 +762,38 @@ function normalizeCategoryItems(
     }
 
     const resolvedTitle = cleanTitle || inferDeliverableTitle(cleanDescription, category);
-    const key = `${normalizeDedupeKey(resolvedTitle)}|${normalizeDedupeKey(cleanDescription)}`;
-    if (!key || seen.has(key)) {
+    const normalizedTitle = normalizeDedupeKey(resolvedTitle);
+    if (!normalizedTitle) {
       continue;
     }
-    seen.add(key);
-
-    out.push({
+    const existing = byTitle.get(normalizedTitle);
+    const candidate: DeliverableRequirementItem = {
       title: resolvedTitle,
       description: cleanDescription,
-      source: item.source
-    });
+      source: item.source,
+      evidenceRef: cleanEvidenceRef || undefined
+    };
 
-    if (out.length >= MAX_DELIVERABLES_PER_CATEGORY) {
+    if (!existing) {
+      byTitle.set(normalizedTitle, candidate);
+    } else {
+      const existingScore =
+        (existing.source === "verbatim" ? 2 : 0) +
+        Math.min(existing.description.length / 80, 3);
+      const candidateScore =
+        (candidate.source === "verbatim" ? 2 : 0) +
+        Math.min(candidate.description.length / 80, 3);
+      if (candidateScore > existingScore) {
+        byTitle.set(normalizedTitle, candidate);
+      }
+    }
+
+    if (byTitle.size >= MAX_DELIVERABLES_PER_CATEGORY) {
       break;
     }
   }
 
-  return out;
+  return Array.from(byTitle.values()).slice(0, MAX_DELIVERABLES_PER_CATEGORY);
 }
 
 function buildDeliverableRequirementsFromClaude(
@@ -786,21 +818,29 @@ function mergeDeliverableRequirements(
     first: DeliverableRequirementItem[],
     second: DeliverableRequirementItem[]
   ): DeliverableRequirementItem[] => {
-    const merged: DeliverableRequirementItem[] = [];
-    const seen = new Set<string>();
-
+    const mergedByTitle = new Map<string, DeliverableRequirementItem>();
     for (const item of [...first, ...second]) {
-      const key = `${normalizeDedupeKey(item.title)}|${normalizeDedupeKey(item.description)}`;
-      if (!key || seen.has(key)) {
+      const normalizedTitle = normalizeDedupeKey(item.title);
+      if (!normalizedTitle) {
         continue;
       }
-      seen.add(key);
-      merged.push(item);
-      if (merged.length >= MAX_DELIVERABLES_PER_CATEGORY) {
-        break;
+      const existing = mergedByTitle.get(normalizedTitle);
+      if (!existing) {
+        mergedByTitle.set(normalizedTitle, item);
+        continue;
+      }
+
+      const existingScore =
+        (existing.source === "verbatim" ? 2 : 0) +
+        Math.min(existing.description.length / 80, 3);
+      const candidateScore =
+        (item.source === "verbatim" ? 2 : 0) +
+        Math.min(item.description.length / 80, 3);
+      if (candidateScore > existingScore) {
+        mergedByTitle.set(normalizedTitle, item);
       }
     }
-    return merged;
+    return Array.from(mergedByTitle.values()).slice(0, MAX_DELIVERABLES_PER_CATEGORY);
   };
 
   return {
@@ -826,14 +866,18 @@ function buildDeliverableRequirements(
     category: DeliverableCategory,
     title: string,
     description: string,
-    source: "verbatim" | "inferred"
+    source: "verbatim" | "inferred",
+    evidenceRef?: string
   ): void => {
     const cleanTitle = title.replace(/\s+/g, " ").trim();
     const cleanDescription = truncateAtWordBoundary(description.replace(/\s+/g, " ").trim(), 220);
+    const cleanEvidenceRef = evidenceRef
+      ? truncateAtWordBoundary(evidenceRef.replace(/\s+/g, " ").trim(), 180)
+      : truncateAtWordBoundary(cleanDescription, 180);
     if (!cleanTitle || !cleanDescription) {
       return;
     }
-    if (cleanDescription.split(/\s+/).length < 4) {
+    if (cleanDescription.split(/\s+/).length < 3) {
       return;
     }
     if (/^[A-Za-z]+\s+\d+$/i.test(cleanDescription) || /^\d+$/.test(cleanDescription)) {
@@ -880,7 +924,8 @@ function buildDeliverableRequirements(
     grouped[category].push({
       title: cleanTitle,
       description: cleanDescription,
-      source
+      source,
+      evidenceRef: cleanEvidenceRef || undefined
     });
   };
 
@@ -940,15 +985,15 @@ function buildDeliverableRequirements(
         continue;
       }
 
-      if (category === "commercial" && !hasSignal(line, COMMERCIAL_REQUIREMENT_SIGNALS)) {
+      if (category === "commercial" && !hasSignal(line, COMMERCIAL_REQUIREMENT_SIGNALS) && !explicitSignal) {
         continue;
       }
 
-      if (category === "technical" && !hasSignal(line, TECHNICAL_REQUIREMENT_SIGNALS)) {
+      if (category === "technical" && !hasSignal(line, TECHNICAL_REQUIREMENT_SIGNALS) && !explicitSignal) {
         continue;
       }
 
-      if (category === "strategicCreative" && !hasSignal(line, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS)) {
+      if (category === "strategicCreative" && !hasSignal(line, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS) && !explicitSignal) {
         continue;
       }
 
@@ -956,7 +1001,7 @@ function buildDeliverableRequirements(
         candidateLine.origin === "evaluation"
           ? "inferred"
           : (candidateLine.explicit || explicitSignal ? "verbatim" : "inferred");
-      addItem(category, inferDeliverableTitle(line, category), line, source);
+      addItem(category, inferDeliverableTitle(line, category), line, source, candidateLine.text);
     }
   }
 
@@ -972,7 +1017,7 @@ function buildDeliverableRequirements(
     if (!category) {
       continue;
     }
-    addItem(category, inferDeliverableTitle(clean, category), clean, deliverable.source);
+    addItem(category, inferDeliverableTitle(clean, category), clean, deliverable.source, clean);
   }
 
   const hasStrategicSignal =
@@ -984,7 +1029,8 @@ function buildDeliverableRequirements(
       "technical",
       "Technical Proposal Submission",
       "Prepare a technical proposal with methodology, team credentials, and relevant experience aligned to the RFP scope.",
-      "inferred"
+      "inferred",
+      "Technical proposal with methodology, team credentials, and relevant experience"
     );
   }
   if (grouped.commercial.length === 0) {
@@ -992,7 +1038,8 @@ function buildDeliverableRequirements(
       "commercial",
       "Commercial Proposal Submission",
       "Prepare a commercial/financial proposal including pricing structure and payment terms as required by the RFP.",
-      "inferred"
+      "inferred",
+      "Commercial proposal with pricing structure and payment terms"
     );
   }
   if (grouped.strategicCreative.length === 0 && hasStrategicSignal) {
@@ -1000,7 +1047,8 @@ function buildDeliverableRequirements(
       "strategicCreative",
       "Strategic and Creative Proposal",
       "Develop a strategic and creative proposal responding to brand strategy, positioning, and campaign creativity criteria in the RFP.",
-      "inferred"
+      "inferred",
+      "Strategic and creative proposal aligned with brand strategy and campaign criteria"
     );
   }
 
@@ -1405,6 +1453,101 @@ const EVALUATION_HEADING_NOISE = [
   /^technical evaluation$/i
 ];
 
+function parseEvaluationWeight(value: string): string | null {
+  const match = value.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
+  if (!match?.[1]) {
+    return null;
+  }
+  return `${match[1]}%`;
+}
+
+function normalizeEvaluationGroupTitle(value: string): string {
+  return truncateAtWordBoundary(
+    normalizeRequirementLine(value)
+      .replace(/^(\d+)[.)]\s*/, "")
+      .replace(/\(\s*weight[^)]*\)/i, "")
+      .trim(),
+    140
+  );
+}
+
+function buildEvaluationCriteriaStructuredFromText(criteriaText: string): EvaluationCriteriaGroup[] {
+  const lines = criteriaText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const groups: EvaluationCriteriaGroup[] = [];
+  let current: EvaluationCriteriaGroup | null = null;
+
+  const pushCurrent = (): void => {
+    if (!current) {
+      return;
+    }
+    current.items = current.items
+      .map((item) => truncateAtWordBoundary(item, 220))
+      .filter((item) => item.length >= 8)
+      .slice(0, 8);
+    current.evidenceRefs = Array.from(new Set(current.evidenceRefs)).slice(0, 8);
+    if (current.title && current.items.length > 0) {
+      groups.push(current);
+    }
+    current = null;
+  };
+
+  for (const line of lines) {
+    const cleaned = normalizeRequirementLine(line);
+    if (!cleaned || EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(cleaned))) {
+      continue;
+    }
+
+    const headingMatch = cleaned.match(/^(\d+)\.\s+(.+)$/) ?? cleaned.match(/^([A-Z][A-Za-z\s&/]{8,120})(?:\s*\(|\s*-\s*weight)/);
+    if (headingMatch) {
+      pushCurrent();
+      const rawTitle = headingMatch[2] ?? headingMatch[1] ?? cleaned;
+      current = {
+        title: normalizeEvaluationGroupTitle(rawTitle) || "Evaluation Criterion",
+        weight: parseEvaluationWeight(cleaned),
+        items: [],
+        evidenceRefs: [truncateAtWordBoundary(cleaned, 180)]
+      };
+      continue;
+    }
+
+    const bullet = cleaned.replace(/^•\s*/, "").trim();
+    if (bullet.length < 8) {
+      continue;
+    }
+
+    if (!current) {
+      current = {
+        title: "Evaluation Criteria",
+        weight: null,
+        items: [],
+        evidenceRefs: []
+      };
+    }
+    current.items.push(bullet);
+    current.evidenceRefs.push(truncateAtWordBoundary(bullet, 180));
+  }
+
+  pushCurrent();
+  return groups.slice(0, 8);
+}
+
+function formatEvaluationCriteriaStructured(groups: EvaluationCriteriaGroup[]): string {
+  if (groups.length === 0) {
+    return "Evaluation criteria not explicitly found.";
+  }
+
+  const lines: string[] = [];
+  groups.forEach((group, idx) => {
+    const suffix = group.weight ? ` (Weight ${group.weight})` : " (Weight not specified)";
+    lines.push(`${idx + 1}. ${group.title}${suffix}`);
+    group.items.slice(0, 8).forEach((item) => {
+      lines.push(`• ${truncateAtWordBoundary(item, 220)}`);
+    });
+  });
+
+  return lines.join("\n");
+}
+
 function splitEvaluationSentences(line: string): string[] {
   return line
     .split(/(?<=[.;!?؟])\s+/)
@@ -1520,8 +1663,8 @@ function evaluationStructureScore(text: string): number {
 
 function buildEvaluationCriteriaFromTables(
   tables: AnalyzeRfpInput["parsedDocument"]["tables"]
-): string | null {
-  const rows: Array<{ group: string; detail: string }> = [];
+): EvaluationCriteriaGroup[] {
+  const grouped = new Map<string, EvaluationCriteriaGroup>();
 
   for (const table of tables) {
     const headers = table.headers.map((header) => header.toLowerCase());
@@ -1536,94 +1679,121 @@ function buildEvaluationCriteriaFromTables(
       continue;
     }
 
-    for (const row of table.rows) {
-      const group = cleanDeliverableRequirementText(row[criteriaColIndex] ?? "");
-      const detail = cleanDeliverableRequirementText(row[detailColIndex] ?? "");
+    let currentGroup = "";
+    for (let rowIndex = 0; rowIndex < table.rows.length; rowIndex += 1) {
+      const row = table.rows[rowIndex] ?? [];
+      const groupCell = cleanDeliverableRequirementText(row[criteriaColIndex] ?? "");
+      const detailCell = cleanDeliverableRequirementText(row[detailColIndex] ?? "");
+
+      if (groupCell && !EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(groupCell))) {
+        currentGroup = normalizeEvaluationGroupTitle(groupCell);
+      }
+
+      const group = currentGroup;
+      const detail = detailCell;
       if (!group || !detail) {
         continue;
       }
-      if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(detail))) {
+      if (detail.length < 8 || DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(detail))) {
         continue;
       }
-      rows.push({ group, detail });
+
+      const key = normalizeDedupeKey(group);
+      if (!key) {
+        continue;
+      }
+      const existing = grouped.get(key) ?? {
+        title: group,
+        weight: parseEvaluationWeight(groupCell || detail),
+        items: [],
+        evidenceRefs: []
+      };
+      const dedupeKey = normalizeDedupeKey(detail);
+      if (dedupeKey && !existing.items.some((entry) => normalizeDedupeKey(entry) === dedupeKey)) {
+        existing.items.push(detail);
+        existing.evidenceRefs.push(
+          truncateAtWordBoundary(
+            `Table ${table.title || "Evaluation criteria"} row ${rowIndex + 1}: ${detail}`,
+            180
+          )
+        );
+      }
+      if (!existing.weight) {
+        existing.weight = parseEvaluationWeight(detail);
+      }
+      grouped.set(key, existing);
     }
   }
 
-  if (rows.length === 0) {
-    return null;
-  }
-
-  const grouped = new Map<string, string[]>();
-  for (const row of rows) {
-    const key = row.group;
-    const details = grouped.get(key) ?? [];
-    const normalized = normalizeDedupeKey(row.detail);
-    if (!details.some((entry) => normalizeDedupeKey(entry) === normalized)) {
-      details.push(row.detail);
-    }
-    grouped.set(key, details);
-  }
-
-  const output: string[] = [];
-  let index = 1;
-  for (const [group, details] of grouped.entries()) {
-    output.push(`${index}. ${truncateAtWordBoundary(group, 120)}`);
-    for (const detail of details.slice(0, 6)) {
-      output.push(`• ${truncateAtWordBoundary(detail, 220)}`);
-    }
-    output.push("");
-    index += 1;
-  }
-
-  const formatted = output.join("\n").trim();
-  return formatted.length > 0 ? formatted : null;
+  return Array.from(grouped.values())
+    .map((group) => ({
+      ...group,
+      items: group.items.slice(0, 8),
+      evidenceRefs: Array.from(new Set(group.evidenceRefs)).slice(0, 8)
+    }))
+    .filter((group) => group.title.length > 0 && group.items.length > 0)
+    .slice(0, 8);
 }
 
 function buildEvaluationCriteriaFromSource(
   parsedDocument: AnalyzeRfpInput["parsedDocument"]
-): string {
+): { formatted: string; structured: EvaluationCriteriaGroup[] } {
   const text = parsedDocument.rawText;
   const sectionText = bySectionName(text, parsedDocument.sections, ["evaluation_criteria"]);
-  const tableText = buildEvaluationCriteriaFromTables(parsedDocument.tables);
+  const tableStructured = buildEvaluationCriteriaFromTables(parsedDocument.tables);
+  const tableText = tableStructured.length > 0 ? formatEvaluationCriteriaStructured(tableStructured) : null;
   const headingText = extractExactBlock(text, /evaluation\s+criteria|technical\s+evaluation\s+criteria|معايير\s+التقييم/i, 3500);
-  const candidates: Array<{ source: "section" | "table" | "heading"; value: string }> = [];
+  const candidates: Array<{ source: "section" | "table" | "heading"; value: string; structured: EvaluationCriteriaGroup[] }> = [];
 
   if (sectionText && sectionText.trim().length > 0) {
+    const sanitized = sanitizeEvaluationCriteria(normalizeStructuredText(sectionText));
     candidates.push({
       source: "section",
-      value: sanitizeEvaluationCriteria(normalizeStructuredText(sectionText))
+      value: sanitized,
+      structured: buildEvaluationCriteriaStructuredFromText(sanitized)
     });
   }
   if (tableText && tableText.trim().length > 0) {
     candidates.push({
       source: "table",
-      value: sanitizeEvaluationCriteria(normalizeStructuredText(tableText))
+      value: sanitizeEvaluationCriteria(normalizeStructuredText(tableText)),
+      structured: tableStructured
     });
   }
   if (headingText && headingText.trim().length > 0) {
+    const sanitized = sanitizeEvaluationCriteria(normalizeStructuredText(headingText));
     candidates.push({
       source: "heading",
-      value: sanitizeEvaluationCriteria(normalizeStructuredText(headingText))
+      value: sanitized,
+      structured: buildEvaluationCriteriaStructuredFromText(sanitized)
     });
   }
 
   if (candidates.length === 0) {
-    return "Evaluation criteria not explicitly found.";
+    return {
+      formatted: "Evaluation criteria not explicitly found.",
+      structured: []
+    };
   }
 
-  const scoreCandidate = (candidate: { source: "section" | "table" | "heading"; value: string }): number => {
+  const scoreCandidate = (candidate: { source: "section" | "table" | "heading"; value: string; structured: EvaluationCriteriaGroup[] }): number => {
     const clean = candidate.value.trim();
     if (!clean || /not explicitly found/i.test(clean)) {
       return 0;
     }
     const structure = evaluationStructureScore(clean);
     const length = Math.min(clean.length / 1800, 1);
-    const tableBonus = candidate.source === "table" ? 1.5 : 0;
-    return structure + length + tableBonus;
+    const groupBonus = Math.min(candidate.structured.length, 4) * 1.4;
+    const tableBonus = candidate.source === "table" ? 2 : 0;
+    return structure + length + groupBonus + tableBonus;
   };
 
   candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
-  return candidates[0]!.value;
+  const selected = candidates[0]!;
+  return {
+    formatted: selected.value,
+    structured: selected.structured
+  };
 }
 
 function chooseBestEvaluationCriteria(primary: string, fallback: string): string {
@@ -1722,7 +1892,11 @@ function mapClaudeToPass1Output(
   const claudeEvaluation = sanitizeEvaluationCriteria(
     normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
   );
-  const mergedEvaluation = chooseBestEvaluationCriteria(claudeEvaluation, sourceEvaluation);
+  const mergedEvaluation = chooseBestEvaluationCriteria(claudeEvaluation, sourceEvaluation.formatted);
+  const evaluationCriteriaStructured =
+    sourceEvaluation.structured.length > 0
+      ? sourceEvaluation.structured
+      : buildEvaluationCriteriaStructuredFromText(mergedEvaluation);
   const requiredDeliverables = dedupeDeliverables(
     claude.requiredDeliverables.map((d) => ({
       item: typeof d === "string" ? d : d.item,
@@ -1816,6 +1990,7 @@ function mapClaudeToPass1Output(
     ),
     scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || "")),
     evaluationCriteria: mergedEvaluation,
+    evaluationCriteriaStructured,
     requiredDeliverables: canonicalRequiredDeliverables,
     deliverableRequirements: mergedDeliverableRequirements,
     importantDates,
@@ -1856,7 +2031,14 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
 
   const evalFromSection = bySectionName(text, input.parsedDocument.sections, ["evaluation_criteria"]);
   const evalFromHeading = extractExactBlock(text, /evaluation\s+criteria|معايير\s+التقييم/i, 1500);
-  const evaluationCriteria = evalFromSection ?? evalFromHeading ?? "Evaluation criteria not explicitly found.";
+  const sourceEvaluation = buildEvaluationCriteriaFromSource(input.parsedDocument);
+  const evaluationCriteria = sourceEvaluation.formatted;
+  const evaluationCriteriaStructured =
+    sourceEvaluation.structured.length > 0
+      ? sourceEvaluation.structured
+      : buildEvaluationCriteriaStructuredFromText(
+        sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria))
+      );
 
   if (!evalFromSection && !evalFromHeading) {
     warnings.push("Evaluation criteria section not clearly detected.");
@@ -1908,6 +2090,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     projectDescription: normalizeExecutiveSummary(projectDescription),
     scopeOfWork: sanitizeScopeForAnalysis(scopeOfWork),
     evaluationCriteria: sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
+    evaluationCriteriaStructured,
     requiredDeliverables: canonicalRequiredDeliverables,
     deliverableRequirements,
     importantDates,

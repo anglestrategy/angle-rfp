@@ -36,6 +36,20 @@
     "projectDescription": { "type": "string" },
     "scopeOfWork": { "type": "string", "minLength": 1 },
     "evaluationCriteria": { "type": "string", "minLength": 1 },
+    "evaluationCriteriaStructured": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["title", "weight", "items", "evidenceRefs"],
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "weight": { "type": ["string", "null"] },
+          "items": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "evidenceRefs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+        }
+      }
+    },
     "requiredDeliverables": {
       "type": "array",
       "items": {
@@ -223,7 +237,8 @@
       "properties": {
         "title": { "type": "string", "minLength": 1 },
         "description": { "type": "string", "minLength": 1 },
-        "source": { "type": "string", "enum": ["verbatim", "inferred"] }
+        "source": { "type": "string", "enum": ["verbatim", "inferred"] },
+        "evidenceRef": { "type": "string", "minLength": 1 }
       }
     }
   }

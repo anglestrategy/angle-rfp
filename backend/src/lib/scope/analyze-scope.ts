@@ -119,13 +119,24 @@ function normalizeAgencyDomainMatch(match: {
     };
   }
 
+  if (match.confidence >= 0.45) {
+    return {
+      ...match,
+      service: match.service === "No direct match" ? "Broad agency capability" : match.service,
+      class: "partial",
+      confidence: Math.max(match.confidence, 0.5),
+      classificationSource: "rule",
+      reasoning: match.reasoning || "Agency-domain signal detected with moderate confidence."
+    };
+  }
+
   return {
     ...match,
     service: match.service === "No direct match" ? "Broad agency capability" : match.service,
     class: "uncertain",
-    confidence: Math.max(Math.min(match.confidence, 0.6), 0.4),
+    confidence: Math.max(Math.min(match.confidence, 0.6), 0.35),
     classificationSource: "rule",
-    reasoning: match.reasoning || "Agency-domain signal detected."
+    reasoning: match.reasoning || "Agency-domain signal detected but confidence remains low."
   };
 }
 
@@ -212,10 +223,14 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   const fullCount = matches.filter((item) => item.class === "full").length;
   const partialCount = matches.filter((item) => item.class === "partial").length;
   const uncertainCount = matches.filter((item) => item.class === "uncertain").length;
-  const classifiedTotal = Math.max(matches.filter((item) => item.class !== "uncertain").length, 1);
+  const confidentCount = matches.filter((item) => item.class !== "uncertain").length;
 
-  const agencyServicePercentage = roundToOneDecimalAsRatio((fullCount + 0.5 * partialCount) / classifiedTotal);
-  const outsourcingPercentage = roundToOneDecimalAsRatio(1 - agencyServicePercentage);
+  const agencyServicePercentage = confidentCount > 0
+    ? roundToOneDecimalAsRatio((fullCount + 0.5 * partialCount) / confidentCount)
+    : 0;
+  const outsourcingPercentage = confidentCount > 0
+    ? roundToOneDecimalAsRatio(1 - agencyServicePercentage)
+    : 0;
 
   const outputQuantities = parseOutputQuantities(input.scopeOfWork);
   const outputTypes = classifyOutputTypes(outputQuantities, input.scopeOfWork);
@@ -225,12 +240,15 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   }
 
   const noneCount = matches.filter((item) => item.class === "none").length;
-  const noneRatio = matches.length > 0 ? noneCount / matches.length : 0;
+  const noneRatio = confidentCount > 0 ? noneCount / confidentCount : 0;
   if (noneCount >= 6 && noneRatio >= 0.65) {
     warnings.push("One or more scope items have no direct agency-service match.");
   }
   if (uncertainCount > 0) {
     warnings.push("One or more scope items were classified as uncertain and excluded from percentage computation.");
+  }
+  if (confidentCount === 0 && matches.length > 0) {
+    warnings.push("Scope confidence was too low for percentage scoring; agency/outsourcing percentages were withheld.");
   }
 
   const unclassifiedItems = matches
