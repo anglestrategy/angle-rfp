@@ -155,33 +155,24 @@ async function generateSmartQueries(input: ResearchClientInput): Promise<{ engli
     context.industry && `Industry: ${context.industry}`
   ].filter(Boolean).join("\n");
 
-  const prompt = `You are a research analyst. Generate search queries to research a company/organization for a business proposal.
+  const prompt = `You are a research analyst generating search queries to research "${input.clientName}" for a business proposal.
 
-CLIENT: ${input.clientName}
-${input.clientNameArabic ? `CLIENT (Arabic): ${input.clientNameArabic}` : ""}
-COUNTRY: Saudi Arabia
+${input.clientNameArabic ? `Arabic name: ${input.clientNameArabic}` : ""}
+Country: Saudi Arabia
 
-RFP CONTEXT:
-${contextSummary || "No additional context provided."}
+${contextSummary ? `Context:\n${contextSummary}` : ""}
 
-Generate search queries that will help us understand:
-1. What type of organization this is (company, government entity, event, etc.)
-2. Their size, scale, and significance
-3. Their marketing/advertising activity and budget indicators
-4. Their digital presence and social media
-5. Recent news and developments
+Generate 4-8 English queries and 2-6 Arabic queries to find:
+- Organization type (company, government, event)
+- Size, scale, significance
+- Marketing/advertising activity
+- Digital presence
+- Recent news
 
-IMPORTANT:
-- Use the EXACT client name in quotes for precise matching
-- Include context-specific terms from the RFP (e.g., if it mentions "World Expo", include that)
-- Generate queries that would reveal the organization's importance and scale
-- Arabic queries should use the Arabic name if provided
-
-  Return JSON only:
-{
-  "english": ["query1", "query2", ...],  // 4-8 queries
-  "arabic": ["query1", "query2", ...]    // 2-6 queries
-}`;
+Rules:
+- Put the exact name in quotes: "${input.clientName}"
+- Include context terms (e.g., "World Expo" if mentioned)
+- Arabic queries use: "${input.clientNameArabic || input.clientName}"`;
 
   const abortController = new AbortController();
   const timeoutId = setTimeout(() => abortController.abort(), 60_000);
