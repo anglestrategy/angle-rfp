@@ -15,7 +15,11 @@ import {
   type RoutedProviderName
 } from "@/lib/research/provider-router";
 import { resolveClaims } from "@/lib/research/trust-resolver";
-import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
+import {
+  getGeminiModelResolutionDiagnostics,
+  resolveGoogleApiKey,
+  runWithGeminiFlashModel
+} from "@/lib/ai/model-resolver";
 import { withHardTimeout } from "@/lib/extraction/claude-extractor";
 
 export interface ResearchClientInput {
@@ -243,6 +247,22 @@ function extractFirstJsonObject(raw: string): string | null {
   return raw.slice(start, end + 1);
 }
 
+function isReadableContext(text: string): boolean {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length < 120) {
+    return false;
+  }
+
+  const readableChars = (normalized.match(/[\p{L}\p{N}\s.,;:!?'"()\-[\]{}\/%@&+]/gu) ?? []).length;
+  const readableRatio = readableChars / Math.max(normalized.length, 1);
+  const tokens = normalized.match(/[\p{L}\p{N}][\p{L}\p{N}\-]{2,}/gu) ?? [];
+  const uniqueRatio = tokens.length > 0
+    ? new Set(tokens.map((token) => token.toLowerCase())).size / tokens.length
+    : 0;
+
+  return readableRatio >= 0.62 && (tokens.length < 120 || uniqueRatio >= 0.1);
+}
+
 function parseSmartQueriesFromText(raw: string): { english: string[]; arabic: string[] } | null {
   const jsonText = extractFirstJsonObject(raw);
   if (!jsonText) {
@@ -279,6 +299,7 @@ function mergeSmartQueries(
 async function generateSmartQueries(input: ResearchClientInput): Promise<{ english: string[]; arabic: string[] }> {
   const baselineQueries = buildContextAwareQueries(input);
   const apiKey = resolveGoogleApiKey();
+  const modelDiagnostics = getGeminiModelResolutionDiagnostics();
 
   // Fall back to basic queries if no API key or no context
   if (!apiKey || !input.rfpContext) {
@@ -295,8 +316,16 @@ async function generateSmartQueries(input: ResearchClientInput): Promise<{ engli
   const contextSummary = [
     context.projectName && `Project: ${context.projectName}`,
     context.projectDescription && `Description: ${context.projectDescription.slice(0, 700)}`,
+    context.scopeOfWork && `Scope: ${context.scopeOfWork.slice(0, 700)}`,
     context.industry && `Industry: ${context.industry}`
   ].filter(Boolean).join("\n");
+  if (!isReadableContext(contextSummary)) {
+    console.warn("[Research] Context quality too low for smart query generation; using deterministic queries");
+    return baselineQueries;
+  }
+  console.log(
+    `[Research] Smart-query model candidates: ${modelDiagnostics.candidates.join(", ")} (resolved=${modelDiagnostics.resolvedModel})`
+  );
 
   const prompt = `Generate search queries to research "${input.clientName}" in Saudi Arabia.
 ${input.clientNameArabic ? `Arabic name: ${input.clientNameArabic}` : ""}
@@ -337,15 +366,24 @@ STRICT OUTPUT RULES:
 
       clearTimeout(timeoutId);
       const raw = result.text ?? "";
+      if (!raw.trim()) {
+        console.warn("[Research] Smart query model returned empty text output");
+        throw new Error("No output generated.");
+      }
       const parsed = parseSmartQueriesFromText(raw);
       if (parsed && parsed.english.length >= 3) {
         console.log(`[Research] Smart queries generated: ${parsed.english.length} EN, ${parsed.arabic.length} AR`);
         return mergeSmartQueries(parsed, baselineQueries);
       }
+      console.warn(`[Research] Smart query raw output (truncated): ${(raw || "<empty>").slice(0, 260)}`);
       throw new Error("No output generated.");
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`[Research] Smart query attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
+      if (/no output generated/i.test(msg)) {
+        console.warn("[Research] Skipping repeated smart-query retries after empty model output");
+        break;
+      }
       if (attempt < 2) {
         const backoffMs = Math.min(2000, 400 * (attempt + 1));
         await new Promise(r => setTimeout(r, backoffMs));
@@ -600,12 +638,16 @@ export async function researchClientInput(
         const latency = Date.now() - startedAt;
         const statusCode = inferStatusCode(error);
         const rateLimited = isRateLimited(error);
+        const message = errorMessage(error);
         runtimeStats[provider].failures += 1;
         runtimeStats[provider].latenciesMs.push(latency);
-        runtimeStats[provider].lastError = errorMessage(error);
+        runtimeStats[provider].lastError = message;
         runtimeStats[provider].retries += inferRetries(error);
         if (rateLimited) {
           runtimeStats[provider].rateLimitedCount += 1;
+        }
+        if (/provider_config_missing/i.test(message)) {
+          warnings.push(`[provider_config_missing] ${provider} is not configured for this run.`);
         }
 
         recordProviderOutcome(provider, {

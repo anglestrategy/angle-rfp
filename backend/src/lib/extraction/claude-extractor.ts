@@ -1,7 +1,11 @@
 import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
-import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
+import {
+  getGeminiModelResolutionDiagnostics,
+  resolveGoogleApiKey,
+  runWithGeminiFlashModel
+} from "@/lib/ai/model-resolver";
 
 function coerceString(value: unknown, fallback = ""): string {
   if (typeof value === "string") {
@@ -559,6 +563,15 @@ Context:
 export async function extractWithClaude(rawText: string): Promise<ClaudeExtractionResult> {
   const startTime = Date.now();
   console.log(`[Extraction] Starting at ${new Date().toISOString()}, timeout: ${API_TIMEOUT_MS}ms`);
+  const modelDiagnostics = getGeminiModelResolutionDiagnostics();
+  console.log(
+    `[Extraction] Model candidates: ${modelDiagnostics.candidates.join(", ")} (resolved=${modelDiagnostics.resolvedModel}${
+      modelDiagnostics.sourceEnvVar ? ` via ${modelDiagnostics.sourceEnvVar}` : ""
+    })`
+  );
+  if (modelDiagnostics.warnings.length > 0) {
+    console.warn(`[Extraction] Model resolution warnings: ${modelDiagnostics.warnings.join(" | ")}`);
+  }
 
   const apiKey = resolveGoogleApiKey();
   if (!apiKey) {

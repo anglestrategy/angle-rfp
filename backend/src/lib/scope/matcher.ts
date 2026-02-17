@@ -61,7 +61,7 @@ const OUT_OF_SCOPE_HINTS = [
   /structural/i,
   /legal/i,
   /litigation/i,
-  /audit/i,
+  /financial audit|statutory audit|external audit/i,
   /tax/i,
   /payroll/i,
   /human resources/i,
@@ -198,10 +198,54 @@ function cleanScopeFragment(fragment: string): string {
     .trim();
 }
 
+function splitIntoScopeClauses(line: string): string[] {
+  const normalized = line.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const sentenceParts = normalized
+    .split(/(?<=[.!?؟])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const seed = sentenceParts.length > 1 ? sentenceParts : [normalized];
+  const out: string[] = [];
+  for (const part of seed) {
+    const commaClauses = part
+      .split(/\s+[–—-]\s+|;\s+|،\s+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (commaClauses.length > 1) {
+      out.push(...commaClauses);
+      continue;
+    }
+    out.push(part);
+  }
+  return out;
+}
+
 function isStructuralLine(line: string): boolean {
   const normalized = normalizeForMatching(line);
   if (!normalized) {
     return true;
+  }
+
+  if (/^(phase|section)\s+\d+/i.test(normalized)) {
+    const remainder = normalized
+      .replace(/^(phase|section)\s+\d+\s*[:\-]?\s*/i, "")
+      .trim();
+    const isShortSectionTitle = remainder.split(" ").filter(Boolean).length <= 5 && !/[,.!?؛]/.test(remainder);
+    if (isShortSectionTitle) {
+      return true;
+    }
+    const hasActionSignal =
+      /(develop|design|create|build|launch|define|align|deliver|craft|implement|execute|produce|manage|lead|map|research|analy[sz]e|optimi[sz]e|monitor|coordinate|supervise|إعداد|تطوير|تصميم|تنفيذ|إطلاق|إدارة|تحليل|تنسيق|إشراف|إنتاج)/i.test(
+        remainder
+      );
+    if (remainder.length >= 12 && hasActionSignal) {
+      return false;
+    }
   }
 
   if (STRUCTURAL_LINE_PATTERNS.some((pattern) => pattern.test(normalized))) {
@@ -261,7 +305,11 @@ export function splitScopeItems(scopeOfWork: string): string[] {
   const seen = new Set<string>();
 
   for (const line of lines) {
-    const fragments = line.split(/[؛;•]/).map((part) => part.trim()).filter(Boolean);
+    const fragments = line
+      .split(/[؛;•]/)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .flatMap((part) => splitIntoScopeClauses(part));
 
     for (const fragment of fragments) {
       const cleaned = cleanScopeFragment(fragment);
@@ -307,6 +355,7 @@ function classifyMatch(scopeItem: string, service: AgencyService, score: number)
 export function matchScopeItems(scopeItems: string[], services: AgencyService[]): ScopeMatch[] {
   return scopeItems.map((scopeItem) => {
     const isExplicitOutOfScope = containsAny(scopeItem, OUT_OF_SCOPE_HINTS);
+    const isMarketResearch = isMarketResearchScopeItem(scopeItem);
 
     const scopeTokens = tokenize(scopeItem);
     let bestService: AgencyService | null = null;
@@ -323,7 +372,7 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
 
     const hasAgencySignal = containsAny(scopeItem, AGENCY_DOMAIN_HINTS);
 
-    if (isExplicitOutOfScope) {
+    if (isExplicitOutOfScope && !isMarketResearch) {
       return {
         scopeItem,
         service: "No direct match",
@@ -336,10 +385,10 @@ export function matchScopeItems(scopeItems: string[], services: AgencyService[])
     if (!bestService) {
       return {
         scopeItem,
-        service: hasAgencySignal ? "Broad agency capability" : "No direct match",
-        class: hasAgencySignal ? "uncertain" : "none",
-        confidence: hasAgencySignal ? 0.45 : 0.2,
-        classificationSource: hasAgencySignal ? "token" : "rule"
+        service: isMarketResearch ? "Market research & insights" : hasAgencySignal ? "Broad agency capability" : "No direct match",
+        class: isMarketResearch ? "partial" : hasAgencySignal ? "uncertain" : "none",
+        confidence: isMarketResearch ? 0.58 : hasAgencySignal ? 0.45 : 0.2,
+        classificationSource: isMarketResearch ? "rule" : hasAgencySignal ? "token" : "rule"
       };
     }
 

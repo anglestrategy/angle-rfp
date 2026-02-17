@@ -30,17 +30,7 @@ export async function queryBrave(
 ): Promise<ProviderDocument[]> {
   const token = process.env.BRAVE_SEARCH_API_KEY;
   if (!token) {
-    console.warn("BRAVE_SEARCH_API_KEY is not configured - search functionality degraded");
-    return [
-      {
-        key: "marketingBudgetIndicator",
-        value: "UNKNOWN",
-        source: "Brave (key missing)",
-        tier: 3,
-        sourceDate: todayIsoDate(),
-        category: "news"
-      }
-    ];
+    throw new Error("provider_config_missing:BRAVE_SEARCH_API_KEY");
   }
 
   const url = new URL("https://api.search.brave.com/res/v1/web/search");
@@ -71,12 +61,15 @@ export async function queryBrave(
   const payload = (await response.json()) as BraveApiResponse;
   const docs = payload.web?.results ?? [];
 
-  return docs.slice(0, 3).map((doc) => ({
-    key: "newsSignal",
-    value: `${doc.title} ${doc.description ?? ""}`.trim(),
-    source: doc.url,
-    tier: 2,
-    sourceDate: todayIsoDate(),
-    category: "news"
-  }));
+  return docs
+    .slice(0, 3)
+    .map((doc) => ({
+      key: "newsSignal",
+      value: `${doc.title} ${doc.description ?? ""}`.trim(),
+      source: doc.url,
+      tier: 2 as const,
+      sourceDate: todayIsoDate(),
+      category: "news" as const
+    }))
+    .filter((item) => item.value.length > 0);
 }

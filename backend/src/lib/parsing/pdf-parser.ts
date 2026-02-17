@@ -12,6 +12,11 @@ interface PdfParseLibraryResult {
   numpages?: number;
 }
 
+interface ParsedWithDiagnostics {
+  parsed: PdfParseLibraryResult;
+  parserWarnings: string[];
+}
+
 function normalizePdfText(value: string): string {
   return value
     .replace(/\r\n/g, "\n")
@@ -31,18 +36,52 @@ function isLikelyCorruptedPdfText(text: string): boolean {
   const replacementCharCount = (normalized.match(/�|\u0000/g) ?? []).length;
   const replacementRatio = replacementCharCount / Math.max(normalized.length, 1);
   const binaryMarkerHits = (normalized.match(/(?:endobj|stream|endstream|xref|trailer|%%eof)/giu) ?? []).length;
+  const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const longLines = lines.filter((line) => line.length >= 80).length;
+  const wordTokens = normalized.match(/[\p{L}\p{N}][\p{L}\p{N}\-]{1,}/gu) ?? [];
+  const uniqueTokenRatio =
+    wordTokens.length > 0
+      ? new Set(wordTokens.map((token) => token.toLowerCase())).size / wordTokens.length
+      : 0;
+  const punctuationHeavyRatio =
+    ((normalized.match(/[^\p{L}\p{N}\s]/gu) ?? []).length) / Math.max(normalized.length, 1);
 
-  return readableRatio < 0.62 || replacementRatio > 0.005 || binaryMarkerHits >= 3;
+  return (
+    readableRatio < 0.7 ||
+    replacementRatio > 0.005 ||
+    binaryMarkerHits >= 3 ||
+    (wordTokens.length >= 120 && uniqueTokenRatio < 0.12) ||
+    (wordTokens.length >= 200 && punctuationHeavyRatio > 0.22) ||
+    (lines.length >= 10 && longLines === 0)
+  );
 }
 
 function estimatePageCountFromRaw(raw: string): number {
   return Math.max((raw.match(/\/Type\s*\/Page\b/g) ?? []).length, 1);
 }
 
-async function parsePdfWithLibrary(fileBytes: Buffer): Promise<PdfParseLibraryResult> {
+async function parsePdfWithLibrary(fileBytes: Buffer): Promise<ParsedWithDiagnostics> {
   const module = await import("pdf-parse");
   const pdfParse = module.default as (dataBuffer: Buffer, options?: Record<string, unknown>) => Promise<PdfParseLibraryResult>;
-  return pdfParse(fileBytes, {});
+  const parserWarnings: string[] = [];
+  const originalWarn = console.warn;
+
+  // pdf-parse emits TT/font issues via console warnings instead of throwing.
+  // Capture those warnings so we can degrade gracefully instead of trusting corrupted text.
+  console.warn = (...args: unknown[]) => {
+    const message = args.map((value) => String(value)).join(" ");
+    if (/warning:\s*tt:|tt:\s*undefined function|invalid function id/i.test(message)) {
+      parserWarnings.push(message);
+    }
+    originalWarn(...args);
+  };
+
+  try {
+    const parsed = await pdfParse(fileBytes, {});
+    return { parsed, parserWarnings };
+  } finally {
+    console.warn = originalWarn;
+  }
 }
 
 export async function parsePdfBuffer(fileBytes: Buffer): Promise<PdfParseResult> {
@@ -60,12 +99,16 @@ export async function parsePdfBuffer(fileBytes: Buffer): Promise<PdfParseResult>
   let needsOcr = false;
 
   try {
-    const parsed = await parsePdfWithLibrary(fileBytes);
+    const { parsed, parserWarnings } = await parsePdfWithLibrary(fileBytes);
     const parsedText = normalizePdfText(parsed.text ?? "");
+    if (parserWarnings.length > 0) {
+      needsOcr = true;
+      warnings.push("[parser_degraded_local_pdf] Primary PDF parser emitted TrueType/font decode warnings; prioritizing unstructured/OCR output.");
+    }
     if (parsedText.length > 0 && !isLikelyCorruptedPdfText(parsedText)) {
       text = parsedText;
     } else if (parsedText.length > 0) {
-      warnings.push("Primary PDF parser returned low-quality/corrupted text; forcing OCR/unstructured fallback.");
+      warnings.push("[parser_degraded_local_pdf] Primary PDF parser returned low-quality/corrupted text; forcing OCR/unstructured fallback.");
       needsOcr = true;
     }
     if (typeof parsed.numpages === "number" && Number.isFinite(parsed.numpages) && parsed.numpages > 0) {
@@ -79,13 +122,13 @@ export async function parsePdfBuffer(fileBytes: Buffer): Promise<PdfParseResult>
   // Avoid binary-regex fallback extraction: it can inject compressed PDF noise
   // that degrades downstream AI extraction quality.
   if (!text) {
-    warnings.push("No reliable text from primary PDF parser; skipping binary fallback and preferring OCR/unstructured.");
+    warnings.push("[parser_degraded_local_pdf] No reliable text from primary PDF parser; skipping binary fallback and preferring OCR/unstructured.");
   }
 
   const textPerPage = text.length / Math.max(1, pageCount);
   if (text.length < 500 || textPerPage < 350) {
     needsOcr = true;
-    warnings.push("PDF text extraction appears limited; OCR fallback recommended.");
+    warnings.push("[parser_degraded_local_pdf] PDF text extraction appears limited; OCR fallback recommended.");
   }
 
   if (text.length === 0) {

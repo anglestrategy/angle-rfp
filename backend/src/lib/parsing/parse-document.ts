@@ -112,7 +112,7 @@ function shouldUseUnstructuredParser(params: {
   }
 
   const warningSignal = params.warnings.some((warning) =>
-    /limited|no direct text extracted|unable to extract|image-only|fallback/i.test(warning)
+    /limited|no direct text extracted|unable to extract|image-only|fallback|parser_degraded_local_pdf/i.test(warning)
   );
   const lowTextDensity =
     params.detectedFormat === "pdf"
@@ -190,7 +190,15 @@ function looksCorruptedExtractedText(text: string): boolean {
   const replacementRatio = (trimmed.match(/�|\u0000/g) ?? []).length / Math.max(trimmed.length, 1);
   const binaryNoiseHits = (trimmed.match(/(?:endobj|stream|endstream|xref|trailer|%%eof)/giu) ?? []).length;
 
-  return readableRatio < 0.62 || replacementRatio > 0.005 || binaryNoiseHits >= 3;
+  return readableRatio < 0.68 || replacementRatio > 0.005 || binaryNoiseHits >= 3;
+}
+
+function hasParserDegradationWarning(warnings: string[]): boolean {
+  return warnings.some((warning) =>
+    /\[parser_degraded_local_pdf\]|low-quality\/corrupted text|no reliable text|text extraction appears limited/i.test(
+      warning
+    )
+  );
 }
 
 function assertLimits(fileName: string, fileBytes: Buffer): void {
@@ -294,7 +302,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
   }
 
   if (detectedFormat === "pdf" && rawText.trim().length > 0 && looksCorruptedExtractedText(rawText)) {
-    warnings.push("Local PDF text appears corrupted; prioritizing OCR/unstructured parsing.");
+    warnings.push("[parser_degraded_local_pdf] Local PDF text appears corrupted; prioritizing OCR/unstructured parsing.");
     needsOcr = true;
   }
 
@@ -322,7 +330,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
   }
 
   if (detectedFormat !== "txt" && !process.env.UNSTRUCTURED_API_KEY && analysisProfile === "high_assurance") {
-    warnings.push("UNSTRUCTURED_API_KEY is not configured; complex layout/table extraction quality may be reduced.");
+    warnings.push("[parser_unstructured_unavailable] UNSTRUCTURED_API_KEY is not configured; complex layout/table extraction quality may be reduced.");
   }
 
   if (detectedFormat !== "txt" && process.env.UNSTRUCTURED_API_KEY) {
@@ -352,12 +360,19 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
             const localScore = textQualityScore(rawText);
             const unstructuredScore = textQualityScore(unstructured.text);
             const warningSignal = warnings.some((warning) =>
-              /limited|no direct text extracted|unable to extract|image-only|fallback|ocr/i.test(warning)
+              /limited|no direct text extracted|unable to extract|image-only|fallback|ocr|parser_degraded_local_pdf/i.test(
+                warning
+              )
             );
             const localCorrupted = looksCorruptedExtractedText(rawText);
+            const localDegraded = hasParserDegradationWarning(warnings);
             const shouldPreferUnstructured =
               analysisProfile === "high_assurance"
-                ? unstructuredScore >= 0.28 || warningSignal || needsOcr || localCorrupted
+                ? warningSignal ||
+                  needsOcr ||
+                  localCorrupted ||
+                  localDegraded ||
+                  unstructuredScore >= Math.max(0.2, localScore - 0.05)
                 : warningSignal ||
                   needsOcr ||
                   localCorrupted ||
@@ -380,7 +395,7 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
           }
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : String(error);
-          warnings.push(`Unstructured parser unavailable; continued with local parser. (${message})`);
+          warnings.push(`[parser_unstructured_unavailable] Unstructured parser unavailable; continued with local parser. (${message})`);
         }
       }
     }

@@ -76,6 +76,13 @@ function normalizeAgencyDomainMatch(match: {
   classificationSource: "semantic" | "token" | "rule";
   reasoning?: string;
 } {
+  const defaultReasoning =
+    match.class === "none"
+      ? "No direct agency-service capability match detected."
+      : match.class === "uncertain"
+        ? "Insufficient confidence for definitive scope classification."
+        : undefined;
+
   if (isMarketResearchScopeItem(match.scopeItem) && !marketResearchSupported) {
     return {
       ...match,
@@ -91,31 +98,34 @@ function normalizeAgencyDomainMatch(match: {
     if (match.class === "none" || match.class === "uncertain") {
       return {
         ...match,
-        service: match.service === "No direct match" ? "Market research & insights" : match.service,
-        class: "partial",
-        confidence: Math.max(match.confidence, 0.55),
+        service: "Market research & insights",
+        class: "full",
+        confidence: Math.max(match.confidence, 0.7),
         classificationSource: "rule",
-        reasoning: match.reasoning || "Capability profile explicitly supports market-research scope."
+        reasoning: "Capability profile explicitly supports market-research and benchmarking scope."
       };
     }
 
     return {
       ...match,
-      classificationSource: match.classificationSource ?? "semantic"
+      classificationSource: match.classificationSource ?? "semantic",
+      reasoning: match.reasoning || "Capability profile confirms this strategy-research scope is in-agency."
     };
   }
 
   if (match.class !== "none") {
     return {
       ...match,
-      classificationSource: match.classificationSource ?? "semantic"
+      classificationSource: match.classificationSource ?? "semantic",
+      reasoning: match.reasoning || defaultReasoning
     };
   }
 
   if (!AGENCY_DOMAIN_HINT.test(match.scopeItem)) {
     return {
       ...match,
-      classificationSource: match.classificationSource ?? "semantic"
+      classificationSource: match.classificationSource ?? "semantic",
+      reasoning: match.reasoning || defaultReasoning
     };
   }
 

@@ -42,16 +42,7 @@ export async function queryExa(
 ): Promise<ProviderDocument[]> {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey) {
-    return [
-      {
-        key: "marketSignal",
-        value: "UNKNOWN",
-        source: "Exa (key missing)",
-        tier: 3,
-        sourceDate: todayIsoDate(),
-        category: "news"
-      }
-    ];
+    throw new Error("provider_config_missing:EXA_API_KEY");
   }
 
   const response = await fetchWithRetry({

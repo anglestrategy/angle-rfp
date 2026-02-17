@@ -11,6 +11,15 @@ import {
 
 const originalEnv = { ...process.env };
 
+function clearModelEnv(): void {
+  delete process.env.GEMINI_MODEL_FLASH;
+  delete process.env.GOOGLE_MODEL_FLASH;
+  delete process.env.GOOGLE_GENERATIVE_AI_MODEL;
+  delete process.env.CLAUDE_MODEL_SONNET;
+  delete process.env.CLAUDE_MODEL_HAIKU;
+  delete process.env.CLAUDE_MODEL;
+}
+
 afterEach(() => {
   process.env = { ...originalEnv };
   vi.restoreAllMocks();
@@ -18,19 +27,21 @@ afterEach(() => {
 
 describe("model resolver", () => {
   test("uses explicit sonnet override when valid", () => {
-    process.env.CLAUDE_MODEL_SONNET = "claude-3-5-sonnet-20241022";
+    clearModelEnv();
+    process.env.CLAUDE_MODEL_SONNET = "gemini-2.5-pro";
 
-    expect(resolveClaudeSonnetModel()).toBe("claude-3-5-sonnet-20241022");
+    expect(resolveClaudeSonnetModel()).toBe("gemini-2.5-pro");
   });
 
   test("uses legacy CLAUDE_MODEL for sonnet when explicit override is absent", () => {
-    delete process.env.CLAUDE_MODEL_SONNET;
-    process.env.CLAUDE_MODEL = "claude-3-5-sonnet-20241022";
+    clearModelEnv();
+    process.env.CLAUDE_MODEL = "gemini-2.0-flash";
 
-    expect(resolveClaudeSonnetModel()).toBe("claude-3-5-sonnet-20241022");
+    expect(resolveClaudeSonnetModel()).toBe("gemini-2.0-flash");
   });
 
   test("rejects invalid sonnet alias and falls back to default", () => {
+    clearModelEnv();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     process.env.CLAUDE_MODEL_SONNET = "claude-sonnet-4-5-latest";
 
@@ -38,7 +49,29 @@ describe("model resolver", () => {
     expect(warnSpy).toHaveBeenCalledOnce();
   });
 
+  test("normalizes prefixed model values to plain Gemini model IDs", () => {
+    clearModelEnv();
+    process.env.GEMINI_MODEL_FLASH = "models/gemini-2.5-flash";
+
+    expect(resolveClaudeSonnetModel()).toBe("gemini-2.5-flash");
+  });
+
+  test("accepts comma-separated model overrides by using the first value", () => {
+    clearModelEnv();
+    process.env.GEMINI_MODEL_FLASH = "gemini-2.5-flash, gemini-2.0-flash";
+
+    expect(resolveClaudeSonnetModel()).toBe("gemini-2.5-flash");
+  });
+
+  test("sanitizes model strings with prefixes and query fragments", () => {
+    clearModelEnv();
+    process.env.GEMINI_MODEL_FLASH = "model=models/gemini-2.5-flash?alt=sse";
+
+    expect(resolveClaudeSonnetModel()).toBe("gemini-2.5-flash");
+  });
+
   test("rejects invalid haiku alias and falls back to default", () => {
+    clearModelEnv();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     process.env.CLAUDE_MODEL_HAIKU = "claude-haiku-4-5-latest";
 
@@ -47,24 +80,28 @@ describe("model resolver", () => {
   });
 
   test("falls back through model candidates when first model is unavailable", async () => {
-    process.env.CLAUDE_MODEL_SONNET = "claude-sonnet-4-5-20250929";
+    clearModelEnv();
+    process.env.GEMINI_MODEL_FLASH = "gemini-2.5-flash";
     const candidates = getClaudeSonnetModelCandidates();
-    expect(candidates[0]).toBe("claude-sonnet-4-5-20250929");
+    expect(candidates[0]).toBe("gemini-2.5-flash");
 
+    const firstCandidate = candidates[0];
     const response = await runWithClaudeSonnetModel(async (model) => {
-      if (model === "claude-sonnet-4-5-20250929") {
+      if (model === firstCandidate) {
         throw {
           status: 404,
           error: {
             type: "not_found_error",
-            message: "model: claude-sonnet-4-5-20250929"
+            message: `model: ${firstCandidate}`
           }
         };
       }
       return model;
     });
 
-    expect(response).toBe(DEFAULT_CLAUDE_SONNET_MODEL);
+    expect(response).not.toBe(firstCandidate);
+    expect(candidates).toContain(response);
+    expect(response).toBeTruthy();
   });
 });
 

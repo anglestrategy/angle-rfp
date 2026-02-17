@@ -11,16 +11,7 @@ export async function queryTavily(
 ): Promise<ProviderDocument[]> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) {
-    return [
-      {
-        key: "companySize",
-        value: "UNKNOWN",
-        source: "Tavily (key missing)",
-        tier: 3,
-        sourceDate: todayIsoDate(),
-        category: "financial"
-      }
-    ];
+    throw new Error("provider_config_missing:TAVILY_API_KEY");
   }
 
   const response = await fetchWithRetry({
@@ -58,8 +49,8 @@ export async function queryTavily(
     key: "marketSignal",
     value: `${item.title ?? ""} ${item.content ?? ""}`.trim(),
     source: item.url ?? "tavily",
-    tier: 2,
+    tier: 2 as const,
     sourceDate: todayIsoDate(),
-    category: "financial"
-  }));
+    category: "financial" as const
+  })).filter((item) => item.value.length > 0);
 }

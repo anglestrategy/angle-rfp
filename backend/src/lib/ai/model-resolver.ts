@@ -8,6 +8,57 @@ export const DEFAULT_GEMINI_FLASH_MODEL = "gemini-2.5-flash";
 export const DEFAULT_CLAUDE_SONNET_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
 export const DEFAULT_CLAUDE_HAIKU_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
 
+const GEMINI_MODEL_ALLOWLIST = new Set([
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-1.5-pro"
+]);
+
+const GEMINI_MODEL_ALIAS_MAP: Record<string, string> = {
+  "gemini-3-flash": "gemini-2.5-flash",
+  "gemini-3.0-flash": "gemini-2.5-flash",
+  "gemini3flash": "gemini-2.5-flash",
+  "gemini-2.5": "gemini-2.5-flash",
+  "gemini-2.5-latest": "gemini-2.5-flash",
+  "gemini-2.5-flash-latest": "gemini-2.5-flash",
+  "gemini-2.0-flash-latest": "gemini-2.0-flash",
+  "gemini-1.5-flash-latest": "gemini-1.5-flash",
+  "gemini-flash": "gemini-2.5-flash"
+};
+
+const FALLBACK_GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-2.5-pro"
+];
+
+function getGeminiModelEnvCandidates(): Array<{ envVar: string; value: string | undefined }> {
+  return [
+    { envVar: "GEMINI_MODEL_FLASH", value: process.env.GEMINI_MODEL_FLASH },
+    { envVar: "GOOGLE_MODEL_FLASH", value: process.env.GOOGLE_MODEL_FLASH },
+    { envVar: "GOOGLE_GENERATIVE_AI_MODEL", value: process.env.GOOGLE_GENERATIVE_AI_MODEL },
+    // Soft backward-compatibility with previous envs if users copied model string there.
+    { envVar: "CLAUDE_MODEL_SONNET", value: process.env.CLAUDE_MODEL_SONNET },
+    { envVar: "CLAUDE_MODEL_HAIKU", value: process.env.CLAUDE_MODEL_HAIKU },
+    { envVar: "CLAUDE_MODEL", value: process.env.CLAUDE_MODEL }
+  ];
+}
+
+const emittedWarnings = new Set<string>();
+
+export interface GeminiModelResolutionDiagnostics {
+  resolvedModel: string;
+  sourceEnvVar: string | null;
+  candidates: string[];
+  warnings: string[];
+  apiKeyConfigured: boolean;
+}
+
 export function resolveGoogleApiKey(): string | null {
   const candidates = [
     process.env.GOOGLE_API_KEY,
@@ -34,61 +85,99 @@ function normalizedEnvValue(value: string | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function warnInvalidModel(envVar: string, value: string, fallback: string): void {
+function emitWarning(payload: {
+  event: string;
+  warningCode: string;
+  envVar?: string;
+  providedValue?: string;
+  resolvedValue?: string;
+  fallbackModel?: string;
+  message: string;
+}): void {
+  const key = `${payload.warningCode}|${payload.envVar ?? ""}|${payload.providedValue ?? ""}|${payload.resolvedValue ?? ""}`;
+  if (emittedWarnings.has(key)) {
+    return;
+  }
+  emittedWarnings.add(key);
   console.warn(
     JSON.stringify({
       level: "warn",
-      event: "invalid_model_override",
-      envVar,
-      providedValue: value,
-      fallbackModel: fallback
+      ...payload
     })
   );
 }
 
-function resolveModelFromEnv(
-  candidates: Array<{ envVar: string; value: string | undefined }>,
-  fallback: string
-): string {
-  for (const candidate of candidates) {
-    const value = normalizedEnvValue(candidate.value);
-    if (!value) {
-      continue;
-    }
-
-    if (INVALID_MODEL_ALIASES.has(value)) {
-      warnInvalidModel(candidate.envVar, value, fallback);
-      continue;
-    }
-
-    return value;
+function normalizeGeminiModelValue(rawValue: string): {
+  normalized: string | null;
+  warning: string | null;
+} {
+  let value = rawValue.trim().toLowerCase();
+  value = value.replace(/^["'`]+|["'`]+$/g, "");
+  if (!value) {
+    return { normalized: null, warning: "Empty model value after trimming." };
   }
 
-  return fallback;
-}
+  // If a list was pasted, keep only the first token and warn.
+  if (value.includes(",")) {
+    value = value.split(",")[0]?.trim() ?? value;
+    if (!value) {
+      return {
+        normalized: null,
+        warning: "Model override contained a list but no usable first value."
+      };
+    }
+  }
 
-export function resolveGeminiFlashModel(): string {
-  return resolveModelFromEnv(
-    [
-      { envVar: "GEMINI_MODEL_FLASH", value: process.env.GEMINI_MODEL_FLASH },
-      { envVar: "GOOGLE_MODEL_FLASH", value: process.env.GOOGLE_MODEL_FLASH },
-      { envVar: "GOOGLE_GENERATIVE_AI_MODEL", value: process.env.GOOGLE_GENERATIVE_AI_MODEL },
-      // Soft backward-compatibility with previous envs if users copied model string there.
-      { envVar: "CLAUDE_MODEL_SONNET", value: process.env.CLAUDE_MODEL_SONNET },
-      { envVar: "CLAUDE_MODEL_HAIKU", value: process.env.CLAUDE_MODEL_HAIKU },
-      { envVar: "CLAUDE_MODEL", value: process.env.CLAUDE_MODEL }
-    ],
-    DEFAULT_GEMINI_FLASH_MODEL
-  );
-}
+  if (value.includes("/models/")) {
+    value = value.slice(value.lastIndexOf("/models/") + "/models/".length);
+  }
+  if (value.startsWith("models/")) {
+    value = value.slice("models/".length);
+  }
+  if (value.startsWith("model=") || value.startsWith("model:")) {
+    value = value.slice("model=".length).replace(/^:/, "");
+  }
+  if (value.startsWith("google/")) {
+    value = value.slice("google/".length);
+  }
+  if (value.includes("gemini-")) {
+    const inlineModelMatch = value.match(/gemini-[a-z0-9.\-]+/i);
+    if (inlineModelMatch?.[0]) {
+      value = inlineModelMatch[0].toLowerCase();
+    }
+  }
+  value = value.split("?")[0] ?? value;
+  value = value.split(":")[0] ?? value;
+  value = value.split(/[|]/)[0] ?? value;
+  value = value.replace(/[_\s]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
+  value = value.replace(/[^a-z0-9.\-]/g, "");
 
-// Backward-compatible resolver aliases.
-export function resolveClaudeSonnetModel(): string {
-  return resolveGeminiFlashModel();
-}
+  if (INVALID_MODEL_ALIASES.has(value)) {
+    return {
+      normalized: null,
+      warning: "Deprecated Claude alias is not valid for Gemini extraction."
+    };
+  }
 
-export function resolveClaudeHaikuModel(): string {
-  return resolveGeminiFlashModel();
+  const mapped = GEMINI_MODEL_ALIAS_MAP[value] ?? value;
+  if (!GEMINI_MODEL_ALLOWLIST.has(mapped)) {
+    return {
+      normalized: null,
+      warning: `Unsupported Gemini model '${value}'.`
+    };
+  }
+
+  if (mapped !== value) {
+    return {
+      normalized: mapped,
+      warning: `Mapped unsupported alias '${value}' to '${mapped}'.`
+    };
+  }
+
+  return {
+    normalized: mapped,
+    warning: null
+  };
 }
 
 function dedupe(values: string[]): string[] {
@@ -104,16 +193,78 @@ function dedupe(values: string[]): string[] {
   return output;
 }
 
+export function getGeminiModelResolutionDiagnostics(): GeminiModelResolutionDiagnostics {
+  const warnings: string[] = [];
+  let selectedModel: string | null = null;
+  let sourceEnvVar: string | null = null;
+  const envCandidates = getGeminiModelEnvCandidates();
+
+  for (const candidate of envCandidates) {
+    const raw = normalizedEnvValue(candidate.value);
+    if (!raw) {
+      continue;
+    }
+    const normalized = normalizeGeminiModelValue(raw);
+    if (normalized.warning) {
+      warnings.push(`${candidate.envVar}: ${normalized.warning}`);
+      emitWarning({
+        event: "model_resolution_warning",
+        warningCode: "model_invalid_format",
+        envVar: candidate.envVar,
+        providedValue: raw,
+        resolvedValue: normalized.normalized ?? undefined,
+        fallbackModel: DEFAULT_GEMINI_FLASH_MODEL,
+        message: normalized.warning
+      });
+    }
+    if (!normalized.normalized) {
+      continue;
+    }
+    selectedModel = normalized.normalized;
+    sourceEnvVar = candidate.envVar;
+    break;
+  }
+
+  const resolvedModel = selectedModel ?? DEFAULT_GEMINI_FLASH_MODEL;
+  if (!selectedModel) {
+    warnings.push(`No valid model override found. Using default '${DEFAULT_GEMINI_FLASH_MODEL}'.`);
+  }
+  const baseCandidates = dedupe([
+    resolvedModel,
+    ...FALLBACK_GEMINI_MODELS
+  ]).filter((model) => GEMINI_MODEL_ALLOWLIST.has(model));
+
+  if (baseCandidates.length === 0) {
+    baseCandidates.push(DEFAULT_GEMINI_FLASH_MODEL);
+  }
+
+  // AI SDK Google provider expects plain model IDs (it prefixes models/ internally).
+  const candidates = dedupe(baseCandidates);
+
+  return {
+    resolvedModel,
+    sourceEnvVar,
+    candidates,
+    warnings,
+    apiKeyConfigured: Boolean(resolveGoogleApiKey())
+  };
+}
+
+export function resolveGeminiFlashModel(): string {
+  return getGeminiModelResolutionDiagnostics().resolvedModel;
+}
+
+// Backward-compatible resolver aliases.
+export function resolveClaudeSonnetModel(): string {
+  return resolveGeminiFlashModel();
+}
+
+export function resolveClaudeHaikuModel(): string {
+  return resolveGeminiFlashModel();
+}
+
 export function getGeminiFlashModelCandidates(): string[] {
-  return dedupe([
-    resolveGeminiFlashModel(),
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-3-flash",
-    "gemini-3.0-flash"
-  ]);
+  return getGeminiModelResolutionDiagnostics().candidates;
 }
 
 export function getClaudeSonnetModelCandidates(): string[] {
@@ -201,7 +352,10 @@ function isModelNotFoundError(error: unknown): boolean {
     );
 
   // Google SDK sometimes surfaces unsupported-model errors without a strict 404 status.
-  const modelUnavailableByMessage = /models?\/.+not found|is not found for api version|not supported for generatecontent|unsupported model/i.test(message);
+  const modelUnavailableByMessage =
+    /models?\/.+not found|is not found for api version|not supported for generatecontent|unsupported model|unexpected model name format/i.test(
+      message
+    );
 
   return modelUnavailableByStatus || modelUnavailableByMessage;
 }
@@ -218,7 +372,9 @@ export function normalizeModelError(
   const requestId = extractRequestId(error);
   const looksLikeMissingModel =
     (status === 404 && /not_found_error|model:/i.test(message)) ||
-    /models?\/.+not found|is not found for api version|not supported for generatecontent|unsupported model/i.test(message);
+    /models?\/.+not found|is not found for api version|not supported for generatecontent|unsupported model|unexpected model name format/i.test(
+      message
+    );
 
   if (looksLikeMissingModel) {
     const requestIdSuffix = requestId ? ` request_id=${requestId}.` : "";
@@ -259,15 +415,18 @@ async function runWithModelFallback<T>(
     } catch (error: unknown) {
       if (isModelNotFoundError(error)) {
         lastModelNotFoundError = error;
+        const message = extractMessage(error);
         console.warn(
           JSON.stringify({
             level: "warn",
             event: "model_not_found",
             model,
             attempted,
-            envVars
+            envVars,
+            reason: message.slice(0, 220)
           })
         );
+        console.warn(`[ModelResolver] Candidate model '${model}' unavailable, trying next candidate.`);
         continue;
       }
 

@@ -183,10 +183,10 @@ class NoopOcrProvider implements OcrProvider {
     const hasGoogleKey = Boolean(process.env.GOOGLE_VISION_API_KEY);
     const warnings = hasGoogleKey
       ? [
-          `GOOGLE_VISION_API_KEY is configured, but production OCR provider is Azure Document Intelligence. Set AZURE_DOCUMENT_INTELLIGENCE_* vars to enable OCR.`
+          `[ocr_unavailable] GOOGLE_VISION_API_KEY is configured, but production OCR provider is Azure Document Intelligence. Set AZURE_DOCUMENT_INTELLIGENCE_* vars to enable OCR.`
         ]
       : [
-          `OCR fallback requested for ${input.fileName}, but no OCR provider is configured.`
+          `[ocr_unavailable] OCR fallback requested for ${input.fileName}, but no OCR provider is configured.`
         ];
 
     return {

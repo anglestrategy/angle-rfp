@@ -11,16 +11,7 @@ export async function queryFirecrawl(
 ): Promise<ProviderDocument[]> {
   const apiKey = process.env.FIRECRAWL_API_KEY;
   if (!apiKey) {
-    return [
-      {
-        key: "officialSignal",
-        value: "UNAVAILABLE",
-        source: "Firecrawl (key missing)",
-        tier: 3,
-        sourceDate: todayIsoDate(),
-        category: "official"
-      }
-    ];
+    throw new Error("provider_config_missing:FIRECRAWL_API_KEY");
   }
 
   const response = await fetchWithRetry({
@@ -50,14 +41,19 @@ export async function queryFirecrawl(
     data?: { markdown?: string; metadata?: { sourceURL?: string } };
   };
 
+  const value = payload.data?.markdown?.slice(0, 500).trim() ?? "";
+  if (!value) {
+    return [];
+  }
+
   return [
     {
       key: "officialSignal",
-      value: payload.data?.markdown?.slice(0, 200) ?? "",
+      value,
       source: payload.data?.metadata?.sourceURL ?? url,
-      tier: 1,
+      tier: 1 as const,
       sourceDate: todayIsoDate(),
-      category: "official"
+      category: "official" as const
     }
   ];
 }
