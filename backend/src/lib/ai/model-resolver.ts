@@ -3,7 +3,7 @@ const INVALID_MODEL_ALIASES = new Set([
   "claude-haiku-4-5-latest"
 ]);
 
-export const DEFAULT_GEMINI_FLASH_MODEL = "gemini-3-flash";
+export const DEFAULT_GEMINI_FLASH_MODEL = "gemini-2.5-flash";
 // Backward-compatible aliases while legacy names are still referenced.
 export const DEFAULT_CLAUDE_SONNET_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
 export const DEFAULT_CLAUDE_HAIKU_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
@@ -107,12 +107,12 @@ function dedupe(values: string[]): string[] {
 export function getGeminiFlashModelCandidates(): string[] {
   return dedupe([
     resolveGeminiFlashModel(),
-    "gemini-3-flash",
-    "gemini-3.0-flash",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-2.5-flash-lite",
-    "gemini-2.0-flash"
+    "gemini-2.0-flash",
+    "gemini-3-flash",
+    "gemini-3.0-flash"
   ]);
 }
 
@@ -193,10 +193,17 @@ function isModelNotFoundError(error: unknown): boolean {
   const status = extractStatus(error);
   const message = extractMessage(error);
   const errorType = extractErrorType(error);
-  return status === 404 && (
-    errorType === "not_found_error" ||
-    /not_found_error|model:|models?\/|not found/i.test(message)
-  );
+  const modelUnavailableByStatus =
+    status === 404 &&
+    (
+      errorType === "not_found_error" ||
+      /not_found_error|model:|models?\/|not found/i.test(message)
+    );
+
+  // Google SDK sometimes surfaces unsupported-model errors without a strict 404 status.
+  const modelUnavailableByMessage = /models?\/.+not found|is not found for api version|not supported for generatecontent|unsupported model/i.test(message);
+
+  return modelUnavailableByStatus || modelUnavailableByMessage;
 }
 
 export function normalizeModelError(
@@ -209,7 +216,9 @@ export function normalizeModelError(
   const status = extractStatus(error);
   const message = extractMessage(error);
   const requestId = extractRequestId(error);
-  const looksLikeMissingModel = status === 404 && /not_found_error|model:/i.test(message);
+  const looksLikeMissingModel =
+    (status === 404 && /not_found_error|model:/i.test(message)) ||
+    /models?\/.+not found|is not found for api version|not supported for generatecontent|unsupported model/i.test(message);
 
   if (looksLikeMissingModel) {
     const requestIdSuffix = requestId ? ` request_id=${requestId}.` : "";
