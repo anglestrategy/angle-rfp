@@ -615,6 +615,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
   async function processWindow(window: ChunkWindow, depth = 0): Promise<void> {
     ensureWithinDeadline();
     const context = renderWindowContext(window);
+    const chunkTags = window.chunks.flatMap((c) => c.tags);
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= WINDOW_MAX_RETRIES; attempt += 1) {
@@ -625,9 +626,16 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
         for (const chunk of window.chunks) {
           analyzedChunkIndexes.add(chunk.index);
         }
+        console.log(
+          `[Extraction] Window ${window.index} succeeded (depth=${depth}, chunks=${window.chunks.length}, tags=${chunkTags.join(",")})`
+        );
         return;
       } catch (error) {
         lastError = error;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.warn(
+          `[Extraction] Window ${window.index} attempt ${attempt + 1} failed: ${errorMsg.slice(0, 150)}`
+        );
         const retryable = attempt < WINDOW_MAX_RETRIES;
         if (retryable) {
           const backoffMs = Math.min(2000, 400 * (attempt + 1));
@@ -638,6 +646,9 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
     }
 
     if (depth < WINDOW_MAX_SPLIT_DEPTH && window.chunks.length > 1) {
+      console.log(
+        `[Extraction] Splitting window ${window.index} (${window.chunks.length} chunks) at depth ${depth}`
+      );
       const midpoint = Math.ceil(window.chunks.length / 2);
       const left: ChunkWindow = {
         index: window.index,
@@ -654,6 +665,9 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
     }
 
     const message = lastError instanceof Error ? lastError.message : String(lastError);
+    console.error(
+      `[Extraction] Window ${window.index} permanently failed (depth=${depth}, tags=${chunkTags.join(",")}): ${message.slice(0, 200)}`
+    );
     failedWindows.push({ index: window.index, message });
   }
 
@@ -700,17 +714,32 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
   );
   const coveragePercent = chunks.length === 0 ? 0 : analyzedChunkIndexes.size / chunks.length;
 
-  // Log warnings but don't fail - partial extraction is better than no extraction
+  // Log diagnostic info for failures
+  if (failedWindows.length > 0) {
+    console.error(
+      `[Extraction] ${failedWindows.length} windows failed:`,
+      failedWindows.map((w) => ({ index: w.index, error: w.message.slice(0, 200) }))
+    );
+  }
+
   if (missingSectionTags.length > 0) {
-    console.warn(
-      `[Extraction] Warning: Some sections may not be fully covered: ${missingSectionTags.join(", ")}`
+    // Find which chunks have the missing tags
+    const chunksWithMissingTags = chunks
+      .filter((c) => missingSectionTags.some((tag) => c.tags.includes(tag)))
+      .map((c) => ({ index: c.index, tags: c.tags, analyzed: analyzedChunkIndexes.has(c.index) }));
+    console.error(
+      `[Extraction] Critical sections not covered: ${missingSectionTags.join(", ")}`,
+      { chunksWithMissingTags, analyzedCount: analyzedChunkIndexes.size, totalChunks: chunks.length }
+    );
+    throw new Error(
+      `AI extraction did not cover critical sections: ${missingSectionTags.join(", ")}.`
     );
   }
   if (coveragePercent < EXTRACTION_MIN_COVERAGE) {
-    console.warn(
-      `[Extraction] Warning: Coverage is ${Math.round(coveragePercent * 100)}% (target: ${Math.round(
+    throw new Error(
+      `AI extraction coverage below threshold (${Math.round(coveragePercent * 100)}% < ${Math.round(
         EXTRACTION_MIN_COVERAGE * 100
-      )}%)`
+      )}%).`
     );
   }
 
