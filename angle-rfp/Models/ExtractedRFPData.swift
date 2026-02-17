@@ -381,6 +381,14 @@ public struct TextSection: Codable, Identifiable {
         case type, content, items
     }
 
+    /// Memberwise initializer for direct construction
+    public init(id: UUID = UUID(), type: TextSectionType, content: String, items: [String]? = nil) {
+        self.id = id
+        self.type = type
+        self.content = content
+        self.items = items
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.id = UUID()  // Unique ID on decode
