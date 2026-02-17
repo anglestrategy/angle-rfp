@@ -372,11 +372,29 @@ public struct BeautifiedText: Codable {
 
 /// A single section of beautified text with type-specific rendering
 public struct TextSection: Codable, Identifiable {
-    public var id: String { "\(type.rawValue)-\(content.prefix(20))" }
-
+    public let id: UUID
     let type: TextSectionType
     let content: String
     let items: [String]?
+
+    private enum CodingKeys: String, CodingKey {
+        case type, content, items
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = UUID()  // Unique ID on decode
+        self.type = try container.decode(TextSectionType.self, forKey: .type)
+        self.content = try container.decode(String.self, forKey: .content)
+        self.items = try container.decodeIfPresent([String].self, forKey: .items)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(content, forKey: .content)
+        try container.encodeIfPresent(items, forKey: .items)
+    }
 }
 
 /// Section types for applying different visual styles
