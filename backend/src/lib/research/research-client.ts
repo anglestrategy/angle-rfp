@@ -245,8 +245,18 @@ function stripMarkdownCodeFences(raw: string): string {
     .trim();
 }
 
+function cleanJsonOutput(raw: string): string {
+  const withoutFences = stripMarkdownCodeFences(raw).replace(/\u0000/g, "").trim();
+  const firstOpen = withoutFences.indexOf("{");
+  const lastClose = withoutFences.lastIndexOf("}");
+  if (firstOpen >= 0 && lastClose > firstOpen) {
+    return withoutFences.slice(firstOpen, lastClose + 1).trim();
+  }
+  return withoutFences;
+}
+
 function extractFirstJsonObject(raw: string): string | null {
-  const sanitized = stripMarkdownCodeFences(raw);
+  const sanitized = cleanJsonOutput(raw);
   const start = sanitized.indexOf("{");
   if (start < 0) {
     return null;
@@ -477,7 +487,7 @@ JSON shape:
           generateText({
             model: googleProvider(model),
             temperature: 0,
-            maxOutputTokens: 1600,
+            maxOutputTokens: 3200,
             abortSignal: abortController.signal,
             prompt: `${prompt}
 

@@ -138,6 +138,68 @@ function extractExactBlock(text: string, headingRegex: RegExp, fallbackLength: n
   return text.slice(start, end).trim();
 }
 
+function extractAllExactBlocks(text: string, headingPatterns: RegExp[], fallbackLength: number): string[] {
+  const blocks: string[] = [];
+  for (const pattern of headingPatterns) {
+    const block = extractExactBlock(text, pattern, fallbackLength);
+    if (block && block.trim().length > 0) {
+      blocks.push(block.trim());
+    }
+  }
+  return dedupeStrings(blocks);
+}
+
+function extractSectionSpans(
+  text: string,
+  sections: AnalyzeRfpInput["parsedDocument"]["sections"],
+  names: string[]
+): string[] {
+  const spans = sections
+    .filter((section) => names.includes(section.name))
+    .map((section) => {
+      if (
+        section.startOffset < 0 ||
+        section.endOffset <= section.startOffset ||
+        section.endOffset > text.length
+      ) {
+        return "";
+      }
+      return text.slice(section.startOffset, section.endOffset).trim();
+    })
+    .filter(Boolean);
+  return dedupeStrings(spans);
+}
+
+function buildSectionScopedText(
+  text: string,
+  sections: AnalyzeRfpInput["parsedDocument"]["sections"],
+  names: string[],
+  headingPatterns: RegExp[],
+  fallbackLength: number
+): string {
+  const sectionBlocks = extractSectionSpans(text, sections, names);
+  const headingBlocks = extractAllExactBlocks(text, headingPatterns, fallbackLength);
+  return dedupeStrings([...sectionBlocks, ...headingBlocks]).join("\n\n").trim();
+}
+
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(normalized);
+  }
+  return output;
+}
+
 function normalizeDate(raw: string): string | null {
   const iso = raw.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (iso?.[1]) {
@@ -155,25 +217,48 @@ function normalizeDate(raw: string): string | null {
   return null;
 }
 
+const DATE_EVENT_HINT_PATTERN =
+  /(issued|intent|deadline|question|response|submission|presentation|closing|opening|تاريخ|موعد|آخر موعد|تقديم|استفسار|ردود|عرض)/i;
+const DATE_HEADING_CONTEXT_PATTERN =
+  /(important dates?|timeline|milestones?|deadlines?|submission schedule|schedule|الجدول الزمني|المواعيد)/i;
+const DATE_NON_EVENT_NOISE_PATTERN =
+  /(address|street|building|floor|district|p\.?o\.?\s*box|postal|zip|avenue|road|blvd|suite|unit|city|region|حي|شارع|مبنى|طابق|صندوق بريد|prepared by|procurement department)/i;
+
 function extractDates(text: string): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
   const lines = text.split(/\r?\n/);
   const out: Array<{ title: string; date: string; type: string; isCritical: boolean }> = [];
-
-  // Patterns that indicate this line is an address, not a date
-  const addressPatterns = /address|street|building|floor|district|p\.?o\.?\s*box|postal|zip|avenue|road|blvd|suite|unit|city|region|حي|شارع|مبنى|طابق|صندوق بريد/i;
+  let inDateContext = false;
+  let dateContextCountdown = 0;
 
   for (const line of lines) {
-    // Skip lines that look like addresses (they may contain registration dates)
-    if (addressPatterns.test(line)) {
+    const normalizedLine = line.replace(/\s+/g, " ").trim();
+    if (!normalizedLine) {
       continue;
     }
 
-    const normalized = normalizeDate(line);
+    if (DATE_HEADING_CONTEXT_PATTERN.test(normalizedLine)) {
+      inDateContext = true;
+      dateContextCountdown = 18;
+    } else if (dateContextCountdown > 0) {
+      dateContextCountdown -= 1;
+    } else {
+      inDateContext = false;
+    }
+
+    if (DATE_NON_EVENT_NOISE_PATTERN.test(normalizedLine)) {
+      continue;
+    }
+
+    const normalized = normalizeDate(normalizedLine);
     if (!normalized) {
       continue;
     }
 
-    const lower = line.toLowerCase();
+    if (!inDateContext && !DATE_EVENT_HINT_PATTERN.test(normalizedLine)) {
+      continue;
+    }
+
+    const lower = normalizedLine.toLowerCase();
     const type = lower.includes("question")
       ? "qa_deadline"
       : lower.includes("submission")
@@ -183,7 +268,7 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
           : "other";
 
     out.push({
-      title: line.replace(/\s+/g, " ").trim().slice(0, 120),
+      title: normalizedLine.slice(0, 140),
       date: normalized,
       type,
       isCritical: type === "submission_deadline" || type === "presentation"
@@ -256,7 +341,11 @@ const DELIVERABLE_NOISE_PATTERNS = [
   /\[vendor name\]/i,
   /riyadh site at the heart/i,
   /^the technical proposals?\s+should\s+include\s+the\s+following\s+sections?/i,
-  /^the commercial proposals?\s+should\s+include\s+the\s+following\s+sections?/i
+  /^the commercial proposals?\s+should\s+include\s+the\s+following\s+sections?/i,
+  /^prepared by\b/i,
+  /^procurement department\b/i,
+  /^expo\s*2030\s*riyadh\s*company\b/i,
+  /^fifa\s*world\s*cup|^expo\s*dubai/i
 ];
 
 const DELIVERABLE_CLAUSE_DROP_PATTERNS = [
@@ -605,7 +694,10 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
         /project management|deliverables|risk mitigation|timeline|milestone|communication|reporting/i.test(
           normalized
         );
-      if (strategicLine && !technicalOpsLine && normalized.length >= 16) {
+      const explicitEvaluationRequirement =
+        REQUIREMENT_LINE_PATTERNS.explicit.test(normalized) ||
+        /should include|must include|required|provide|to include/i.test(normalized);
+      if (strategicLine && !technicalOpsLine && explicitEvaluationRequirement && normalized.length >= 16) {
         out.push({
           text: normalized,
           hint: "strategicCreative",
@@ -717,9 +809,9 @@ function extractDeliverables(text: string): DeliverableItem[] {
 }
 const REQUIREMENT_LINE_PATTERNS = {
   explicit: /(must|shall|required|should include|should be included|include the following|submit|submitted|provide|to include|يجب|مطلوب|تقديم|إرفاق|يشمل|ينبغي)/i,
-  technical: /(technical proposal|executive summary|methodology|approach|credentials?|team|cv\b|resume|references?|certificate|vendor profile|track record|عرض فني|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الخبرات)/i,
-  commercial: /(commercial proposal|financial proposal|pricing|price|payment terms?|tax|subtotal|grand total|fees?|cost|quotation|budget|عرض مالي|مالي|تجاري|الدفع|ضريبة|تكلفة|سعر)/i,
-  strategicCreative: /(strategic\s+(proposal|plan|framework|approach)|creative\s+(proposal|brief|concept|direction)|campaign\s+(strategy|concept|plan)|brand\s+(strategy|positioning|messaging|localization)|positioning|messaging framework|communication framework|استراتيجي|إبداعي|الحملة|التموضع|الرسائل)/i
+  technical: /(technical proposal|executive summary|methodology|approach|credentials?|team|cv\b|resume|references?|certificate|vendor profile|track record|project management plan|risk management plan|communication and reporting framework|scheduling management plan|issue management plan|عرض فني|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الخبرات)/i,
+  commercial: /(commercial proposal|financial proposal|pricing|price|payment terms?|tax|subtotal|grand total|fees?|quotation|budget|encrypted file|password-protected|عرض مالي|مالي|تجاري|الدفع|ضريبة|تكلفة|سعر)/i,
+  strategicCreative: /(strategic\s+(proposal|plan|framework|approach)|creative\s+(proposal|brief|concept|direction)|campaign\s+(strategy|concept|plan)|brand\s+(strategy|positioning|messaging|localization)|positioning|messaging framework|استراتيجي|إبداعي|الحملة|التموضع|الرسائل)/i
 };
 
 function normalizeRequirementLine(raw: string): string {
@@ -746,6 +838,15 @@ function classifyDeliverableCategory(line: string): DeliverableCategory | null {
 }
 
 function inferDeliverableTitle(line: string, category: DeliverableCategory): string {
+  if (/project management plan|scheduling management plan|issue management plan/i.test(line)) {
+    return "Project Management Plan";
+  }
+  if (/risk management plan|risk mitigation/i.test(line)) {
+    return "Risk Management Plan";
+  }
+  if (/communication and reporting framework|communication.*reporting/i.test(line)) {
+    return "Communication and Reporting Framework";
+  }
   if (/project team|account team|team composition|consultants?|smes?|\bcv\b|resume/i.test(line)) {
     return "Team Composition and CVs";
   }
@@ -761,7 +862,7 @@ function inferDeliverableTitle(line: string, category: DeliverableCategory): str
   if (/\bcv\b|resume|team composition|account team/i.test(line)) {
     return "Team Composition and CVs";
   }
-  if (/commercial proposal|financial proposal|pricing|price|tax|subtotal|grand total|fees?|cost/i.test(line)) {
+  if (/commercial proposal|financial proposal|pricing|price|tax|subtotal|grand total|fees?|quotation|budget|payment terms?/i.test(line)) {
     if (/alternative commercial proposal/i.test(line)) {
       return "Alternative Commercial Proposal";
     }
@@ -1395,6 +1496,11 @@ const SCOPE_NON_WORK_PATTERNS = [
   /email submission/i,
   /nda|non[-\s]?disclosure/i,
   /must comprise|minimum\s+\d+%/i,
+  /prepared by/i,
+  /procurement department/i,
+  /expo\s*2030\s*riyadh\s*company/i,
+  /fifa\s*world\s*cup|expo\s*dubai/i,
+  /contact\s+us|www\./i,
   /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|الشروط|اتفاقية/i
 ];
 
@@ -1500,6 +1606,14 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
       if (!cleaned || cleaned.length < 8) {
         continue;
       }
+    }
+
+    const isMetadataLine =
+      /^([A-Z0-9][A-Z0-9\s&/\-]{6,}|[\d\s\-–]{4,})$/.test(cleaned) ||
+      (/^[A-Z][A-Za-z\s]{3,40}\s*\|\s*[A-Z]/.test(cleaned));
+
+    if (isMetadataLine && !hasActionVerb) {
+      continue;
     }
 
     if (isNonWork && !SCOPE_ACTION_VERB_PATTERN.test(cleaned)) {
@@ -1686,6 +1800,16 @@ const EVALUATION_HEADING_NOISE = [
   /^technical evaluation$/i
 ];
 
+const EVALUATION_CONTAMINATION_PATTERNS = [
+  /terms?\s*&?\s*conditions?/i,
+  /confirmation of agreement/i,
+  /agreement to execute/i,
+  /non[-\s]?disclosure|nda/i,
+  /proposal submitted separately in encrypted/i,
+  /vendor shall not be responsible/i,
+  /prepared by|procurement department/i
+];
+
 function parseEvaluationWeight(value: string): string | null {
   const match = value.match(/(\d{1,3}(?:\.\d+)?)\s*%/);
   if (!match?.[1]) {
@@ -1746,7 +1870,11 @@ function buildEvaluationCriteriaStructuredFromText(criteriaText: string): Evalua
 
   for (const line of lines) {
     const cleaned = normalizeRequirementLine(line);
-    if (!cleaned || EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(cleaned))) {
+    if (
+      !cleaned ||
+      EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(cleaned)) ||
+      EVALUATION_CONTAMINATION_PATTERNS.some((pattern) => pattern.test(cleaned))
+    ) {
       continue;
     }
 
@@ -1848,7 +1976,10 @@ function formatEvaluationCriteriaStructured(groups: EvaluationCriteriaGroup[]): 
 }
 
 function splitEvaluationSentences(line: string): string[] {
-  return line
+  const normalized = line
+    .replace(/([.!?؟])([A-Z][A-Z\s&]{6,})/g, "$1 $2")
+    .replace(/([.!?؟])([A-Z][a-z]{3,}\s+[A-Z][A-Za-z]{3,})/g, "$1 $2");
+  return normalized
     .split(/(?<=[.;!?؟])\s+/)
     .map((part) => part.trim())
     .filter((part) => part.length >= 12)
@@ -1875,7 +2006,11 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
       .replace(/\s+/g, " ")
       .trim();
 
-    if (!line || EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(line))) {
+    if (
+      !line ||
+      EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(line)) ||
+      EVALUATION_CONTAMINATION_PATTERNS.some((pattern) => pattern.test(line))
+    ) {
       continue;
     }
 
@@ -1984,7 +2119,11 @@ function buildEvaluationCriteriaFromTables(
       const groupCell = cleanDeliverableRequirementText(row[criteriaColIndex] ?? "");
       const detailCell = cleanDeliverableRequirementText(row[detailColIndex] ?? "");
 
-      if (groupCell && !EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(groupCell))) {
+      if (
+        groupCell &&
+        !EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(groupCell)) &&
+        !EVALUATION_CONTAMINATION_PATTERNS.some((pattern) => pattern.test(groupCell))
+      ) {
         currentGroup = normalizeEvaluationGroupTitle(groupCell);
       }
 
@@ -1993,7 +2132,11 @@ function buildEvaluationCriteriaFromTables(
       if (!group || !detail) {
         continue;
       }
-      if (detail.length < 8 || DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(detail))) {
+      if (
+        detail.length < 8 ||
+        DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(detail)) ||
+        EVALUATION_CONTAMINATION_PATTERNS.some((pattern) => pattern.test(detail))
+      ) {
         continue;
       }
 
@@ -2100,6 +2243,36 @@ function buildEvaluationCriteriaFromSource(
     formatted: selected.value,
     structured: selected.structured
   };
+}
+
+function buildDeliverablesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
+  const text = parsedDocument.rawText;
+  return buildSectionScopedText(
+    text,
+    parsedDocument.sections,
+    ["submission_requirements"],
+    [
+      /submission\s+format|submission\s+requirements?|proposal\s+requirements?|how\s+to\s+submit|متطلبات\s+التقديم/i,
+      /technical\s+proposals?\s+should\s+include/i,
+      /commercial\s+proposals?\s+should\s+include/i,
+      /technical\s+proposal\s+submission/i,
+      /commercial\s+proposal\s+submission/i
+    ],
+    6500
+  );
+}
+
+function buildImportantDatesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
+  const text = parsedDocument.rawText;
+  return buildSectionScopedText(
+    text,
+    parsedDocument.sections,
+    ["important_dates"],
+    [
+      /important\s+dates?|timeline|milestones?|deadlines?|submission\s+schedule|الجدول\s+الزمني|المواعيد/i
+    ],
+    5000
+  );
 }
 
 function chooseBestEvaluationCriteria(primary: string, fallback: string): string {
@@ -2266,18 +2439,45 @@ function dedupeImportantDates(
 ): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
   const byKey = new Map<string, { title: string; date: string; type: string; isCritical: boolean }>();
 
+  const canonicalEventKey = (title: string, type: string): string => {
+    const normalized = normalizeDedupeKey(title);
+    if (type === "submission_deadline") return "submission_deadline";
+    if (type === "qa_deadline") return "qa_deadline";
+    if (type === "presentation") return "presentation";
+    if (/intent/.test(normalized)) return "intent_to_tender";
+    if (/issued|issue/.test(normalized)) return "rfp_issued";
+    if (/question/.test(normalized)) return "qa_deadline";
+    if (/response/.test(normalized)) return "qa_response";
+    if (/submission|proposal/.test(normalized)) return "submission_deadline";
+    if (/presentation/.test(normalized)) return "presentation";
+    return type || "other";
+  };
+
   for (const date of dates) {
     const cleanTitle = date.title.replace(/\s+/g, " ").trim();
     if (!cleanTitle) {
       continue;
     }
 
-    const key = `${date.date}|${date.type}|${normalizeDedupeKey(cleanTitle)}`;
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        ...date,
-        title: cleanTitle
-      });
+    const key = `${date.date}|${canonicalEventKey(cleanTitle, date.type)}`;
+    const candidate = {
+      ...date,
+      title: cleanTitle
+    };
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, candidate);
+      continue;
+    }
+
+    const existingScore =
+      (existing.isCritical ? 2 : 0) +
+      Math.min(existing.title.length / 40, 2);
+    const candidateScore =
+      (candidate.isCritical ? 2 : 0) +
+      Math.min(candidate.title.length / 40, 2);
+    if (candidateScore > existingScore) {
+      byKey.set(key, candidate);
     }
   }
 
@@ -2324,7 +2524,19 @@ function mapClaudeToPass1Output(
   if (coverage.missingSectionTags.length > 0) {
     warnings.push(`Missing section hints: ${coverage.missingSectionTags.join(", ")}.`);
   }
+  const deliverableSourceText = buildDeliverablesSourceText(parsedDocument) || text;
+  const dateSourceText = buildImportantDatesSourceText(parsedDocument) || text;
+  const scopeSourceText = buildScopeFromSource(parsedDocument);
+  console.log(
+    `[Pass1] Section source lines scope=${scopeSourceText.split(/\r?\n/).filter(Boolean).length} ` +
+      `deliverables=${deliverableSourceText.split(/\r?\n/).filter(Boolean).length} ` +
+      `dates=${dateSourceText.split(/\r?\n/).filter(Boolean).length}`
+  );
+
   const sourceEvaluation = buildEvaluationCriteriaFromSource(parsedDocument);
+  if (parsedDocument.tables.length > 0 && sourceEvaluation.structured.length === 0) {
+    warnings.push("[criteria_table_missing] Evaluation tables were detected but could not be reliably structured.");
+  }
   const claudeEvaluation = sanitizeEvaluationCriteria(
     normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
   );
@@ -2361,11 +2573,21 @@ function mapClaudeToPass1Output(
     process.env.NODE_ENV === "test";
   const heuristicDeliverableRequirements = allowHeuristicDeliverableFallback
     ? buildDeliverableRequirements(
-      text,
+      deliverableSourceText,
       mergedEvaluation,
       requiredDeliverables
     )
     : { technical: [], commercial: [], strategicCreative: [] };
+  const deliverableContaminationCount = deliverableSourceText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(line))).length;
+  if (deliverableContaminationCount > 0) {
+    warnings.push(
+      `[deliverables_contamination_filtered] Filtered ${deliverableContaminationCount} deliverable-adjacent legal/admin lines.`
+    );
+  }
 
   function mergeCategory(
     primary: DeliverableRequirementItem[],
@@ -2401,9 +2623,18 @@ function mapClaudeToPass1Output(
     requiredDeliverables,
     mergedDeliverableRequirements
   );
+  const rawClaudeScope = normalizeStructuredText(claude.scopeOfWork || "");
+  const rawScopeFragmentCount = splitScopeFragments(rawClaudeScope).length;
+  const sanitizedClaudeScope = sanitizeScopeForAnalysis(rawClaudeScope);
+  const sanitizedScopeItemCount = countScopeItems(sanitizedClaudeScope);
+  if (rawScopeFragmentCount > 0 && rawScopeFragmentCount - sanitizedScopeItemCount >= 3) {
+    warnings.push(
+      `[scope_contamination_filtered] Filtered ${rawScopeFragmentCount - sanitizedScopeItemCount} non-scope fragments from scope text.`
+    );
+  }
   let selectedScope = chooseBestScopeScopeText(
-    sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || "")),
-    buildScopeFromSource(parsedDocument)
+    sanitizedClaudeScope,
+    scopeSourceText
   );
   if (countScopeItems(selectedScope) < 2) {
     const synthesizedScope = buildScopeFromDeliverableSignals(
@@ -2417,13 +2648,21 @@ function mapClaudeToPass1Output(
   }
 
   // Map Claude date types to our format with isCritical flag
-  const mappedDates = claude.importantDates.map((d) => ({
+  const mappedDates = claude.importantDates
+    .map((d) => ({
     title: d.title,
     date: d.date,
     type: d.type,
     isCritical: d.type === "submission_deadline" || d.type === "presentation"
-  }));
-  const importantDates = dedupeImportantDates(mappedDates);
+    }))
+    .filter((entry) => entry.title.trim().length >= 6 && entry.date.trim().length >= 4);
+  const deterministicDates = extractDates(dateSourceText).filter(
+    (entry) => entry.date !== "2099-12-31" && entry.title.length >= 6
+  );
+  const importantDates = dedupeImportantDates([...deterministicDates, ...mappedDates]);
+  if (deterministicDates.length === 0) {
+    warnings.push("[dates_low_confidence] Important dates were inferred without strong timeline-section support.");
+  }
 
   // Ensure we have at least one date entry
   if (importantDates.length === 0) {
@@ -2454,7 +2693,7 @@ function mapClaudeToPass1Output(
     projectName: claude.projectName ? 0.95 : 0.55,
     scopeOfWork: claude.scopeOfWork ? 0.92 : 0.65,
     evaluationCriteria: claude.evaluationCriteria ? 0.9 : 0.6,
-    dates: importantDates[0]?.date !== "2099-12-31" ? 0.88 : 0.5,
+    dates: deterministicDates.length > 0 ? 0.9 : importantDates[0]?.date !== "2099-12-31" ? 0.78 : 0.5,
     overall: 0.9
   };
 
@@ -2489,6 +2728,8 @@ function mapClaudeToPass1Output(
 function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   // Original regex-based extraction as fallback
   const text = input.parsedDocument.rawText;
+  const deliverableSourceText = buildDeliverablesSourceText(input.parsedDocument) || text;
+  const dateSourceText = buildImportantDatesSourceText(input.parsedDocument) || text;
   const warnings: string[] = ["AI extraction failed; using deterministic fallback."];
 
   const clientName =
@@ -2522,15 +2763,28 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     warnings.push("Evaluation criteria section not clearly detected.");
   }
 
-  const requiredDeliverables = extractDeliverables(text);
-  const importantDates = extractDates(text);
+  const requiredDeliverables = extractDeliverables(deliverableSourceText);
+  const importantDates = extractDates(dateSourceText);
   const submissionRequirements = extractSubmission(text);
   const dedupedRequiredDeliverables = dedupeDeliverables(requiredDeliverables);
   const deliverableRequirements = buildDeliverableRequirements(
-    text,
+    deliverableSourceText,
     sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
     dedupedRequiredDeliverables
   );
+  const deliverableContaminationCount = deliverableSourceText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(line))).length;
+  if (deliverableContaminationCount > 0) {
+    warnings.push(
+      `[deliverables_contamination_filtered] Filtered ${deliverableContaminationCount} deliverable-adjacent legal/admin lines.`
+    );
+  }
+  if (importantDates[0]?.date === "2099-12-31") {
+    warnings.push("[dates_low_confidence] Important dates were inferred without strong timeline-section support.");
+  }
   const canonicalRequiredDeliverables = ensureRequiredDeliverables(
     dedupedRequiredDeliverables,
     deliverableRequirements

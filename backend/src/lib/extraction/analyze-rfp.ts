@@ -246,6 +246,18 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   if (criticalMissing) {
     qualityFlags.add("critical_info_missing");
   }
+  if (pass1.warnings.some((warning) => /\[scope_contamination_filtered\]|scope contamination filtered/i.test(warning))) {
+    qualityFlags.add("scope_contamination_filtered");
+  }
+  if (pass1.warnings.some((warning) => /\[criteria_table_missing\]|evaluation tables were detected but could not be reliably structured/i.test(warning))) {
+    qualityFlags.add("criteria_table_missing");
+  }
+  if (pass1.warnings.some((warning) => /\[deliverables_contamination_filtered\]|deliverable-adjacent legal\/admin lines/i.test(warning))) {
+    qualityFlags.add("deliverables_contamination_filtered");
+  }
+  if (pass1.warnings.some((warning) => /\[dates_low_confidence\]|important dates were inferred without strong timeline-section support/i.test(warning))) {
+    qualityFlags.add("dates_low_confidence");
+  }
 
   const evidenceDensity = clampScore((pass1.evidence?.length ?? 0) / 7);
   const sectionScores = {
@@ -271,6 +283,12 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   }
   if (qualityFlags.has("low_deliverables_confidence")) {
     blockReasons.push("Deliverables grouping quality is low.");
+  }
+  if (qualityFlags.has("criteria_table_missing")) {
+    blockReasons.push("Evaluation criteria tables could not be reliably structured.");
+  }
+  if (qualityFlags.has("dates_low_confidence")) {
+    blockReasons.push("Important dates confidence is low and should be manually verified.");
   }
   if (qualityFlags.has("conflicts_detected")) {
     blockReasons.push("Conflicting extracted values require manual review.");

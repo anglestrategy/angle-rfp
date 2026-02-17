@@ -60,6 +60,45 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 }
 
 const AGENCY_DOMAIN_HINT = /(brand|branding|campaign|marketing|communication|content|design|creative|media|narrative|strategy|launch|social|digital|production|messaging|identity|locali[sz]ation|positioning|إبداع|تسويق|هوية|استراتيجية|محتوى|تصميم)/i;
+const SCOPE_METADATA_NOISE_PATTERN =
+  /(prepared by|procurement department|expo\s*2030\s*riyadh\s*company|fifa\s*world\s*cup|expo\s*dubai|page\s+\d+|table of contents|^\d+$)/i;
+
+function normalizeScopeKey(value: string): string {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function collectScopeNoiseFragments(scopeText: string, scopeItems: string[]): string[] {
+  const known = new Set(scopeItems.map((item) => normalizeScopeKey(item)));
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  const lines = scopeText
+    .split(/\r?\n|[؛;•]/u)
+    .map((line) => line.replace(/^[-*•\d.)\s]+/u, "").trim())
+    .filter((line) => line.length >= 6);
+
+  for (const line of lines) {
+    const normalized = normalizeScopeKey(line);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    const appearsInScopeList = known.has(normalized);
+    if (appearsInScopeList) {
+      continue;
+    }
+    if (SCOPE_METADATA_NOISE_PATTERN.test(line)) {
+      seen.add(normalized);
+      out.push(line);
+      continue;
+    }
+    if (/^phase\s*\d+[:\s-]*$/i.test(line) || /^program phases?/i.test(line)) {
+      seen.add(normalized);
+      out.push(line);
+    }
+  }
+
+  return out.slice(0, 20);
+}
 
 function normalizeAgencyDomainMatch(match: {
   scopeItem: string;
@@ -273,9 +312,16 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     warnings.push("Scope confidence was too low for percentage scoring; agency/outsourcing percentages were withheld.");
   }
 
-  const unclassifiedItems = matches
+  const uncertainItems = matches
     .filter((item) => item.class === "uncertain")
     .map((item) => item.scopeItem);
+  const noiseItems = collectScopeNoiseFragments(input.scopeOfWork, scopeItems);
+  if (noiseItems.length > 0) {
+    warnings.push(`Scope contamination filtered: ${noiseItems.length} non-work metadata lines moved to unclassified items.`);
+  }
+  const unclassifiedItems = Array.from(
+    new Set([...uncertainItems, ...noiseItems])
+  );
 
   return {
     schemaVersion: "1.0.0",
@@ -283,7 +329,7 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     taxonomyVersion: taxonomyVersionFromServices(taxonomy),
     scopeItems,
     unclassifiedItems,
-    uncertainItems: unclassifiedItems,
+    uncertainItems,
     matches,
     agencyServicePercentage,
     outsourcingPercentage,

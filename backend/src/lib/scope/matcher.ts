@@ -140,6 +140,9 @@ const NON_SCOPE_OPERATIONAL_HINTS = [
   /qa deadline/i,
   /presentation deadline/i,
   /proposal deadline/i,
+  /prepared by|procurement department/i,
+  /expo\s*2030\s*riyadh\s*company/i,
+  /fifa\s*world\s*cup|expo\s*dubai/i,
   /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|شروط خاصة/
 ];
 

@@ -213,13 +213,22 @@ export function evaluateQualityGate(input: EvaluateQualityGateInput): QualityAss
   if (criteriaScore < 0.5) {
     blockReasons.push("Evaluation criteria grouping confidence is low.");
   }
+  if (qualityFlags.has("criteria_table_missing")) {
+    blockReasons.push("Evaluation criteria table structure could not be confidently recovered.");
+  }
 
   if ((input.extractedRfp.importantDates?.length ?? 0) === 0) {
     blockReasons.push("Important dates were not extracted with sufficient certainty.");
   }
+  if (qualityFlags.has("dates_low_confidence")) {
+    blockReasons.push("Important dates were extracted with low confidence.");
+  }
 
   if (scopeScore < 0.5) {
     blockReasons.push("Scope confident coverage is too low to support automated recommendation.");
+  }
+  if (qualityFlags.has("scope_contamination_filtered")) {
+    blockReasons.push("Scope text required contamination filtering; manual scope review recommended.");
   }
 
   if (researchScore < 0.25) {
