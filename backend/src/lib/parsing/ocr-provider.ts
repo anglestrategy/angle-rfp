@@ -192,23 +192,38 @@ class AzureDocumentIntelligenceOcrProvider implements OcrProvider {
 }
 
 class GoogleVisionOcrProvider implements OcrProvider {
-  private readonly client: ImageAnnotatorClient;
+  private readonly clientMode: "adc_client" | "api_key_rest";
+  private client: ImageAnnotatorClient | null;
+  private readonly apiKey: string | null;
+  private readonly requestTimeoutMs: number;
   private readonly pdfPageLimit: number;
 
   constructor() {
     const apiKey = process.env.GOOGLE_VISION_API_KEY?.trim();
-    const options: Record<string, unknown> = {};
-    if (apiKey) {
-      // Keep API-key compatibility for local/dev environments.
-      options.key = apiKey;
+    const hasAdcCredentials = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+
+    if (apiKey && !hasAdcCredentials) {
+      this.clientMode = "api_key_rest";
+      this.apiKey = apiKey;
+      this.client = null;
+    } else {
+      this.clientMode = "adc_client";
+      this.apiKey = null;
+      this.client = null;
     }
-    this.client = new ImageAnnotatorClient(
-      options as ConstructorParameters<typeof ImageAnnotatorClient>[0]
-    );
+
+    this.requestTimeoutMs = parsePositiveInt(process.env.GOOGLE_VISION_TIMEOUT_MS, 45_000);
     this.pdfPageLimit = Math.max(
       1,
       Math.min(20, parsePositiveInt(process.env.GOOGLE_VISION_PDF_PAGE_LIMIT, 5))
     );
+  }
+
+  private getClient(): ImageAnnotatorClient {
+    if (!this.client) {
+      this.client = new ImageAnnotatorClient();
+    }
+    return this.client;
   }
 
   private isPdfInput(input: { fileBytes: Buffer; fileName: string }): boolean {
@@ -217,7 +232,7 @@ class GoogleVisionOcrProvider implements OcrProvider {
     return lowerName.endsWith(".pdf") || header === "%PDF";
   }
 
-  private async performPdfOcr(input: {
+  private async performPdfOcrWithAdcClient(input: {
     fileBytes: Buffer;
     fileName: string;
     pagesHint: number;
@@ -226,7 +241,7 @@ class GoogleVisionOcrProvider implements OcrProvider {
     const pagesToProcess = Math.min(pageCountHint, this.pdfPageLimit);
     const pageNumbers = Array.from({ length: pagesToProcess }, (_, index) => index + 1);
 
-    const [result] = await this.client.batchAnnotateFiles({
+    const [result] = await this.getClient().batchAnnotateFiles({
       requests: [
         {
           inputConfig: {
@@ -271,11 +286,11 @@ class GoogleVisionOcrProvider implements OcrProvider {
     };
   }
 
-  private async performImageOcr(input: {
+  private async performImageOcrWithAdcClient(input: {
     fileBytes: Buffer;
     fileName: string;
   }): Promise<OcrResult> {
-    const [result] = await this.client.documentTextDetection({
+    const [result] = await this.getClient().documentTextDetection({
       image: { content: input.fileBytes.toString("base64") },
       imageContext: { languageHints: ["en", "ar"] }
     });
@@ -296,22 +311,159 @@ class GoogleVisionOcrProvider implements OcrProvider {
     };
   }
 
+  private async callVisionApiWithKey(endpoint: "files:annotate" | "images:annotate", body: Record<string, unknown>): Promise<Record<string, unknown>> {
+    if (!this.apiKey) {
+      throw new Error("GOOGLE_VISION_API_KEY is missing for key-based OCR mode.");
+    }
+
+    const url = `https://vision.googleapis.com/v1/${endpoint}?key=${encodeURIComponent(this.apiKey)}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body),
+      signal: withTimeoutSignal(this.requestTimeoutMs)
+    });
+
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      throw new Error(`Google Vision REST request failed (${response.status})${details ? `: ${details.slice(0, 300)}` : ""}`);
+    }
+
+    return (await response.json()) as Record<string, unknown>;
+  }
+
+  private extractPdfTextsFromKeyResponse(payload: Record<string, unknown>): string[] {
+    const topLevelResponses = Array.isArray(payload.responses) ? payload.responses : [];
+    const fileResponse = (topLevelResponses[0] ?? {}) as Record<string, unknown>;
+    const pageResponses = Array.isArray(fileResponse.responses) ? fileResponse.responses : [];
+
+    return pageResponses.flatMap((entry) => {
+      const page = entry as Record<string, unknown>;
+      const fullTextAnnotation = page.fullTextAnnotation as { text?: string } | undefined;
+      const text = fullTextAnnotation?.text?.trim();
+      return text ? [text] : [];
+    });
+  }
+
+  private extractImageTextsFromKeyResponse(payload: Record<string, unknown>): string[] {
+    const topLevelResponses = Array.isArray(payload.responses) ? payload.responses : [];
+    return topLevelResponses.flatMap((entry) => {
+      const responseItem = entry as Record<string, unknown>;
+      const fullTextAnnotation = responseItem.fullTextAnnotation as { text?: string } | undefined;
+      const text = fullTextAnnotation?.text?.trim();
+      return text ? [text] : [];
+    });
+  }
+
+  private async performPdfOcrWithApiKey(input: {
+    fileBytes: Buffer;
+    fileName: string;
+    pagesHint: number;
+  }): Promise<OcrResult> {
+    const pageCountHint = Math.max(1, input.pagesHint);
+    const pagesToProcess = Math.min(pageCountHint, this.pdfPageLimit);
+    const pageNumbers = Array.from({ length: pagesToProcess }, (_, index) => index + 1);
+    const payload = await this.callVisionApiWithKey("files:annotate", {
+      requests: [
+        {
+          inputConfig: {
+            mimeType: "application/pdf",
+            content: input.fileBytes.toString("base64")
+          },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+          pages: pageNumbers
+        }
+      ]
+    });
+
+    const textSegments = this.extractPdfTextsFromKeyResponse(payload);
+    const text = textSegments.join("\n\n").trim();
+    if (!text) {
+      return {
+        text: "",
+        pagesOcred: 0,
+        warnings: [
+          `Google Vision returned no OCR text for ${input.fileName} in API-key mode.`
+        ]
+      };
+    }
+
+    const warnings = [`OCR completed with Google Vision REST API for ${input.fileName}.`];
+    if (pageCountHint > pagesToProcess) {
+      warnings.push(
+        `Google Vision processed ${pagesToProcess}/${pageCountHint} pages (configured limit ${this.pdfPageLimit}).`
+      );
+    }
+
+    return {
+      text,
+      pagesOcred: pagesToProcess,
+      warnings
+    };
+  }
+
+  private async performImageOcrWithApiKey(input: {
+    fileBytes: Buffer;
+    fileName: string;
+  }): Promise<OcrResult> {
+    const payload = await this.callVisionApiWithKey("images:annotate", {
+      requests: [
+        {
+          image: { content: input.fileBytes.toString("base64") },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" }],
+          imageContext: { languageHints: ["en", "ar"] }
+        }
+      ]
+    });
+
+    const textSegments = this.extractImageTextsFromKeyResponse(payload);
+    const text = textSegments.join("\n\n").trim();
+    if (!text) {
+      return {
+        text: "",
+        pagesOcred: 0,
+        warnings: [
+          `Google Vision returned no OCR text for ${input.fileName} in API-key mode.`
+        ]
+      };
+    }
+
+    return {
+      text,
+      pagesOcred: 1,
+      warnings: [`OCR completed with Google Vision REST API for ${input.fileName}.`]
+    };
+  }
+
   async performOcr(input: {
     fileBytes: Buffer;
     fileName: string;
     pagesHint: number;
   }): Promise<OcrResult> {
     try {
-      if (this.isPdfInput(input)) {
-        return await this.performPdfOcr(input);
+      if (this.clientMode === "api_key_rest") {
+        if (this.isPdfInput(input)) {
+          return await this.performPdfOcrWithApiKey(input);
+        }
+        return await this.performImageOcrWithApiKey(input);
       }
 
-      return await this.performImageOcr(input);
+      if (this.isPdfInput(input)) {
+        return await this.performPdfOcrWithAdcClient(input);
+      }
+
+      return await this.performImageOcrWithAdcClient(input);
     } catch (error: unknown) {
+      const message = errorMessage(error);
+      const normalizedMessage = /could not load the default credentials/i.test(message)
+        ? "Google Vision default credentials were not found. Set GOOGLE_APPLICATION_CREDENTIALS or use GOOGLE_VISION_API_KEY."
+        : message;
       return {
         text: "",
         pagesOcred: 0,
-        warnings: [`Google Vision OCR failed for ${input.fileName}: ${errorMessage(error)}`]
+        warnings: [`Google Vision OCR failed for ${input.fileName}: ${normalizedMessage}`]
       };
     }
   }
