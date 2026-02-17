@@ -1257,7 +1257,8 @@ final class BackendAnalysisClient {
                 englishSources: 0,
                 arabicSources: 0,
                 overallConfidence: 0.3,
-                researchDate: dateFormatter.string(from: Date())
+                researchDate: dateFormatter.string(from: Date()),
+                providerStats: []
             ),
             confidence: 0.3,
             evidence: [],
@@ -1265,3 +1266,4 @@ final class BackendAnalysisClient {
         )
     }
 }
+
