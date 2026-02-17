@@ -179,6 +179,20 @@ function textQualityScore(text: string): number {
   return Math.max(0, Math.min(1, printableRatio * 0.72 + structureScore - binaryNoisePenalty));
 }
 
+function looksCorruptedExtractedText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  const readableChars = (trimmed.match(/[\p{L}\p{N}\s.,;:!?'"()\-[\]{}\/%@&+]/gu) ?? []).length;
+  const readableRatio = readableChars / Math.max(trimmed.length, 1);
+  const replacementRatio = (trimmed.match(/�|\u0000/g) ?? []).length / Math.max(trimmed.length, 1);
+  const binaryNoiseHits = (trimmed.match(/(?:endobj|stream|endstream|xref|trailer|%%eof)/giu) ?? []).length;
+
+  return readableRatio < 0.62 || replacementRatio > 0.005 || binaryNoiseHits >= 3;
+}
+
 function assertLimits(fileName: string, fileBytes: Buffer): void {
   if (fileBytes.length > MAX_FILE_BYTES) {
     throw makeError(413, "file_too_large", `File ${fileName} exceeds ${MAX_FILE_BYTES} bytes`, "parse-document", {
@@ -279,6 +293,11 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     }
   }
 
+  if (detectedFormat === "pdf" && rawText.trim().length > 0 && looksCorruptedExtractedText(rawText)) {
+    warnings.push("Local PDF text appears corrupted; prioritizing OCR/unstructured parsing.");
+    needsOcr = true;
+  }
+
   let ocrStats: { used: boolean; pagesOcred: number } | null = null;
 
   if (detectedFormat === "pdf" && needsOcr) {
@@ -335,12 +354,15 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
             const warningSignal = warnings.some((warning) =>
               /limited|no direct text extracted|unable to extract|image-only|fallback|ocr/i.test(warning)
             );
-
+            const localCorrupted = looksCorruptedExtractedText(rawText);
             const shouldPreferUnstructured =
-              warningSignal ||
-              needsOcr ||
-              unstructuredScore >= localScore + 0.05 ||
-              localScore < 0.42;
+              analysisProfile === "high_assurance"
+                ? unstructuredScore >= 0.28 || warningSignal || needsOcr || localCorrupted
+                : warningSignal ||
+                  needsOcr ||
+                  localCorrupted ||
+                  unstructuredScore >= localScore + 0.05 ||
+                  localScore < 0.42;
 
             if (shouldPreferUnstructured) {
               rawText = unstructured.text;

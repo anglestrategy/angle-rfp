@@ -1,4 +1,4 @@
-import { generateText, Output } from "ai";
+import { generateText } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { makeError } from "@/lib/api/errors";
@@ -135,24 +135,166 @@ const ResearchQueriesSchema = z.object({
   arabic: z.array(z.string()).default([])
 });
 
+const ENGLISH_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "this",
+  "that",
+  "into",
+  "across",
+  "project",
+  "scope",
+  "work",
+  "rfp",
+  "proposal",
+  "company",
+  "saudi",
+  "arabia"
+]);
+
+function dedupeQueries(values: string[], max: number): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(normalized);
+    if (output.length >= max) {
+      break;
+    }
+  }
+  return output;
+}
+
+function extractContextKeywords(input: ResearchClientInput): string[] {
+  const context = input.rfpContext;
+  if (!context) {
+    return [];
+  }
+
+  const text = [
+    context.projectName ?? "",
+    context.projectDescription ?? "",
+    context.scopeOfWork ?? "",
+    context.industry ?? ""
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  const counts = new Map<string, number>();
+  const matches = text.match(/[\p{L}\p{N}][\p{L}\p{N}\-]{2,}/gu) ?? [];
+  for (const token of matches) {
+    if (/^\d+$/.test(token) || ENGLISH_STOP_WORDS.has(token)) {
+      continue;
+    }
+    counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([token]) => token);
+}
+
+function buildContextAwareQueries(input: ResearchClientInput): { english: string[]; arabic: string[] } {
+  const base = buildBasicQueries(input);
+  const keywords = extractContextKeywords(input);
+  const projectName = input.rfpContext?.projectName?.trim();
+
+  const contextEnglish = [
+    projectName ? `"${input.clientName}" "${projectName}" Saudi Arabia` : "",
+    ...keywords.slice(0, 4).map((keyword) => `"${input.clientName}" ${keyword} Saudi Arabia`),
+    `"${input.clientName}" procurement awards brand campaign`,
+    `"${input.clientName}" annual report strategy marketing`
+  ].filter(Boolean);
+
+  const arabicName = input.clientNameArabic?.trim();
+  const arabicKeywords = keywords.filter((keyword) => /[\u0600-\u06FF]/.test(keyword));
+  const contextArabic = arabicName
+    ? [
+      `"${arabicName}" استراتيجية العلامة التجارية`,
+      `"${arabicName}" حملات تسويقية`,
+      ...arabicKeywords.slice(0, 3).map((keyword) => `"${arabicName}" ${keyword}`)
+    ]
+    : [];
+
+  return {
+    english: dedupeQueries([...contextEnglish, ...base.english], 8),
+    arabic: dedupeQueries([...contextArabic, ...base.arabic], 5)
+  };
+}
+
+function extractFirstJsonObject(raw: string): string | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    return null;
+  }
+  return raw.slice(start, end + 1);
+}
+
+function parseSmartQueriesFromText(raw: string): { english: string[]; arabic: string[] } | null {
+  const jsonText = extractFirstJsonObject(raw);
+  if (!jsonText) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonText);
+    const validated = ResearchQueriesSchema.parse(parsed);
+    return {
+      english: dedupeQueries(validated.english, 8),
+      arabic: dedupeQueries(validated.arabic, 5)
+    };
+  } catch {
+    return null;
+  }
+}
+
+function mergeSmartQueries(
+  generated: { english: string[]; arabic: string[] },
+  baseline: { english: string[]; arabic: string[] }
+): { english: string[]; arabic: string[] } {
+  return {
+    english: dedupeQueries([...generated.english, ...baseline.english], 8),
+    arabic: dedupeQueries([...generated.arabic, ...baseline.arabic], 5)
+  };
+}
+
 
 /**
  * Generate semantically relevant search queries based on RFP context using Gemini.
  * Uses generateObject with retry logic, abort signals, and hard timeouts for reliable structured output.
  */
 async function generateSmartQueries(input: ResearchClientInput): Promise<{ english: string[]; arabic: string[] }> {
+  const baselineQueries = buildContextAwareQueries(input);
   const apiKey = resolveGoogleApiKey();
 
   // Fall back to basic queries if no API key or no context
   if (!apiKey || !input.rfpContext) {
-    return buildBasicQueries(input);
+    return baselineQueries;
   }
 
   const googleProvider = createGoogleGenerativeAI({ apiKey });
   const context = input.rfpContext;
+  const contextSignal = `${context.projectName ?? ""} ${context.projectDescription ?? ""}`.replace(/\s+/g, " ").trim();
+  if (contextSignal.length < 80) {
+    console.warn("[Research] Context too sparse for smart query generation; using deterministic queries");
+    return baselineQueries;
+  }
   const contextSummary = [
     context.projectName && `Project: ${context.projectName}`,
-    context.projectDescription && `Description: ${context.projectDescription.slice(0, 400)}`,
+    context.projectDescription && `Description: ${context.projectDescription.slice(0, 700)}`,
     context.industry && `Industry: ${context.industry}`
   ].filter(Boolean).join("\n");
 
@@ -163,25 +305,30 @@ ${contextSummary}
 Create queries to find: organization type, size, marketing activity, digital presence, recent news.
 Put exact name in quotes for precise matching.
 
-Return ONLY valid JSON with "english" and "arabic" arrays of query strings. No explanations.`;
+Return ONLY valid JSON with "english" and "arabic" arrays of query strings. No explanations.
+JSON shape:
+{"english":["..."],"arabic":["..."]}`;
 
-  // Retry up to 3 times (like extraction does)
+  // Use text-mode with strict JSON instruction; this is more reliable than strict schema mode for query generation.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const abortController = new AbortController();
-      const timeoutId = setTimeout(() => abortController.abort(), 30_000);
+      const timeoutId = setTimeout(() => abortController.abort(), 32_000);
 
       const result = await withHardTimeout(
         runWithGeminiFlashModel((model) =>
           generateText({
             model: googleProvider(model),
-            output: Output.object({
-              schema: ResearchQueriesSchema
-            }),
             temperature: 0,
-            maxOutputTokens: 1200,
+            maxOutputTokens: 900,
             abortSignal: abortController.signal,
-            prompt
+            prompt: `${prompt}
+
+STRICT OUTPUT RULES:
+- Return one JSON object only, no markdown.
+- english must contain 4-8 queries.
+- arabic must contain 2-5 queries.
+- Do not include commentary.`
           })
         ),
         35_000,
@@ -189,22 +336,16 @@ Return ONLY valid JSON with "english" and "arabic" arrays of query strings. No e
       );
 
       clearTimeout(timeoutId);
-
-      const english = (result.output?.english ?? []).filter(Boolean).slice(0, 6);
-      const arabic = (result.output?.arabic ?? []).filter(Boolean).slice(0, 4);
-
-      if (english.length >= 3) {
-        console.log(`[Research] Smart queries generated: ${english.length} EN, ${arabic.length} AR`);
-        return { english, arabic: arabic.length > 0 ? arabic : buildBasicQueries(input).arabic };
+      const raw = result.text ?? "";
+      const parsed = parseSmartQueriesFromText(raw);
+      if (parsed && parsed.english.length >= 3) {
+        console.log(`[Research] Smart queries generated: ${parsed.english.length} EN, ${parsed.arabic.length} AR`);
+        return mergeSmartQueries(parsed, baselineQueries);
       }
+      throw new Error("No output generated.");
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`[Research] Smart query attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
-      if (/no output generated/i.test(msg)) {
-        // Gemini occasionally returns an empty structured payload under strict schema mode.
-        // Retrying rarely helps; fallback immediately to deterministic queries.
-        break;
-      }
       if (attempt < 2) {
         const backoffMs = Math.min(2000, 400 * (attempt + 1));
         await new Promise(r => setTimeout(r, backoffMs));
@@ -212,8 +353,8 @@ Return ONLY valid JSON with "english" and "arabic" arrays of query strings. No e
     }
   }
 
-  console.warn("[Research] All smart query attempts failed, using basic queries");
-  return buildBasicQueries(input);
+  console.warn("[Research] All smart query attempts failed, using context-aware deterministic queries");
+  return baselineQueries;
 }
 
 /**

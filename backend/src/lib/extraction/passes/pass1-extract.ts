@@ -65,7 +65,7 @@ function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
 
 const MAX_DELIVERABLES_PER_CATEGORY = positiveIntFromEnv(
   process.env.EXTRACTION_MAX_DELIVERABLES_PER_CATEGORY,
-  20
+  12
 );
 const MAX_SCOPE_ITEMS_FOR_ANALYSIS = positiveIntFromEnv(
   process.env.EXTRACTION_MAX_SCOPE_ITEMS,
@@ -1356,6 +1356,7 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
   const fragments = splitScopeFragments(scopeText);
   const seen = new Set<string>();
   const workItems: string[] = [];
+  const fallbackCandidates: string[] = [];
 
   for (const fragment of fragments) {
     if (!fragment || /^```/.test(fragment)) {
@@ -1370,7 +1371,7 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
       .replace(/\s+/g, " ")
       .trim();
 
-    if (!cleaned || cleaned.length < 10) {
+    if (!cleaned || cleaned.length < 8) {
       continue;
     }
 
@@ -1383,18 +1384,20 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
       continue;
     }
 
-    if (SCOPE_PHASE_TITLE_PATTERNS.some((pattern) => pattern.test(cleaned))) {
-      continue;
-    }
-
-    if (SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(cleaned))) {
+    const isPhaseTitle = SCOPE_PHASE_TITLE_PATTERNS.some((pattern) => pattern.test(cleaned));
+    const isNonWork = SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(cleaned));
+    if (isNonWork && !SCOPE_ACTION_VERB_PATTERN.test(cleaned)) {
       continue;
     }
 
     // Drop short category labels and phase titles; keep concrete action lines.
     const wordCount = cleaned.split(/\s+/).length;
     const hasActionVerb = SCOPE_ACTION_VERB_PATTERN.test(cleaned);
-    if (!hasActionVerb && wordCount <= 6) {
+    if ((!hasActionVerb && wordCount <= 6) || isPhaseTitle) {
+      // Keep as fallback candidate in case model output is sparse.
+      if (!isNonWork) {
+        fallbackCandidates.push(cleaned);
+      }
       continue;
     }
 
@@ -1407,16 +1410,114 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
   }
 
   if (workItems.length === 0) {
-    return scopeText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .slice(0, 8)
-      .map((line) => `• ${line.replace(/^#{1,6}\s*/, "").trim()}`)
-      .join("\n");
+    const softCandidates = fallbackCandidates.length > 0
+      ? fallbackCandidates
+      : scopeText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => line.replace(/^#{1,6}\s*/, "").trim())
+        .filter((line) => line.length >= 8)
+        .filter((line) => !SCOPE_HEADING_PATTERNS.some((pattern) => pattern.test(line)))
+        .filter((line) => !SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(line)));
+    return softCandidates.slice(0, 12).map((line) => `• ${line}`).join("\n");
   }
 
   return workItems.map((item) => `• ${item}`).join("\n");
+}
+
+function countScopeItems(scopeText: string): number {
+  return scopeText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("• "))
+    .length;
+}
+
+function scopeQualityScore(scopeText: string): number {
+  const items = countScopeItems(scopeText);
+  if (items === 0) {
+    return 0;
+  }
+  const actionCount = scopeText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^•\s*/, "").trim())
+    .filter((line) => SCOPE_ACTION_VERB_PATTERN.test(line)).length;
+  return items * 2 + actionCount;
+}
+
+function buildScopeFromSource(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
+  const text = parsedDocument.rawText;
+  const scopeFromSection = bySectionName(text, parsedDocument.sections, ["scope_of_work"]);
+  const scopeFromHeading = extractExactBlock(
+    text,
+    /scope\s+of\s+work|statement\s+of\s+work|services\s+required|نطاق\s+العمل/i,
+    5000
+  );
+  const candidates = [scopeFromSection, scopeFromHeading]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .map((value) => sanitizeScopeForAnalysis(normalizeStructuredText(value)))
+    .filter((value) => value.trim().length > 0);
+
+  if (candidates.length === 0) {
+    return "";
+  }
+
+  candidates.sort((a, b) => scopeQualityScore(b) - scopeQualityScore(a));
+  return candidates[0] ?? "";
+}
+
+function chooseBestScopeScopeText(claudeScope: string, sourceScope: string): string {
+  const claudeScore = scopeQualityScore(claudeScope);
+  const sourceScore = scopeQualityScore(sourceScope);
+  if (sourceScore >= claudeScore + 2) {
+    return sourceScope;
+  }
+  if (claudeScore === 0 && sourceScore > 0) {
+    return sourceScope;
+  }
+  return claudeScope || sourceScope;
+}
+
+function buildScopeFromDeliverableSignals(
+  requiredDeliverables: DeliverableItem[],
+  deliverableRequirements: DeliverableRequirements
+): string {
+  const candidates: string[] = [];
+  for (const item of requiredDeliverables) {
+    const clean = normalizeRequirementLine(item.item);
+    if (clean.length >= 12) {
+      candidates.push(clean);
+    }
+  }
+
+  const grouped = [
+    ...deliverableRequirements.technical,
+    ...deliverableRequirements.strategicCreative
+  ];
+  for (const item of grouped) {
+    const title = normalizeRequirementLine(item.title);
+    const description = normalizeRequirementLine(item.description);
+    const combined = title && description ? `${title}: ${description}` : title || description;
+    if (combined.length >= 14) {
+      candidates.push(combined);
+    }
+  }
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const normalized = normalizeDedupeKey(candidate);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    deduped.push(candidate);
+    if (deduped.length >= 12) {
+      break;
+    }
+  }
+  return deduped.map((line) => `• ${truncateAtWordBoundary(line, 180)}`).join("\n");
 }
 
 function normalizeExecutiveSummary(text: string): string {
@@ -1494,6 +1595,18 @@ function buildEvaluationCriteriaStructuredFromText(criteriaText: string): Evalua
   for (const line of lines) {
     const cleaned = normalizeRequirementLine(line);
     if (!cleaned || EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(cleaned))) {
+      continue;
+    }
+
+    const upperColonMatch = cleaned.match(/^([A-Z][A-Z0-9\s,&/]{6,140})\s*:\s*(.{12,})$/);
+    if (upperColonMatch?.[1] && upperColonMatch[2]) {
+      pushCurrent();
+      current = {
+        title: normalizeEvaluationGroupTitle(upperColonMatch[1]) || "Evaluation Criterion",
+        weight: parseEvaluationWeight(cleaned),
+        items: [truncateAtWordBoundary(upperColonMatch[2].trim(), 220)],
+        evidenceRefs: [truncateAtWordBoundary(cleaned, 180)]
+      };
       continue;
     }
 
@@ -1825,6 +1938,68 @@ function chooseBestEvaluationCriteria(primary: string, fallback: string): string
   return primary;
 }
 
+function dedupeDeliverableRequirementCategory(
+  items: DeliverableRequirementItem[]
+): DeliverableRequirementItem[] {
+  const byTitle = new Map<string, DeliverableRequirementItem>();
+  const byDescription = new Map<string, DeliverableRequirementItem>();
+  for (const item of items) {
+    const title = item.title?.trim() ?? "";
+    const description = item.description?.trim() ?? "";
+    if (!title && !description) {
+      continue;
+    }
+    const titleKey = normalizeDedupeKey(title);
+    const descriptionKey = normalizeDedupeKey(description);
+    const key = titleKey || descriptionKey;
+    if (!key || (!titleKey && !descriptionKey)) {
+      continue;
+    }
+    const existing = byTitle.get(key) ?? (descriptionKey ? byDescription.get(descriptionKey) : undefined);
+    if (!existing) {
+      byTitle.set(key, item);
+      if (descriptionKey) {
+        byDescription.set(descriptionKey, item);
+      }
+      continue;
+    }
+
+    const existingScore =
+      (existing.source === "verbatim" ? 2 : 0) +
+      (existing.evidenceRef ? 1 : 0) +
+      Math.min(existing.description.length / 120, 2);
+    const currentScore =
+      (item.source === "verbatim" ? 2 : 0) +
+      (item.evidenceRef ? 1 : 0) +
+      Math.min(description.length / 120, 2);
+
+    if (currentScore > existingScore) {
+      byTitle.set(key, item);
+      if (descriptionKey) {
+        byDescription.set(descriptionKey, item);
+      }
+    }
+  }
+  const unique = dedupeDeliverableItems(Array.from(byTitle.values()));
+  return unique.slice(0, MAX_DELIVERABLES_PER_CATEGORY);
+}
+
+function dedupeDeliverableItems(items: DeliverableRequirementItem[]): DeliverableRequirementItem[] {
+  const seen = new Set<string>();
+  const out: DeliverableRequirementItem[] = [];
+  for (const item of items) {
+    const titleKey = normalizeDedupeKey(item.title);
+    const descKey = normalizeDedupeKey(item.description);
+    const key = `${titleKey}|${descKey}`;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function dedupeImportantDates(
   dates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
 ): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
@@ -1892,11 +2067,15 @@ function mapClaudeToPass1Output(
   const claudeEvaluation = sanitizeEvaluationCriteria(
     normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
   );
-  const mergedEvaluation = chooseBestEvaluationCriteria(claudeEvaluation, sourceEvaluation.formatted);
+  const candidateEvaluation = chooseBestEvaluationCriteria(claudeEvaluation, sourceEvaluation.formatted);
   const evaluationCriteriaStructured =
-    sourceEvaluation.structured.length > 0
+    sourceEvaluation.structured.length >= 2
       ? sourceEvaluation.structured
-      : buildEvaluationCriteriaStructuredFromText(mergedEvaluation);
+      : buildEvaluationCriteriaStructuredFromText(candidateEvaluation);
+  const mergedEvaluation =
+    evaluationCriteriaStructured.length >= 2
+      ? formatEvaluationCriteriaStructured(evaluationCriteriaStructured)
+      : candidateEvaluation;
   const requiredDeliverables = dedupeDeliverables(
     claude.requiredDeliverables.map((d) => ({
       item: typeof d === "string" ? d : d.item,
@@ -1905,7 +2084,7 @@ function mapClaudeToPass1Output(
   );
   const claudeDeliverableRequirements = buildDeliverableRequirementsFromClaude(claude);
   const allowHeuristicDeliverableFallback =
-    process.env.ALLOW_HEURISTIC_DELIVERABLE_FALLBACK === "1" || process.env.NODE_ENV === "test";
+    process.env.ALLOW_HEURISTIC_DELIVERABLE_FALLBACK !== "0";
   const heuristicDeliverableRequirements = allowHeuristicDeliverableFallback
     ? buildDeliverableRequirements(
       text,
@@ -1913,16 +2092,27 @@ function mapClaudeToPass1Output(
       requiredDeliverables
     )
     : { technical: [], commercial: [], strategicCreative: [] };
+
+  function mergeCategory(
+    primary: DeliverableRequirementItem[],
+    secondary: DeliverableRequirementItem[],
+    minItems: number
+  ): DeliverableRequirementItem[] {
+    const combined = [...primary];
+    if (combined.length < minItems) {
+      for (const candidate of secondary) {
+        combined.push(candidate);
+        if (combined.length >= minItems + 4) {
+          break;
+        }
+      }
+    }
+    return dedupeDeliverableRequirementCategory(combined);
+  }
   const mergedDeliverableRequirements: DeliverableRequirements = {
-    technical: claudeDeliverableRequirements.technical.length > 0
-      ? claudeDeliverableRequirements.technical
-      : heuristicDeliverableRequirements.technical,
-    commercial: claudeDeliverableRequirements.commercial.length > 0
-      ? claudeDeliverableRequirements.commercial
-      : heuristicDeliverableRequirements.commercial,
-    strategicCreative: claudeDeliverableRequirements.strategicCreative.length > 0
-      ? claudeDeliverableRequirements.strategicCreative
-      : heuristicDeliverableRequirements.strategicCreative
+    technical: mergeCategory(claudeDeliverableRequirements.technical, heuristicDeliverableRequirements.technical, 5),
+    commercial: mergeCategory(claudeDeliverableRequirements.commercial, heuristicDeliverableRequirements.commercial, 3),
+    strategicCreative: mergeCategory(claudeDeliverableRequirements.strategicCreative, heuristicDeliverableRequirements.strategicCreative, 3)
   };
   if (!allowHeuristicDeliverableFallback) {
     const hasAnyDeliverableRequirement =
@@ -1937,6 +2127,20 @@ function mapClaudeToPass1Output(
     requiredDeliverables,
     mergedDeliverableRequirements
   );
+  let selectedScope = chooseBestScopeScopeText(
+    sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || "")),
+    buildScopeFromSource(parsedDocument)
+  );
+  if (countScopeItems(selectedScope) < 2) {
+    const synthesizedScope = buildScopeFromDeliverableSignals(
+      canonicalRequiredDeliverables,
+      mergedDeliverableRequirements
+    );
+    if (countScopeItems(synthesizedScope) >= 2) {
+      selectedScope = synthesizedScope;
+      warnings.push("Scope was reconstructed from deliverable signals due sparse direct scope extraction.");
+    }
+  }
 
   // Map Claude date types to our format with isCritical flag
   const mappedDates = claude.importantDates.map((d) => ({
@@ -1988,7 +2192,7 @@ function mapClaudeToPass1Output(
     projectDescription: normalizeExecutiveSummary(
       normalizeStructuredText(claude.projectDescription || fallbackExecutiveSummarySeed(text))
     ),
-    scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || "")),
+    scopeOfWork: selectedScope,
     evaluationCriteria: mergedEvaluation,
     evaluationCriteriaStructured,
     requiredDeliverables: canonicalRequiredDeliverables,

@@ -20,6 +20,21 @@ function normalizePdfText(value: string): string {
     .trim();
 }
 
+function isLikelyCorruptedPdfText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) {
+    return true;
+  }
+
+  const readableChars = (normalized.match(/[\p{L}\p{N}\s.,;:!?'"()\-[\]{}\/%@&+]/gu) ?? []).length;
+  const readableRatio = readableChars / Math.max(normalized.length, 1);
+  const replacementCharCount = (normalized.match(/�|\u0000/g) ?? []).length;
+  const replacementRatio = replacementCharCount / Math.max(normalized.length, 1);
+  const binaryMarkerHits = (normalized.match(/(?:endobj|stream|endstream|xref|trailer|%%eof)/giu) ?? []).length;
+
+  return readableRatio < 0.62 || replacementRatio > 0.005 || binaryMarkerHits >= 3;
+}
+
 function estimatePageCountFromRaw(raw: string): number {
   return Math.max((raw.match(/\/Type\s*\/Page\b/g) ?? []).length, 1);
 }
@@ -42,12 +57,16 @@ export async function parsePdfBuffer(fileBytes: Buffer): Promise<PdfParseResult>
   const warnings: string[] = [];
   let text = "";
   let pageCount = estimatePageCountFromRaw(raw);
+  let needsOcr = false;
 
   try {
     const parsed = await parsePdfWithLibrary(fileBytes);
     const parsedText = normalizePdfText(parsed.text ?? "");
-    if (parsedText.length > 0) {
+    if (parsedText.length > 0 && !isLikelyCorruptedPdfText(parsedText)) {
       text = parsedText;
+    } else if (parsedText.length > 0) {
+      warnings.push("Primary PDF parser returned low-quality/corrupted text; forcing OCR/unstructured fallback.");
+      needsOcr = true;
     }
     if (typeof parsed.numpages === "number" && Number.isFinite(parsed.numpages) && parsed.numpages > 0) {
       pageCount = Math.max(1, Math.floor(parsed.numpages));
@@ -62,8 +81,6 @@ export async function parsePdfBuffer(fileBytes: Buffer): Promise<PdfParseResult>
   if (!text) {
     warnings.push("No reliable text from primary PDF parser; skipping binary fallback and preferring OCR/unstructured.");
   }
-
-  let needsOcr = false;
 
   const textPerPage = text.length / Math.max(1, pageCount);
   if (text.length < 500 || textPerPage < 350) {

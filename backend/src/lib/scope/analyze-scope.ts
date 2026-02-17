@@ -155,10 +155,21 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     });
   }
 
-  const scopeItems = splitScopeItems(input.scopeOfWork);
+  const warnings: string[] = [];
+  let scopeItems = splitScopeItems(input.scopeOfWork);
+  if (scopeItems.length === 0) {
+    const salvage = input.scopeOfWork
+      .split(/\r?\n|[؛;•]/u)
+      .map((line) => line.replace(/^[-*•\d.)\s]+/u, "").trim())
+      .filter((line) => line.length >= 10)
+      .slice(0, 24);
+    if (salvage.length > 0) {
+      scopeItems = salvage;
+      warnings.push("Scope segmentation fallback was used due sparse scope formatting.");
+    }
+  }
 
   // Try Claude-based semantic matching in batches; fall back to token matching per-batch
-  const warnings: string[] = [];
   let matches: Array<{
     scopeItem: string;
     service: string;

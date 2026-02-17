@@ -358,6 +358,33 @@ function mergeTextBlocks(values: string[], maxChars: number): string {
   return merged;
 }
 
+function extractFirstJsonObject(raw: string): string | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) {
+    return null;
+  }
+  return raw.slice(start, end + 1);
+}
+
+function parseWindowFieldsFromText(raw: string): ClaudeWindowFields | null {
+  const json = extractFirstJsonObject(raw);
+  if (!json) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(json);
+    const validated = ClaudeWindowFieldsSchema.safeParse(parsed);
+    if (!validated.success) {
+      return null;
+    }
+    return validated.data;
+  } catch {
+    return null;
+  }
+}
+
 export async function withHardTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   const safeTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120_000;
   return await new Promise<T>((resolve, reject) => {
@@ -581,28 +608,65 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
     activeControllers.add(abortController);
     const timeoutId = setTimeout(() => abortController.abort(), WINDOW_TIMEOUT_MS);
     try {
-      const result = await withHardTimeout(
-        runWithGeminiFlashModel((model) =>
-          generateText({
-            model: googleProvider(model),
-            output: Output.object({
-              schema: ClaudeWindowFieldsSchema
-            }),
-            temperature: 0,
-            maxOutputTokens: 6000,
-            abortSignal: abortController.signal,
-            prompt:
-              `${EXTRACTION_PROMPT}\n` +
-              `You are processing window ${window.index + 1} of ${windows.length}. ` +
-              "Extract only information explicitly present in this window. " +
-              "If a field is not present in this window, leave it empty.\n\n" +
-              context
-          })
-        ),
-        WINDOW_TIMEOUT_MS + 5_000,
-        `Extraction window ${window.index + 1} timed out after ${Math.round((WINDOW_TIMEOUT_MS + 5_000) / 1000)}s`
-      );
-      return canonicalizeWindowFields(result.output!);
+      const basePrompt =
+        `${EXTRACTION_PROMPT}\n` +
+        `You are processing window ${window.index + 1} of ${windows.length}. ` +
+        "Extract only information explicitly present in this window. " +
+        "If a field is not present in this window, leave it empty.\n\n" +
+        context;
+
+      try {
+        const result = await withHardTimeout(
+          runWithGeminiFlashModel((model) =>
+            generateText({
+              model: googleProvider(model),
+              output: Output.object({
+                schema: ClaudeWindowFieldsSchema
+              }),
+              temperature: 0,
+              maxOutputTokens: 5200,
+              abortSignal: abortController.signal,
+              prompt: basePrompt
+            })
+          ),
+          WINDOW_TIMEOUT_MS + 5_000,
+          `Extraction window ${window.index + 1} timed out after ${Math.round((WINDOW_TIMEOUT_MS + 5_000) / 1000)}s`
+        );
+        return canonicalizeWindowFields(result.output!);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryWithTextMode =
+          /no output generated|validation|schema|json/i.test(message);
+        if (!retryWithTextMode) {
+          throw error;
+        }
+
+        const textResult = await withHardTimeout(
+          runWithGeminiFlashModel((model) =>
+            generateText({
+              model: googleProvider(model),
+              temperature: 0,
+              maxOutputTokens: 5200,
+              abortSignal: abortController.signal,
+              prompt:
+                `${basePrompt}\n\n` +
+                "Return only JSON matching the required schema. No markdown, no comments."
+            })
+          ),
+          WINDOW_TIMEOUT_MS + 5_000,
+          `Extraction window ${window.index + 1} text-mode fallback timed out`
+        );
+        const parsed = parseWindowFieldsFromText(textResult.text ?? "");
+        if (!parsed) {
+          throw new Error(
+            `Structured fallback parse failed for window ${window.index + 1}: could not parse JSON payload.`
+          );
+        }
+        console.warn(
+          `[Extraction] Window ${window.index} recovered via text-mode JSON fallback`
+        );
+        return canonicalizeWindowFields(parsed);
+      }
     } finally {
       clearTimeout(timeoutId);
       activeControllers.delete(abortController);
