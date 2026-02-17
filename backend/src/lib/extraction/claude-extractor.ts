@@ -27,13 +27,10 @@ function parseCopyCount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-const LooseDeliverableSchema = z.union([
-  z.string(),
-  z.object({
-    item: z.string().nullable().optional(),
-    source: z.enum(["verbatim", "inferred"]).optional()
-  })
-]);
+const LooseDeliverableSchema = z.object({
+  item: z.string().nullable().optional(),
+  source: z.enum(["verbatim", "inferred"]).optional()
+});
 
 const LooseDeliverableRequirementEntrySchema = z.object({
   title: z.string().nullable().optional(),
@@ -71,7 +68,7 @@ const ClaudeWindowFieldsSchema = z.object({
     email: z.string().nullable().optional(),
     format: z.string().nullable().optional(),
     physicalAddress: z.string().nullable().optional(),
-    copies: z.union([z.string(), z.number(), z.null()]).optional()
+    copies: z.string().nullable().optional()
   }).default({})
 });
 
@@ -116,11 +113,8 @@ function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFie
   };
 
   const normalizeDeliverable = (
-    item: string | { item?: string | null; source?: "verbatim" | "inferred" }
+    item: { item?: string | null; source?: "verbatim" | "inferred" }
   ): { item: string; source: "verbatim" | "inferred" } => {
-    if (typeof item === "string") {
-      return { item: coerceString(item, ""), source: "verbatim" };
-    }
     return {
       item: coerceString(item.item, ""),
       source: item.source === "inferred" ? "inferred" : "verbatim"
@@ -389,10 +383,7 @@ function mergeDeliverables(
   const merged = new Map<string, { item: string; source: "verbatim" | "inferred" }>();
 
   for (const result of results) {
-    for (const raw of result.requiredDeliverables) {
-      const entry = typeof raw === "string"
-        ? { item: raw, source: "verbatim" as const }
-        : { item: raw.item, source: raw.source };
+    for (const entry of result.requiredDeliverables) {
       const item = normalizeWhitespace(entry.item);
       if (!item) {
         continue;
@@ -512,7 +503,8 @@ RULES:
 1. clientName must be the RFP issuer (not bidders/vendors).
 2. scopeOfWork must include only actual execution scope items, concise bullets.
 3. evaluationCriteria must be clean, grouped, no markdown artifacts.
-4. requiredDeliverables must contain PROJECT DELIVERABLES - what the agency will CREATE for the client:
+4. Return only strict JSON that matches schema exactly (no nulls for required strings).
+5. requiredDeliverables must contain PROJECT DELIVERABLES - what the agency will CREATE for the client:
    - Strategic documents (brand strategy, positioning, messaging frameworks)
    - Creative outputs (campaigns, concepts, key visuals, brand identity)
    - Design assets (templates, guidelines, adaptations)
@@ -522,14 +514,17 @@ RULES:
    compliance docs, commercial proposals). These belong in deliverableRequirements.
 
    Focus on the Scope of Work section. List 5-8 MAJOR deliverables for executive scanning.
+   REQUIRED FORMAT for each item:
+   { "item": "deliverable text", "source": "verbatim" | "inferred" }
 
-5. deliverableRequirements categorizes what the PROPOSAL must include (for bid preparation):
+6. deliverableRequirements categorizes what the PROPOSAL must include (for bid preparation):
    - technical: methodology, team CVs, certifications, credentials
    - commercial: pricing, payment terms, financial docs
    - strategicCreative: sample work, case studies, creative approach
    Exclude legal boilerplate and generic terms/conditions.
-6. importantDates should include critical deadlines in YYYY-MM-DD where possible.
-7. Keep text executive-grade, concise, and non-duplicative.
+7. importantDates should include critical deadlines in YYYY-MM-DD where possible.
+8. Keep text executive-grade, concise, and non-duplicative.
+9. submissionRequirements.copies must be a string (for example "2", "Two copies") or null.
 
 Context:
 `;

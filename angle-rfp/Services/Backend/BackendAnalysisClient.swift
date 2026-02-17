@@ -83,7 +83,7 @@ final class BackendAnalysisClient {
     private let txtParser = TXTParsingService()
 
     private enum StageTimeouts {
-        static let parse: TimeInterval = 420
+        static let parse: TimeInterval = 660   // Match backend parse maxDuration (600s) + buffer
         static let extract: TimeInterval = 780
         static let scope: TimeInterval = 200    // Increased to match backend timeout (180s) + buffer
         static let research: TimeInterval = 330 // Increased to match backend timeout (300s) + buffer
@@ -114,7 +114,7 @@ final class BackendAnalysisClient {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 60
-        configuration.timeoutIntervalForResource = 420
+        configuration.timeoutIntervalForResource = 900
         return URLSession(configuration: configuration)
     }
 
@@ -326,7 +326,7 @@ final class BackendAnalysisClient {
         for attempt in 1...3 {
             var request = URLRequest(url: endpoint)
             request.httpMethod = "POST"
-            request.timeoutInterval = 210
+            request.timeoutInterval = timeoutInterval(for: "api/parse-document")
             request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
             request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
             request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
@@ -775,6 +775,8 @@ final class BackendAnalysisClient {
     private func timeoutInterval(for path: String) -> TimeInterval {
         let normalizedPath = path.components(separatedBy: "?").first ?? path
         switch normalizedPath {
+        case "api/parse-document":
+            return 660  // Backend maxDuration (600s) + buffer
         case "api/analyze-rfp":
             return 660  // Increased to 11 minutes to match backend maxDuration (600s) + buffer
         case "api/analyze/start":
@@ -1266,4 +1268,3 @@ final class BackendAnalysisClient {
         )
     }
 }
-

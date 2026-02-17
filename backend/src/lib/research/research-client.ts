@@ -200,6 +200,11 @@ Return ONLY valid JSON with "english" and "arabic" arrays of query strings. No e
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`[Research] Smart query attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
+      if (/no output generated/i.test(msg)) {
+        // Gemini occasionally returns an empty structured payload under strict schema mode.
+        // Retrying rarely helps; fallback immediately to deterministic queries.
+        break;
+      }
       if (attempt < 2) {
         const backoffMs = Math.min(2000, 400 * (attempt + 1));
         await new Promise(r => setTimeout(r, backoffMs));
