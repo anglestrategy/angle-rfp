@@ -161,7 +161,9 @@ ${input.clientNameArabic ? `Arabic name: ${input.clientNameArabic}` : ""}
 ${contextSummary}
 
 Create queries to find: organization type, size, marketing activity, digital presence, recent news.
-Put exact name in quotes for precise matching.`;
+Put exact name in quotes for precise matching.
+
+Return ONLY valid JSON with "english" and "arabic" arrays of query strings. No explanations.`;
 
   // Retry up to 3 times (like extraction does)
   for (let attempt = 0; attempt < 3; attempt++) {
