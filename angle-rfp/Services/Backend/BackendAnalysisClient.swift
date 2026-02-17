@@ -115,6 +115,7 @@ final class BackendAnalysisClient {
         configuration.waitsForConnectivity = false
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 900
+        configuration.httpMaximumConnectionsPerHost = 2
         return URLSession(configuration: configuration)
     }
 
@@ -331,10 +332,10 @@ final class BackendAnalysisClient {
             request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
             request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
             request.addValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-            request.httpBody = requestBody
+            configureRequestTransport(&request)
 
             do {
-                (data, response) = try await session.data(for: request)
+                (data, response) = try await session.upload(for: request, from: requestBody)
                 lastError = nil
                 break
             } catch {
@@ -604,6 +605,7 @@ final class BackendAnalysisClient {
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(body)
+        configureRequestTransport(&request)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -642,6 +644,7 @@ final class BackendAnalysisClient {
         request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
         request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
         request.addValue("application/json", forHTTPHeaderField: "Accept")
+        configureRequestTransport(&request)
 
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
@@ -759,6 +762,7 @@ final class BackendAnalysisClient {
 
         switch urlError.code {
         case .timedOut,
+             .cannotParseResponse,
              .networkConnectionLost,
              .notConnectedToInternet,
              .cannotConnectToHost,
@@ -769,6 +773,14 @@ final class BackendAnalysisClient {
             return true
         default:
             return false
+        }
+    }
+
+    private func configureRequestTransport(_ request: inout URLRequest) {
+        if #available(macOS 12.0, *) {
+            // Render/Cloudflare occasionally negotiate unstable QUIC paths on large multipart uploads.
+            // Force HTTP/1.1+2 for deterministic behavior.
+            request.assumesHTTP3Capable = false
         }
     }
 
