@@ -201,6 +201,33 @@ function hasParserDegradationWarning(warnings: string[]): boolean {
   );
 }
 
+function localPdfTextIsUsable(params: {
+  text: string;
+  pageCount: number;
+  warnings: string[];
+}): boolean {
+  const trimmed = params.text.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (looksCorruptedExtractedText(trimmed)) {
+    return false;
+  }
+
+  const qualityScore = textQualityScore(trimmed);
+  const minLength = Math.max(1_200, Math.min(5_000, params.pageCount * 220));
+  const hasHardFailureSignal = params.warnings.some((warning) =>
+    /no reliable text|no direct text extracted|low-quality\/corrupted text/i.test(warning)
+  );
+
+  if (hasHardFailureSignal && trimmed.length < minLength) {
+    return false;
+  }
+
+  return qualityScore >= 0.36 && trimmed.length >= minLength;
+}
+
 function parseTimeoutFromEnv(raw: string | undefined, fallbackMs: number, minMs = 5_000, maxMs = 300_000): number {
   const parsed = Number(raw ?? "");
   if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -469,19 +496,25 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     const hasUnstructured = parserProvenance.includes("unstructured");
     const hasOcrText = sourceType === "ocr";
     if (!hasUnstructured && !hasOcrText) {
-      throw makeError(
-        422,
-        "validation_error",
-        "PDF text extraction quality is degraded and no premium parsing path succeeded (Unstructured/OCR).",
-        "parse-document",
-        {
-          retryable: true,
-          details: {
-            warnings,
-            parserProvenance
+      if (localPdfTextIsUsable({ text: rawText, pageCount, warnings })) {
+        warnings.push(
+          "[parser_degraded_local_pdf_accepted] Premium parsing path unavailable; continuing with usable local PDF text in degraded high-assurance mode."
+        );
+      } else {
+        throw makeError(
+          422,
+          "validation_error",
+          "PDF text extraction quality is degraded and no premium parsing path succeeded (Unstructured/OCR).",
+          "parse-document",
+          {
+            retryable: true,
+            details: {
+              warnings,
+              parserProvenance
+            }
           }
-        }
-      );
+        );
+      }
     }
   }
 
