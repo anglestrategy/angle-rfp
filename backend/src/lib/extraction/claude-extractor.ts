@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
@@ -588,9 +588,11 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
     try {
       const result = await withHardTimeout(
         runWithGeminiFlashModel((model) =>
-          generateObject({
+          generateText({
             model: googleProvider(model),
-            schema: ClaudeWindowFieldsSchema,
+            output: Output.object({
+              schema: ClaudeWindowFieldsSchema
+            }),
             temperature: 0,
             maxOutputTokens: 6000,
             abortSignal: abortController.signal,
@@ -605,7 +607,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
         WINDOW_TIMEOUT_MS + 5_000,
         `Extraction window ${window.index + 1} timed out after ${Math.round((WINDOW_TIMEOUT_MS + 5_000) / 1000)}s`
       );
-      return canonicalizeWindowFields(result.object);
+      return canonicalizeWindowFields(result.output!);
     } finally {
       clearTimeout(timeoutId);
       activeControllers.delete(abortController);

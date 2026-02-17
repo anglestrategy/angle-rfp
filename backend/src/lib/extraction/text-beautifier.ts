@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
@@ -506,16 +506,18 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
           ? PROJECT_DESCRIPTION_BEAUTIFY_PROMPT
           : BEAUTIFY_PROMPT;
     const result = await runWithGeminiFlashModel((model) =>
-      generateObject({
+      generateText({
         model: googleProvider(model),
-        schema: BeautifiedTextSchema,
+        output: Output.object({
+          schema: BeautifiedTextSchema
+        }),
         temperature: 0,
         maxOutputTokens: 4000,
         abortSignal: abortController.signal,
         prompt: `${prompt}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
       })
     );
-    const validated = BeautifiedTextSchema.parse(result.object);
+    const validated = BeautifiedTextSchema.parse(result.output);
 
     if (fieldName === "Scope of Work") {
       return normalizeScopeStructure(validated);

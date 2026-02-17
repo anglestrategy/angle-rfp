@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { makeError } from "@/lib/api/errors";
@@ -171,9 +171,11 @@ Put exact name in quotes for precise matching.`;
 
       const result = await withHardTimeout(
         runWithGeminiFlashModel((model) =>
-          generateObject({
+          generateText({
             model: googleProvider(model),
-            schema: ResearchQueriesSchema,
+            output: Output.object({
+              schema: ResearchQueriesSchema
+            }),
             temperature: 0,
             maxOutputTokens: 1200,
             abortSignal: abortController.signal,
@@ -186,8 +188,8 @@ Put exact name in quotes for precise matching.`;
 
       clearTimeout(timeoutId);
 
-      const english = (result.object.english ?? []).filter(Boolean).slice(0, 6);
-      const arabic = (result.object.arabic ?? []).filter(Boolean).slice(0, 4);
+      const english = (result.output?.english ?? []).filter(Boolean).slice(0, 6);
+      const arabic = (result.output?.arabic ?? []).filter(Boolean).slice(0, 4);
 
       if (english.length >= 3) {
         console.log(`[Research] Smart queries generated: ${english.length} EN, ${arabic.length} AR`);

@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import type { AgencyService } from "@/lib/scope/taxonomy-loader";
@@ -120,16 +120,18 @@ Return JSON only:
 
   try {
     const result = await runWithGeminiFlashModel((model) =>
-      generateObject({
+      generateText({
         model: googleProvider(model),
-        schema: ClaudeMatchResponseSchema,
+        output: Output.object({
+          schema: ClaudeMatchResponseSchema
+        }),
         temperature: 0,
         maxOutputTokens: 2200,
         abortSignal: abortController.signal,
         prompt
       })
     );
-    const validated = ClaudeMatchResponseSchema.parse(result.object);
+    const validated = ClaudeMatchResponseSchema.parse(result.output);
 
     return validated.matches.map(m => ({
       scopeItem: m.scopeItem,
