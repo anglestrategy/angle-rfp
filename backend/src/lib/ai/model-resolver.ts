@@ -3,7 +3,7 @@ const INVALID_MODEL_ALIASES = new Set([
   "claude-haiku-4-5-latest"
 ]);
 
-export const DEFAULT_GEMINI_FLASH_MODEL = "gemini-2.0-flash";
+export const DEFAULT_GEMINI_FLASH_MODEL = "gemini-1.5-pro";
 // Backward-compatible aliases while legacy names are still referenced.
 export const DEFAULT_CLAUDE_SONNET_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
 export const DEFAULT_CLAUDE_HAIKU_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
@@ -107,10 +107,9 @@ function dedupe(values: string[]): string[] {
 export function getGeminiFlashModelCandidates(): string[] {
   return dedupe([
     resolveGeminiFlashModel(),
+    "gemini-1.5-pro",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro"
+    "gemini-1.5-flash"
   ]);
 }
 
