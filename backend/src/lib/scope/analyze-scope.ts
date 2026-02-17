@@ -62,6 +62,8 @@ function chunkArray<T>(items: T[], size: number): T[][] {
 const AGENCY_DOMAIN_HINT = /(brand|branding|campaign|marketing|communication|content|design|creative|media|narrative|strategy|launch|social|digital|production|messaging|identity|locali[sz]ation|positioning|إبداع|تسويق|هوية|استراتيجية|محتوى|تصميم)/i;
 const SCOPE_METADATA_NOISE_PATTERN =
   /(prepared by|procurement department|expo\s*2030\s*riyadh\s*company|fifa\s*world\s*cup|expo\s*dubai|page\s+\d+|table of contents|^\d+$)/i;
+const SCOPE_WORK_SIGNAL_PATTERN =
+  /(develop|design|create|build|launch|define|align|deliver|implement|execute|produce|manage|lead|plan|map|research|analy[sz]e|optimi[sz]e|monitor|coordinate|supervise|supervision|brand|campaign|strategy|creative|content|design|visual|communication|messaging|benchmark|insights?|positioning|locali[sz]ation|video|motion|animation|graphics?|media|production|iconography|تطوير|تصميم|تنفيذ|إطلاق|إدارة|بحث|تحليل|استراتيجية|إبداع|محتوى|حملة)/i;
 
 function normalizeScopeKey(value: string): string {
   return value.replace(/\s+/g, " ").trim().toLowerCase();
@@ -98,6 +100,33 @@ function collectScopeNoiseFragments(scopeText: string, scopeItems: string[]): st
   }
 
   return out.slice(0, 20);
+}
+
+function isLikelyNoiseScopeItem(scopeItem: string): boolean {
+  const normalized = scopeItem.replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return true;
+  }
+  if (SCOPE_METADATA_NOISE_PATTERN.test(normalized)) {
+    return true;
+  }
+  if (
+    /^(?:fifa|expo)\s*\d{4}/i.test(normalized) ||
+    /qatar\s*2022/i.test(normalized)
+  ) {
+    return true;
+  }
+  const mostlyUpperMetadata =
+    /^[A-Z0-9\s&/\-]{6,}$/.test(normalized) &&
+    !/[a-z]/.test(normalized) &&
+    normalized.split(/\s+/).length <= 8;
+  if (mostlyUpperMetadata) {
+    return true;
+  }
+  if (!SCOPE_WORK_SIGNAL_PATTERN.test(normalized) && normalized.split(/\s+/).length <= 4) {
+    return true;
+  }
+  return false;
 }
 
 function normalizeAgencyDomainMatch(match: {
@@ -218,6 +247,29 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     }
   }
 
+  const prefilteredNoiseItems: string[] = [];
+  if (scopeItems.length > 0) {
+    const kept: string[] = [];
+    const noiseSeen = new Set<string>();
+    for (const scopeItem of scopeItems) {
+      if (isLikelyNoiseScopeItem(scopeItem)) {
+        const noiseKey = normalizeScopeKey(scopeItem);
+        if (noiseKey && !noiseSeen.has(noiseKey)) {
+          noiseSeen.add(noiseKey);
+          prefilteredNoiseItems.push(scopeItem);
+        }
+        continue;
+      }
+      kept.push(scopeItem);
+    }
+    if (prefilteredNoiseItems.length > 0) {
+      warnings.push(
+        `Scope contamination pre-filter removed ${prefilteredNoiseItems.length} metadata/noise fragments before matching.`
+      );
+    }
+    scopeItems = kept;
+  }
+
   // Try Claude-based semantic matching in batches; fall back to token matching per-batch
   let matches: Array<{
     scopeItem: string;
@@ -315,7 +367,10 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   const uncertainItems = matches
     .filter((item) => item.class === "uncertain")
     .map((item) => item.scopeItem);
-  const noiseItems = collectScopeNoiseFragments(input.scopeOfWork, scopeItems);
+  const noiseItems = [
+    ...prefilteredNoiseItems,
+    ...collectScopeNoiseFragments(input.scopeOfWork, scopeItems)
+  ];
   if (noiseItems.length > 0) {
     warnings.push(`Scope contamination filtered: ${noiseItems.length} non-work metadata lines moved to unclassified items.`);
   }

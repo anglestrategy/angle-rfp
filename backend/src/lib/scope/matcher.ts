@@ -271,6 +271,30 @@ function isScopeCandidate(line: string): boolean {
   return true;
 }
 
+function isLikelyOrphanScopeNoise(line: string): boolean {
+  const normalized = normalizeForMatching(line);
+  if (!normalized) {
+    return true;
+  }
+
+  const upperMetadata =
+    /^[A-Z0-9\s&/\-]{6,}$/.test(line) &&
+    !/[a-z]/.test(line) &&
+    line.trim().split(/\s+/).length <= 8;
+  if (upperMetadata) {
+    return true;
+  }
+
+  const orphanBenchmark =
+    (/(?:fifa|expo)\s*\d{4}/i.test(line) || /qatar\s*2022/i.test(line)) &&
+    !/(benchmark|analysis|identify|research|compare|insight|دراسة|تحليل|مقارنة)/i.test(line);
+  if (orphanBenchmark) {
+    return true;
+  }
+
+  return false;
+}
+
 function tokenize(text: string): Set<string> {
   return new Set(
     normalizeForMatching(text)
@@ -316,7 +340,12 @@ export function splitScopeItems(scopeOfWork: string): string[] {
 
     for (const fragment of fragments) {
       const cleaned = cleanScopeFragment(fragment);
-      if (cleaned.length < 8 || isStructuralLine(cleaned) || !isScopeCandidate(cleaned)) {
+      if (
+        cleaned.length < 8 ||
+        isStructuralLine(cleaned) ||
+        !isScopeCandidate(cleaned) ||
+        isLikelyOrphanScopeNoise(cleaned)
+      ) {
         continue;
       }
 

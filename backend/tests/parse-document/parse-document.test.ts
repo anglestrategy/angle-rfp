@@ -42,6 +42,32 @@ describe("parseDocumentInput", () => {
     expect(parsed.primaryLanguage).toBe("arabic");
   });
 
+  test("detects roman numeral section headings for submission and evaluation", async () => {
+    const txt = [
+      "VII. Technical Evaluation Criteria",
+      "Agency credentials and experience",
+      "VIII.Submission Format",
+      "The technical proposals should include the following sections:",
+      "Methodology and Approach",
+      "The commercial proposals should include the following sections:",
+      "Pricing breakdown",
+      "IX. Important Dates",
+      "Proposal Submission deadline: 2026-12-07"
+    ].join("\n");
+
+    const parsed = await parseDocumentInput({
+      analysisId: uuid(),
+      fileName: "roman-headings.txt",
+      mimeType: "text/plain",
+      fileBytes: Buffer.from(txt, "utf8")
+    });
+
+    const names = parsed.sections.map((section) => section.name);
+    expect(names).toContain("evaluation_criteria");
+    expect(names).toContain("submission_requirements");
+    expect(names).toContain("important_dates");
+  });
+
   test("parses low-text PDF and invokes OCR adapter", async () => {
     const pdfMinimal = "%PDF-1.7\n1 0 obj\n<< /Type /Page >>\nendobj\n%%EOF";
 

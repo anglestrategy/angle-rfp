@@ -124,6 +124,28 @@ function findLineValue(text: string, keys: string[]): string | null {
   return null;
 }
 
+function looksLikeMajorHeadingLine(rawLine: string): boolean {
+  const line = rawLine.trim();
+  if (!line) {
+    return false;
+  }
+  if (/^#{1,6}\s+/.test(line)) {
+    return true;
+  }
+  if (/^(?:\d+[\.\)]|[IVXLC]+\.)\s+[A-Z\u0600-\u06FF]/.test(line) && line.length <= 120) {
+    return true;
+  }
+  if (/^[A-Z][A-Z0-9\s&/\-]{6,100}$/.test(line)) {
+    return true;
+  }
+  if (/^[\u0600-\u06FF][\u0600-\u06FF\s]{4,90}$/.test(line) && !/[.!?؟،]/.test(line)) {
+    return true;
+  }
+  return /^(scope of work|evaluation criteria|submission format|important dates?|deliverables|timeline|technical evaluation criteria|commercial proposals?\s+should\s+include)/i.test(
+    line
+  );
+}
+
 function extractExactBlock(text: string, headingRegex: RegExp, fallbackLength: number): string | null {
   const match = headingRegex.exec(text);
   if (!match) {
@@ -132,9 +154,21 @@ function extractExactBlock(text: string, headingRegex: RegExp, fallbackLength: n
 
   const start = match.index;
   const tail = text.slice(start + match[0].length);
-  const nextHeading = tail.search(/\n\s*(?:[A-Z][^\n]{1,60}:|\d+\.\s+[A-Z]|[\u0600-\u06FF]{3,}\s*[:：])/);
-  const end = nextHeading > 0 ? start + match[0].length + nextHeading : Math.min(text.length, start + fallbackLength);
+  const lines = tail.split(/\r?\n/);
+  let consumed = 0;
+  for (const line of lines) {
+    const increment = line.length + 1;
+    if (consumed > 0 && looksLikeMajorHeadingLine(line)) {
+      break;
+    }
+    if (consumed + increment > fallbackLength) {
+      consumed = fallbackLength;
+      break;
+    }
+    consumed += increment;
+  }
 
+  const end = Math.min(text.length, start + match[0].length + consumed);
   return text.slice(start, end).trim();
 }
 
@@ -200,6 +234,56 @@ function dedupeStrings(values: string[]): string[] {
   return output;
 }
 
+function collectHeadingWindowLines(
+  text: string,
+  headingPatterns: RegExp[],
+  stopPatterns: RegExp[],
+  maxLines: number,
+  maxChars: number
+): string[] {
+  const lines = text.split(/\r?\n/);
+  const out: string[] = [];
+  let inWindow = false;
+  let consumedLines = 0;
+  let consumedChars = 0;
+
+  for (const rawLine of lines) {
+    const line = rawLine.replace(/\s+/g, " ").trim();
+    if (!line) {
+      continue;
+    }
+
+    const startsWindow = headingPatterns.some((pattern) => pattern.test(line));
+    const stopsWindow = stopPatterns.some((pattern) => pattern.test(line));
+
+    if (startsWindow) {
+      inWindow = true;
+      consumedLines = 0;
+      consumedChars = 0;
+      out.push(line);
+      continue;
+    }
+
+    if (!inWindow) {
+      continue;
+    }
+
+    if (stopsWindow && consumedLines > 0) {
+      inWindow = false;
+      continue;
+    }
+
+    out.push(line);
+    consumedLines += 1;
+    consumedChars += line.length;
+    if (consumedLines >= maxLines || consumedChars >= maxChars) {
+      inWindow = false;
+    }
+  }
+
+  return dedupeStrings(out);
+}
+
 function normalizeDate(raw: string): string | null {
   const iso = raw.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (iso?.[1]) {
@@ -212,6 +296,44 @@ function normalizeDate(raw: string): string | null {
     const mm = dmy[2].padStart(2, "0");
     const yyyy = dmy[3];
     return `${yyyy}-${mm}-${dd}`;
+  }
+
+  const monthLookup: Record<string, string> = {
+    jan: "01",
+    january: "01",
+    feb: "02",
+    february: "02",
+    mar: "03",
+    march: "03",
+    apr: "04",
+    april: "04",
+    may: "05",
+    jun: "06",
+    june: "06",
+    jul: "07",
+    july: "07",
+    aug: "08",
+    august: "08",
+    sep: "09",
+    sept: "09",
+    september: "09",
+    oct: "10",
+    october: "10",
+    nov: "11",
+    november: "11",
+    dec: "12",
+    december: "12"
+  };
+  const dayMonthYear = raw.match(
+    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s*,?\s*(\d{4}))\b/i
+  );
+  if (dayMonthYear?.[1] && dayMonthYear[2] && dayMonthYear[3]) {
+    const dd = dayMonthYear[1].padStart(2, "0");
+    const mm = monthLookup[dayMonthYear[2].toLowerCase()];
+    const yyyy = dayMonthYear[3];
+    if (mm) {
+      return `${yyyy}-${mm}-${dd}`;
+    }
   }
 
   return null;
@@ -690,14 +812,13 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
         /strategic planning|creativity|brand localization|positioning|campaign|local insights|cultural|brand strategy|messaging|creative/i.test(
           normalized
         );
-      const technicalOpsLine =
-        /project management|deliverables|risk mitigation|timeline|milestone|communication|reporting/i.test(
+      const evaluationDeliverableSignal =
+        /proposal|submission|submit|include|provide|deliver|methodology|approach|framework|plan|تقديم|تسليم|منهجية|خطة/i.test(
           normalized
         );
-      const explicitEvaluationRequirement =
-        REQUIREMENT_LINE_PATTERNS.explicit.test(normalized) ||
-        /should include|must include|required|provide|to include/i.test(normalized);
-      if (strategicLine && !technicalOpsLine && explicitEvaluationRequirement && normalized.length >= 16) {
+      const narrativeOnly =
+        /demonstrated understanding|proven experience|ability to|showcase capability|understanding of/i.test(normalized);
+      if (strategicLine && evaluationDeliverableSignal && !narrativeOnly && normalized.length >= 20) {
         out.push({
           text: normalized,
           hint: "strategicCreative",
@@ -825,16 +946,71 @@ function normalizeRequirementLine(raw: string): string {
 }
 
 function classifyDeliverableCategory(line: string): DeliverableCategory | null {
-  if (REQUIREMENT_LINE_PATTERNS.commercial.test(line)) {
-    return "commercial";
+  const normalized = normalizeRequirementLine(line);
+  if (!normalized) {
+    return null;
   }
-  if (REQUIREMENT_LINE_PATTERNS.technical.test(line)) {
+
+  if (
+    /project management plan|scheduling management plan|issue management plan|risk management plan|communication and reporting framework|methodology and approach|team composition and cvs?/i.test(
+      normalized
+    )
+  ) {
     return "technical";
   }
-  if (REQUIREMENT_LINE_PATTERNS.strategicCreative.test(line)) {
+
+  const explicitCommercial =
+    /commercial proposal|financial proposal|payment terms?|pricing breakdown|fee schedule|subtotal|grand total|tax|encrypted file|password/i.test(
+      normalized
+    );
+  const explicitTechnical =
+    /technical proposal|methodology|approach|executive summary|credentials?|references?|vendor profile|team composition|\bcv\b|certificate|project management plan|risk management plan|communication and reporting framework|scheduling management plan/i.test(
+      normalized
+    );
+  const explicitStrategic =
+    /strategic (?:proposal|plan|framework)|creative (?:proposal|brief|direction|concept)|campaign strategy|brand strategy|positioning|messaging framework/i.test(
+      normalized
+    );
+
+  if (explicitCommercial && !explicitTechnical) {
+    return "commercial";
+  }
+  if (explicitTechnical && !explicitCommercial) {
+    return "technical";
+  }
+  if (explicitStrategic && !explicitCommercial) {
     return "strategicCreative";
   }
-  return null;
+
+  const technicalScore =
+    (REQUIREMENT_LINE_PATTERNS.technical.test(normalized) ? 2 : 0) +
+    (hasSignal(normalized, TECHNICAL_REQUIREMENT_SIGNALS) ? 2 : 0) +
+    (/project management|methodology|approach|team composition|risk management|communication and reporting|scheduling management/i.test(
+      normalized
+    )
+      ? 2
+      : 0);
+  const commercialScore =
+    (REQUIREMENT_LINE_PATTERNS.commercial.test(normalized) ? 2 : 0) +
+    (hasSignal(normalized, COMMERCIAL_REQUIREMENT_SIGNALS) ? 2 : 0) +
+    (/commercial proposal|financial proposal|pricing|payment terms?|encrypted file|tax|subtotal|grand total/i.test(normalized)
+      ? 2
+      : 0);
+  const strategicScore =
+    (REQUIREMENT_LINE_PATTERNS.strategicCreative.test(normalized) ? 2 : 0) +
+    (hasSignal(normalized, STRATEGIC_CREATIVE_REQUIREMENT_SIGNALS) ? 2 : 0);
+
+  const best = Math.max(technicalScore, commercialScore, strategicScore);
+  if (best <= 0) {
+    return null;
+  }
+  if (technicalScore >= commercialScore && technicalScore >= strategicScore) {
+    return "technical";
+  }
+  if (commercialScore >= strategicScore) {
+    return "commercial";
+  }
+  return "strategicCreative";
 }
 
 function inferDeliverableTitle(line: string, category: DeliverableCategory): string {
@@ -1499,7 +1675,7 @@ const SCOPE_NON_WORK_PATTERNS = [
   /prepared by/i,
   /procurement department/i,
   /expo\s*2030\s*riyadh\s*company/i,
-  /fifa\s*world\s*cup|expo\s*dubai/i,
+  /fifa\s*world\s*cup|fifa\s*\d{4}|qatar\s*2022|expo\s*dubai/i,
   /contact\s+us|www\./i,
   /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|الشروط|اتفاقية/i
 ];
@@ -1716,6 +1892,19 @@ function buildScopeFromSource(parsedDocument: AnalyzeRfpInput["parsedDocument"])
 function chooseBestScopeScopeText(claudeScope: string, sourceScope: string): string {
   const claudeScore = scopeQualityScore(claudeScope);
   const sourceScore = scopeQualityScore(sourceScope);
+  const sourceItems = countScopeItems(sourceScope);
+  const claudeItems = countScopeItems(claudeScope);
+
+  // Prefer deterministic section-scoped extraction whenever it is reasonably complete.
+  if (sourceItems >= 3 && sourceScore >= Math.max(3, claudeScore - 1)) {
+    return sourceScope;
+  }
+
+  // If model output is sparse and source has any meaningful structure, use source.
+  if (claudeItems < 2 && sourceItems >= 2) {
+    return sourceScope;
+  }
+
   if (sourceScore >= claudeScore + 2) {
     return sourceScope;
   }
@@ -1843,7 +2032,25 @@ function looksLikeEvaluationGroupHeading(value: string): boolean {
     return true;
   }
   if (/^\d+\.\s+[A-Za-z].{6,140}$/.test(normalized) && !/^(\d+\.\s+evaluation criteria)$/i.test(normalized)) {
-    return true;
+    const headingText = normalized.replace(/^\d+\.\s*/, "").trim();
+    if (
+      /^(then|into|and|or|with|for|to)\b/i.test(headingText) ||
+      /(demonstrated|proven|showcase|capability|ability to|on-time|communication|risk mitigation)/i.test(headingText)
+    ) {
+      return false;
+    }
+    if (/[.!?؟]/.test(headingText) || headingText.split(/\s+/).length > 11) {
+      return false;
+    }
+    if (
+      /(credentials|experience|planning|creativity|management|deliverables|technical|commercial|quality|methodology|governance|team)/i.test(
+        headingText
+      ) ||
+      /^[A-Z][A-Z0-9\s,&/]{8,140}$/.test(headingText)
+    ) {
+      return true;
+    }
+    return false;
   }
   return false;
 }
@@ -1901,17 +2108,21 @@ function buildEvaluationCriteriaStructuredFromText(criteriaText: string): Evalua
     if (headingMatch) {
       const rawTitle = headingMatch[2] ?? headingMatch[1] ?? cleaned;
       const normalizedTitle = normalizeEvaluationGroupTitle(rawTitle) || "Evaluation Criterion";
-      if (/^evaluation criteria$/i.test(normalizedTitle)) {
+      const shouldTreatAsHeading =
+        /^evaluation criteria$/i.test(normalizedTitle) === false &&
+        (looksLikeEvaluationGroupHeading(cleaned) ||
+          looksLikeEvaluationGroupHeading(rawTitle) ||
+          parseEvaluationWeight(cleaned) !== null);
+      if (shouldTreatAsHeading) {
+        pushCurrent();
+        current = {
+          title: normalizedTitle,
+          weight: parseEvaluationWeight(cleaned),
+          items: [],
+          evidenceRefs: [truncateAtWordBoundary(cleaned, 180)]
+        };
         continue;
       }
-      pushCurrent();
-      current = {
-        title: normalizedTitle,
-        weight: parseEvaluationWeight(cleaned),
-        items: [],
-        evidenceRefs: [truncateAtWordBoundary(cleaned, 180)]
-      };
-      continue;
     }
 
     const bullet = cleaned.replace(/^•\s*/, "").trim();
@@ -1956,6 +2167,37 @@ function buildEvaluationCriteriaStructuredFromText(criteriaText: string): Evalua
 
   pushCurrent();
   return groups.slice(0, 8);
+}
+
+function postProcessEvaluationGroups(groups: EvaluationCriteriaGroup[]): EvaluationCriteriaGroup[] {
+  if (groups.length === 0) {
+    return groups;
+  }
+
+  const output: EvaluationCriteriaGroup[] = [];
+  for (const group of groups) {
+    const title = normalizeRequirementLine(group.title);
+    const isBrokenHeading =
+      /^(then|into|and|or|with|for|to)\b/i.test(title) ||
+      /^(demonstrated|proven|showcase|capability|ability to|on[-\s]?time|communication|risk mitigation)/i.test(title);
+
+    if (isBrokenHeading) {
+      const target = output[output.length - 1];
+      if (target) {
+        target.items.push(...group.items);
+        target.evidenceRefs.push(...group.evidenceRefs);
+      }
+      continue;
+    }
+
+    output.push({
+      ...group,
+      items: group.items.slice(0, 8),
+      evidenceRefs: Array.from(new Set(group.evidenceRefs)).slice(0, 8)
+    });
+  }
+
+  return output.slice(0, 8);
 }
 
 function formatEvaluationCriteriaStructured(groups: EvaluationCriteriaGroup[]): string {
@@ -2118,9 +2360,11 @@ function buildEvaluationCriteriaFromTables(
       const row = table.rows[rowIndex] ?? [];
       const groupCell = cleanDeliverableRequirementText(row[criteriaColIndex] ?? "");
       const detailCell = cleanDeliverableRequirementText(row[detailColIndex] ?? "");
+      const groupCellLooksLikeHeading = groupCell ? looksLikeEvaluationGroupHeading(groupCell) : false;
 
       if (
         groupCell &&
+        groupCellLooksLikeHeading &&
         !EVALUATION_HEADING_NOISE.some((pattern) => pattern.test(groupCell)) &&
         !EVALUATION_CONTAMINATION_PATTERNS.some((pattern) => pattern.test(groupCell))
       ) {
@@ -2233,8 +2477,11 @@ function buildEvaluationCriteriaFromSource(
     const structure = evaluationStructureScore(clean);
     const length = Math.min(clean.length / 1800, 1);
     const groupBonus = Math.min(candidate.structured.length, 4) * 1.4;
-    const tableBonus = candidate.source === "table" ? 2 : 0;
-    return structure + length + groupBonus + tableBonus;
+    const sourceBonus = candidate.source === "table" ? 2.2 : candidate.source === "section" ? 1.4 : 0;
+    const contaminationPenalty = /then,\s*into\s+strategic|confirmation of agreement|terms?\s*&?\s*conditions?/i.test(clean)
+      ? 2
+      : 0;
+    return structure + length + groupBonus + sourceBonus - contaminationPenalty;
   };
 
   candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
@@ -2247,7 +2494,7 @@ function buildEvaluationCriteriaFromSource(
 
 function buildDeliverablesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
   const text = parsedDocument.rawText;
-  return buildSectionScopedText(
+  const scoped = buildSectionScopedText(
     text,
     parsedDocument.sections,
     ["submission_requirements"],
@@ -2260,11 +2507,59 @@ function buildDeliverablesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocu
     ],
     6500
   );
+  const headingWindowLines = collectHeadingWindowLines(
+    text,
+    [
+      /^(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(?:submission\s+format|submission\s+requirements?|proposal\s+requirements?|submission\s+instructions?|how\s+to\s+submit|متطلبات\s+التقديم)\s*(?:[:\-–]\s*)?$/i,
+      /^(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?technical\s+proposals?\s+should\s+include(?:\s+the\s+following\s+sections?)?\s*(?:[:\-–]\s*)?$/i,
+      /^(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?commercial\s+proposals?\s+should\s+include(?:\s+the\s+following\s+sections?)?\s*(?:[:\-–]\s*)?$/i
+    ],
+    DELIVERABLE_SECTION_STOP_PATTERNS,
+    180,
+    14_000
+  );
+  const scopedLines = scoped
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const extractedLines = collectDeliverableSectionLines(text).map((entry) => entry.text);
+  let mergedLines = dedupeStrings([...scopedLines, ...headingWindowLines, ...extractedLines]);
+
+  if (mergedLines.length < 12) {
+    const broadFallbackLines = text
+      .split(/\r?\n/)
+      .map((line) => normalizeRequirementLine(line))
+      .filter((line) => line.length >= 8)
+      .filter((line) => !DELIVERABLE_NOISE_PATTERNS.some((pattern) => pattern.test(line)))
+      .filter((line) => !DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(line)))
+      .filter((line) => {
+        if (!looksLikeRequirementStatement(line)) {
+          return false;
+        }
+        return (
+          hasSignal(line, SUBMISSION_REQUIREMENT_HINTS) ||
+          hasSignal(line, TECHNICAL_SUBMISSION_HINTS) ||
+          hasSignal(line, COMMERCIAL_SUBMISSION_HINTS) ||
+          hasSignal(line, STRATEGIC_CREATIVE_SUBMISSION_HINTS)
+        );
+      })
+      .slice(0, 120);
+    mergedLines = dedupeStrings([...mergedLines, ...broadFallbackLines]);
+  }
+
+  const merged = mergedLines.join("\n");
+  if (scopedLines.length >= 12) {
+    return scoped;
+  }
+  if (headingWindowLines.length >= 12) {
+    return merged;
+  }
+  return merged.trim().length > 0 ? merged : scoped;
 }
 
 function buildImportantDatesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
   const text = parsedDocument.rawText;
-  return buildSectionScopedText(
+  const scoped = buildSectionScopedText(
     text,
     parsedDocument.sections,
     ["important_dates"],
@@ -2273,6 +2568,45 @@ function buildImportantDatesSourceText(parsedDocument: AnalyzeRfpInput["parsedDo
     ],
     5000
   );
+  const headingWindowLines = collectHeadingWindowLines(
+    text,
+    [
+      /^(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(?:important\s+dates?|timeline|milestones?|deadlines?|submission\s+schedule|الجدول\s+الزمني|المواعيد)\s*(?:[:\-–]\s*)?$/i
+    ],
+    [
+      /^scope of work$/i,
+      /^evaluation criteria$/i,
+      /^submission requirements?$/i,
+      /^terms?\s*&?\s*conditions?$/i,
+      /^نطاق العمل$/i,
+      /^معايير التقييم$/i,
+      /^متطلبات التقديم$/i
+    ],
+    120,
+    8_000
+  );
+  const directDateLines = text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .filter((line) =>
+      /\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\b/i.test(
+        line
+      )
+    )
+    .filter((line) =>
+      /(issued|deadline|question|response|submission|presentation|closing|opening|تاريخ|موعد|آخر موعد|تقديم|استفسار|ردود)/i.test(
+        line
+      )
+    )
+    .slice(0, 60);
+
+  const merged = dedupeStrings([
+    ...scoped.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    ...headingWindowLines,
+    ...directDateLines
+  ]).join("\n");
+  return merged.trim().length > 0 ? merged : scoped;
 }
 
 function chooseBestEvaluationCriteria(primary: string, fallback: string): string {
@@ -2484,6 +2818,50 @@ function dedupeImportantDates(
   return Array.from(byKey.values());
 }
 
+function scoreDeliverableCategoryQuality(
+  category: DeliverableCategory,
+  items: DeliverableRequirementItem[]
+): number {
+  if (items.length === 0) {
+    return 0;
+  }
+
+  let score = items.length * 2;
+  for (const item of items) {
+    const description = normalizeRequirementLine(item.description);
+    const title = normalizeRequirementLine(item.title);
+
+    if (item.source === "verbatim") {
+      score += 2;
+    }
+    if (item.evidenceRef && item.evidenceRef.trim().length >= 8) {
+      score += 1;
+    }
+    if (looksLikeRequirementStatement(description)) {
+      score += 1;
+    }
+    if (isSubmissionDeliverableLine(description, category)) {
+      score += 1;
+    }
+    if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(description))) {
+      score -= 4;
+    }
+    if (/^(strategic framework|evaluation criteria|technical requirement)$/i.test(title)) {
+      score -= 2;
+    }
+  }
+
+  return score;
+}
+
+function scoreDeliverableRequirementsQuality(value: DeliverableRequirements): number {
+  return (
+    scoreDeliverableCategoryQuality("technical", value.technical) +
+    scoreDeliverableCategoryQuality("commercial", value.commercial) +
+    scoreDeliverableCategoryQuality("strategicCreative", value.strategicCreative)
+  );
+}
+
 function extractSubmission(text: string): Pass1Output["submissionRequirements"] {
   // Use word boundaries to avoid matching partial strings
   const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)?.[0] ?? null;
@@ -2555,8 +2933,12 @@ function mapClaudeToPass1Output(
     const itemCount = groups.reduce((sum, group) => sum + group.items.length, 0);
     return titleSet.size * 5 + itemCount + Math.min(groups.length, 4) * 2;
   };
-  const evaluationCriteriaStructured = [sourceEvaluation.structured, claudeStructured, candidateStructured]
-    .sort((a, b) => scoreStructuredGroups(b) - scoreStructuredGroups(a))[0] ?? [];
+  const hasReliableSourceStructured = sourceEvaluation.structured.length >= 2;
+  const evaluationCriteriaStructuredRaw = hasReliableSourceStructured
+    ? sourceEvaluation.structured
+    : ([sourceEvaluation.structured, claudeStructured, candidateStructured]
+      .sort((a, b) => scoreStructuredGroups(b) - scoreStructuredGroups(a))[0] ?? []);
+  const evaluationCriteriaStructured = postProcessEvaluationGroups(evaluationCriteriaStructuredRaw);
   const mergedEvaluation =
     evaluationCriteriaStructured.length > 0
       ? formatEvaluationCriteriaStructured(evaluationCriteriaStructured)
@@ -2569,8 +2951,7 @@ function mapClaudeToPass1Output(
   );
   const claudeDeliverableRequirements = buildDeliverableRequirementsFromClaude(claude);
   const allowHeuristicDeliverableFallback =
-    process.env.ALLOW_HEURISTIC_DELIVERABLE_FALLBACK === "1" ||
-    process.env.NODE_ENV === "test";
+    process.env.ALLOW_HEURISTIC_DELIVERABLE_FALLBACK !== "0";
   const heuristicDeliverableRequirements = allowHeuristicDeliverableFallback
     ? buildDeliverableRequirements(
       deliverableSourceText,
@@ -2605,11 +2986,30 @@ function mapClaudeToPass1Output(
     }
     return dedupeDeliverableRequirementCategory(combined);
   }
+  const claudeDeliverablesQuality = scoreDeliverableRequirementsQuality(claudeDeliverableRequirements);
+  const heuristicDeliverablesQuality = scoreDeliverableRequirementsQuality(heuristicDeliverableRequirements);
+  const preferHeuristicDeliverables =
+    allowHeuristicDeliverableFallback &&
+    heuristicDeliverablesQuality > 0 &&
+    (claudeDeliverablesQuality <= 0 || heuristicDeliverablesQuality >= claudeDeliverablesQuality + 2);
+
+  const primaryDeliverables = preferHeuristicDeliverables
+    ? heuristicDeliverableRequirements
+    : claudeDeliverableRequirements;
+  const secondaryDeliverables = preferHeuristicDeliverables
+    ? claudeDeliverableRequirements
+    : heuristicDeliverableRequirements;
+
   const mergedDeliverableRequirements: DeliverableRequirements = dedupeDeliverableRequirementsGlobal({
-    technical: mergeCategory(claudeDeliverableRequirements.technical, heuristicDeliverableRequirements.technical, 3),
-    commercial: mergeCategory(claudeDeliverableRequirements.commercial, heuristicDeliverableRequirements.commercial, 2),
-    strategicCreative: mergeCategory(claudeDeliverableRequirements.strategicCreative, heuristicDeliverableRequirements.strategicCreative, 2)
+    technical: mergeCategory(primaryDeliverables.technical, secondaryDeliverables.technical, 3),
+    commercial: mergeCategory(primaryDeliverables.commercial, secondaryDeliverables.commercial, 2),
+    strategicCreative: mergeCategory(primaryDeliverables.strategicCreative, secondaryDeliverables.strategicCreative, 2)
   });
+  if (preferHeuristicDeliverables) {
+    warnings.push(
+      "[deliverables_source_preferred] Source-scoped deliverable extraction was preferred over model-only grouping due higher quality signals."
+    );
+  }
   if (!allowHeuristicDeliverableFallback) {
     const hasAnyDeliverableRequirement =
       mergedDeliverableRequirements.technical.length > 0 ||

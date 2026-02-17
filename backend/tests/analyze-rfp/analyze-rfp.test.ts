@@ -182,6 +182,32 @@ describe("analyzeRfpInput", () => {
     expect(new Set(allTitles).size).toBe(allTitles.length);
   });
 
+  test("keeps project-management deliverables in technical bucket instead of commercial", async () => {
+    const groupedDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "VIII.Submission Format",
+        "The technical proposals should include: methodology and approach, project management plan, communication and reporting framework, risk management plan.",
+        "The commercial proposals should include: commercial and financial proposal, pricing breakdown, payment terms."
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: groupedDoc.analysisId,
+      parsedDocument: groupedDoc
+    });
+
+    const technical = result.deliverableRequirements?.technical ?? [];
+    const commercial = result.deliverableRequirements?.commercial ?? [];
+    const technicalText = technical.map((item) => `${item.title} ${item.description}`.toLowerCase()).join("\n");
+    const commercialText = commercial.map((item) => `${item.title} ${item.description}`.toLowerCase()).join("\n");
+
+    expect(technicalText).toMatch(/project management plan|methodology and approach|risk management plan/);
+    expect(commercialText).not.toMatch(/project management plan|risk management plan|communication and reporting framework/);
+  });
+
   test("builds grouped criteria cleanly from evaluation table rows with merged-category style entries", async () => {
     const tableDoc = {
       ...baseDocument,

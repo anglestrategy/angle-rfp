@@ -47,28 +47,28 @@ const sectionHeadingMatchers: Array<{ name: string; patterns: RegExp[] }> = [
   {
     name: "scope_of_work",
     patterns: [
-      /^\s*(?:\d+[\.\)]\s*)?(scope\s+of\s+work|statement\s+of\s+work|core\s+scope\s+items|نطاق\s+العمل)\s*$/gimu,
-      /^\s*(?:\d+[\.\)]\s*)?(program\s+phases?|phases?)\s*(?:\(.*\))?\s*$/gimu
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(scope\s+of\s+work|statement\s+of\s+work|core\s+scope\s+items|نطاق\s+العمل)\s*(?:[:\-–]\s*)?$/gimu,
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(program\s+phases?|phases?)\s*(?:\(.*\))?\s*(?:[:\-–]\s*)?$/gimu
     ]
   },
   {
     name: "evaluation_criteria",
     patterns: [
-      /^\s*(?:\d+[\.\)]\s*)?(evaluation\s+criteria|technical\s+evaluation\s+criteria|evaluation\s+matrix|معايير\s+التقييم)\s*$/gimu,
-      /^\s*(?:\d+[\.\)]\s*)?(technical\s+evaluation)\s*$/gimu
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(evaluation\s+criteria|technical\s+evaluation\s+criteria|evaluation\s+matrix|معايير\s+التقييم)\s*(?:[:\-–]\s*)?$/gimu,
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(technical\s+evaluation)\s*(?:[:\-–]\s*)?$/gimu
     ]
   },
   {
     name: "important_dates",
     patterns: [
-      /^\s*(?:\d+[\.\)]\s*)?(important\s+dates?|timeline|milestones?|deadlines?|الجدول\s+الزمني|المواعيد)\s*$/gimu
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(important\s+dates?|timeline|milestones?|deadlines?|submission\s+schedule|الجدول\s+الزمني|المواعيد)\s*(?:[:\-–]\s*)?$/gimu
     ]
   },
   {
     name: "submission_requirements",
     patterns: [
-      /^\s*(?:\d+[\.\)]\s*)?(submission\s+format|submission\s+requirements?|proposal\s+requirements?|how\s+to\s+submit|متطلبات\s+التقديم)\s*$/gimu,
-      /^\s*(?:\d+[\.\)]\s*)?(technical\s+proposals?\s+should\s+include|commercial\s+proposals?\s+should\s+include)\s*$/gimu
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(submission\s+format|submission\s+requirements?|proposal\s+requirements?|submission\s+instructions?|how\s+to\s+submit|متطلبات\s+التقديم)\s*(?:[:\-–]\s*)?$/gimu,
+      /^\s*(?:(?:[IVXLCM]+|\d+)\s*[\.\)]?\s*)?(technical\s+proposals?\s+should\s+include|commercial\s+proposals?\s+should\s+include)(?:\s+the\s+following\s+sections?)?\s*(?:[:\-–]\s*)?$/gimu
     ]
   }
 ];
