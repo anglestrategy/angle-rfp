@@ -323,6 +323,17 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
   matches = batchResults.flat();
 
+  const matchedNoiseItems = matches
+    .map((match) => match.scopeItem)
+    .filter((scopeItem) => isLikelyNoiseScopeItem(scopeItem));
+  if (matchedNoiseItems.length > 0) {
+    const noiseKeys = new Set(matchedNoiseItems.map((item) => normalizeScopeKey(item)));
+    matches = matches.filter((match) => !noiseKeys.has(normalizeScopeKey(match.scopeItem)));
+    warnings.push(
+      `Scope contamination post-filter removed ${noiseKeys.size} noisy matched fragments before scoring.`
+    );
+  }
+
   if (fallbackBatchCount > 0 && fallbackBatchCount === batches.length) {
     warnings.push("Scope matching used deterministic fallback for this document.");
   }
@@ -369,6 +380,7 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     .map((item) => item.scopeItem);
   const noiseItems = [
     ...prefilteredNoiseItems,
+    ...matchedNoiseItems,
     ...collectScopeNoiseFragments(input.scopeOfWork, scopeItems)
   ];
   if (noiseItems.length > 0) {

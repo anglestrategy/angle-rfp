@@ -7,11 +7,12 @@ import { parseDocumentInput } from "@/lib/parsing/parse-document";
 import { storeParsedDocument } from "@/lib/parsing/parsed-document-store";
 import { parseBearerToken } from "@/lib/security/auth";
 
-// Allows long-running parse requests (OCR/Unstructured) on serverless platforms.
-export const maxDuration = 600;
+// Keep parse request bounded to avoid client-side connection resets on long uploads/parses.
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
+  const startedAt = Date.now();
 
   try {
     const form = await request.formData();
@@ -51,6 +52,13 @@ export async function POST(request: NextRequest) {
       ocrPages: parsed.ocrStats?.pagesOcred ?? 0
     });
 
+    const durationMs = Date.now() - startedAt;
+    console.log(
+      `[Parse] analysisId=${analysisId} durationMs=${durationMs} format=${parsed.detectedFormat} ` +
+      `confidence=${parsed.parseConfidence.toFixed(3)} source=${parsed.parserProvenance?.join(",") || "unknown"} ` +
+      `warnings=${parsed.warnings.length}`
+    );
+
     const payload = responseMode === "reference"
       ? {
           ...parsed,
@@ -71,6 +79,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: unknown) {
     const normalized = normalizeUnknownError(error, "parse-document");
+    console.error(
+      `[Parse] failed traceId=${context.traceId} code=${normalized.shape.code} status=${normalized.statusCode} message=${normalized.shape.message}`
+    );
     return errorEnvelope(context, normalized);
   }
 }

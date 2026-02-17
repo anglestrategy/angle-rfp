@@ -201,6 +201,31 @@ function hasParserDegradationWarning(warnings: string[]): boolean {
   );
 }
 
+function parseTimeoutFromEnv(raw: string | undefined, fallbackMs: number, minMs = 5_000, maxMs = 300_000): number {
+  const parsed = Number(raw ?? "");
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallbackMs;
+  }
+  return Math.max(minMs, Math.min(maxMs, Math.floor(parsed)));
+}
+
+async function withStepTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: NodeJS.Timeout | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([operation, timeoutPromise]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function assertLimits(fileName: string, fileBytes: Buffer): void {
   if (fileBytes.length > MAX_FILE_BYTES) {
     throw makeError(413, "file_too_large", `File ${fileName} exceeds ${MAX_FILE_BYTES} bytes`, "parse-document", {
@@ -271,6 +296,9 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
   let pageCount = 1;
   let sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "unstructured" = "txt";
   let needsOcr = false;
+  const localPdfStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_LOCAL_PDF_TIMEOUT_MS, 60_000);
+  const ocrStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_OCR_TIMEOUT_MS, 120_000);
+  const unstructuredStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_UNSTRUCTURED_TIMEOUT_MS, 70_000);
 
   if (detectedFormat === "txt") {
     const result = parseTxtBuffer(input.fileBytes);
@@ -285,13 +313,32 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     sourceType = "docx";
     parserProvenance.push("docx_local");
   } else {
-    const result = await parsePdfBuffer(input.fileBytes);
-    rawText = result.text;
-    pageCount = result.pageCount;
-    warnings.push(...result.warnings);
-    needsOcr = result.needsOcr;
-    sourceType = "pdf_text";
-    parserProvenance.push("pdf_local");
+    try {
+      const result = await withStepTimeout(
+        parsePdfBuffer(input.fileBytes),
+        localPdfStepTimeoutMs,
+        "Local PDF parse"
+      );
+      rawText = result.text;
+      pageCount = result.pageCount;
+      warnings.push(...result.warnings);
+      needsOcr = result.needsOcr;
+      sourceType = "pdf_text";
+      parserProvenance.push("pdf_local");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/timed out/i.test(message)) {
+        warnings.push(
+          `[parser_degraded_local_pdf] Local PDF parser timed out after ${localPdfStepTimeoutMs}ms; prioritizing OCR/unstructured parsing.`
+        );
+        needsOcr = true;
+        rawText = "";
+        sourceType = "pdf_text";
+        parserProvenance.push("pdf_local_timeout");
+      } else {
+        throw error;
+      }
+    }
 
     if (pageCount > MAX_PAGES) {
       throw makeError(413, "file_too_large", `PDF page count exceeds ${MAX_PAGES}`, "parse-document", {
@@ -310,23 +357,32 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
 
   if (detectedFormat === "pdf" && needsOcr) {
     const provider = input.ocrProvider ?? createOcrProvider();
-    const ocrResult = await provider.performOcr({
-      fileBytes: input.fileBytes,
-      fileName: input.fileName,
-      pagesHint: pageCount
-    });
+    try {
+      const ocrResult = await withStepTimeout(
+        provider.performOcr({
+          fileBytes: input.fileBytes,
+          fileName: input.fileName,
+          pagesHint: pageCount
+        }),
+        ocrStepTimeoutMs,
+        "OCR step"
+      );
 
-    if (ocrResult.text.trim().length > 0) {
-      rawText = `${rawText}\n\n${ocrResult.text}`.trim();
-      sourceType = "ocr";
+      if (ocrResult.text.trim().length > 0) {
+        rawText = `${rawText}\n\n${ocrResult.text}`.trim();
+        sourceType = "ocr";
+      }
+
+      warnings.push(...ocrResult.warnings);
+      ocrStats = {
+        used: true,
+        pagesOcred: ocrResult.pagesOcred
+      };
+      parserProvenance.push("ocr");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      warnings.push(`[ocr_unavailable] OCR step failed or timed out: ${message}`);
     }
-
-    warnings.push(...ocrResult.warnings);
-    ocrStats = {
-      used: true,
-      pagesOcred: ocrResult.pagesOcred
-    };
-    parserProvenance.push("ocr");
   }
 
   if (detectedFormat !== "txt" && !process.env.UNSTRUCTURED_API_KEY && analysisProfile === "high_assurance") {
@@ -350,11 +406,15 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
         );
       } else {
         try {
-          const unstructured = await parseWithUnstructured({
-            fileBytes: input.fileBytes,
-            fileName: input.fileName,
-            mimeType: input.mimeType
-          });
+          const unstructured = await withStepTimeout(
+            parseWithUnstructured({
+              fileBytes: input.fileBytes,
+              fileName: input.fileName,
+              mimeType: input.mimeType
+            }),
+            unstructuredStepTimeoutMs,
+            "Unstructured parse"
+          );
 
           if (unstructured && unstructured.text.trim().length > 500) {
             const localScore = textQualityScore(rawText);
@@ -398,6 +458,30 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
           warnings.push(`[parser_unstructured_unavailable] Unstructured parser unavailable; continued with local parser. (${message})`);
         }
       }
+    }
+  }
+
+  const localPdfDegraded =
+    detectedFormat === "pdf" &&
+    sourceType === "pdf_text" &&
+    hasParserDegradationWarning(warnings);
+  if (analysisProfile === "high_assurance" && localPdfDegraded) {
+    const hasUnstructured = parserProvenance.includes("unstructured");
+    const hasOcrText = sourceType === "ocr";
+    if (!hasUnstructured && !hasOcrText) {
+      throw makeError(
+        422,
+        "validation_error",
+        "PDF text extraction quality is degraded and no premium parsing path succeeded (Unstructured/OCR).",
+        "parse-document",
+        {
+          retryable: true,
+          details: {
+            warnings,
+            parserProvenance
+          }
+        }
+      );
     }
   }
 

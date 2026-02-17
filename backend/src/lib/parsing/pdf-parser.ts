@@ -65,6 +65,7 @@ async function parsePdfWithLibrary(fileBytes: Buffer): Promise<ParsedWithDiagnos
   const pdfParse = module.default as (dataBuffer: Buffer, options?: Record<string, unknown>) => Promise<PdfParseLibraryResult>;
   const parserWarnings: string[] = [];
   const originalWarn = console.warn;
+  const originalLog = console.log;
 
   // pdf-parse emits TT/font issues via console warnings instead of throwing.
   // Capture those warnings so we can degrade gracefully instead of trusting corrupted text.
@@ -76,12 +77,21 @@ async function parsePdfWithLibrary(fileBytes: Buffer): Promise<ParsedWithDiagnos
     }
     originalWarn(...args);
   };
+  console.log = (...args: unknown[]) => {
+    const message = args.map((value) => String(value)).join(" ");
+    if (/warning:\s*tt:|tt:\s*undefined function|invalid function id/i.test(message)) {
+      parserWarnings.push(message);
+      return;
+    }
+    originalLog(...args);
+  };
 
   try {
     const parsed = await pdfParse(fileBytes, {});
     return { parsed, parserWarnings };
   } finally {
     console.warn = originalWarn;
+    console.log = originalLog;
   }
 }
 

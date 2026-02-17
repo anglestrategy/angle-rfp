@@ -83,7 +83,7 @@ final class BackendAnalysisClient {
     private let txtParser = TXTParsingService()
 
     private enum StageTimeouts {
-        static let parse: TimeInterval = 660   // Match backend parse maxDuration (600s) + buffer
+        static let parse: TimeInterval = 390
         static let extract: TimeInterval = 780
         static let scope: TimeInterval = 200    // Increased to match backend timeout (180s) + buffer
         static let research: TimeInterval = 330 // Increased to match backend timeout (300s) + buffer
@@ -324,7 +324,8 @@ final class BackendAnalysisClient {
         var data: Data = Data()
         var response: URLResponse?
 
-        for attempt in 1...3 {
+        for attempt in 1...2 {
+            let attemptStartedAt = Date()
             var request = URLRequest(url: endpoint)
             request.httpMethod = "POST"
             request.timeoutInterval = timeoutInterval(for: "api/parse-document")
@@ -340,11 +341,12 @@ final class BackendAnalysisClient {
                 break
             } catch {
                 lastError = error
-                if !isTransientNetworkError(error) || attempt == 3 {
+                let elapsed = Date().timeIntervalSince(attemptStartedAt)
+                let shouldRetry = isTransientNetworkError(error) && attempt < 2 && elapsed < 45
+                if !shouldRetry {
                     break
                 }
-                let backoffSeconds = UInt64(min(6, attempt * 2))
-                try await Task.sleep(nanoseconds: backoffSeconds * 1_000_000_000)
+                try await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
 
@@ -788,7 +790,7 @@ final class BackendAnalysisClient {
         let normalizedPath = path.components(separatedBy: "?").first ?? path
         switch normalizedPath {
         case "api/parse-document":
-            return 660  // Backend maxDuration (600s) + buffer
+            return 330
         case "api/analyze-rfp":
             return 660  // Increased to 11 minutes to match backend maxDuration (600s) + buffer
         case "api/analyze/start":

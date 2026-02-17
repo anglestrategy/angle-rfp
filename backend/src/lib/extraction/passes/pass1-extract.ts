@@ -108,6 +108,13 @@ function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function stripSectionHeadingPrefix(line: string): string {
+  return line
+    .replace(/^\s*(?:[IVXLCM]+|\d+)\s*[\.\)]\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function findLineValue(text: string, keys: string[]): string | null {
   const lines = text.split(/\r?\n/);
   for (const line of lines) {
@@ -125,7 +132,7 @@ function findLineValue(text: string, keys: string[]): string | null {
 }
 
 function looksLikeMajorHeadingLine(rawLine: string): boolean {
-  const line = rawLine.trim();
+  const line = stripSectionHeadingPrefix(rawLine.trim());
   if (!line) {
     return false;
   }
@@ -252,9 +259,10 @@ function collectHeadingWindowLines(
     if (!line) {
       continue;
     }
+    const normalizedLine = stripSectionHeadingPrefix(line);
 
-    const startsWindow = headingPatterns.some((pattern) => pattern.test(line));
-    const stopsWindow = stopPatterns.some((pattern) => pattern.test(line));
+    const startsWindow = headingPatterns.some((pattern) => pattern.test(line) || pattern.test(normalizedLine));
+    const stopsWindow = stopPatterns.some((pattern) => pattern.test(line) || pattern.test(normalizedLine));
 
     if (startsWindow) {
       inWindow = true;
@@ -357,8 +365,9 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
     if (!normalizedLine) {
       continue;
     }
+    const normalizedHeadingLine = stripSectionHeadingPrefix(normalizedLine);
 
-    if (DATE_HEADING_CONTEXT_PATTERN.test(normalizedLine)) {
+    if (DATE_HEADING_CONTEXT_PATTERN.test(normalizedLine) || DATE_HEADING_CONTEXT_PATTERN.test(normalizedHeadingLine)) {
       inDateContext = true;
       dateContextCountdown = 18;
     } else if (dateContextCountdown > 0) {
@@ -367,7 +376,7 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
       inDateContext = false;
     }
 
-    if (DATE_NON_EVENT_NOISE_PATTERN.test(normalizedLine)) {
+    if (DATE_NON_EVENT_NOISE_PATTERN.test(normalizedLine) || DATE_NON_EVENT_NOISE_PATTERN.test(normalizedHeadingLine)) {
       continue;
     }
 
@@ -376,7 +385,7 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
       continue;
     }
 
-    if (!inDateContext && !DATE_EVENT_HINT_PATTERN.test(normalizedLine)) {
+    if (!inDateContext && !DATE_EVENT_HINT_PATTERN.test(normalizedLine) && !DATE_EVENT_HINT_PATTERN.test(normalizedHeadingLine)) {
       continue;
     }
 
@@ -425,6 +434,7 @@ const DELIVERABLE_SECTION_START_PATTERNS = [
   /submission format/i,
   /submission requirements?/i,
   /proposal requirements?/i,
+  /proposal submissions?/i,
   /technical proposals?\s+should\s+include/i,
   /commercial proposals?\s+should\s+include/i,
   /technical proposal submission/i,
@@ -445,6 +455,11 @@ const DELIVERABLE_SECTION_STOP_PATTERNS = [
   /^general conditions?$/i,
   /^contract conditions?$/i,
   /^instructions to bidders$/i,
+  /^requests?\s+for\s+clarification$/i,
+  /^proposal submissions?$/i,
+  /^appendix(?:\s*\(\d+\))?$/i,
+  /^bill of quantity(?:\s*\(appendix.*\))?$/i,
+  /^service agreement$/i,
   /^legal/i,
   /^annex/i,
   /^نطاق العمل$/i,
@@ -783,7 +798,6 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
   const lines = text.split(/\r?\n/);
   const out: ScopedDeliverableLine[] = [];
   let inSection = false;
-  let inEvaluation = false;
   let sectionLineCount = 0;
   let currentHint: DeliverableHeadingHint = "unknown";
 
@@ -793,40 +807,15 @@ function collectDeliverableSectionLines(text: string): ScopedDeliverableLine[] {
       continue;
     }
 
-    const normalized = normalizeRequirementLine(trimmed);
-    const headingHint = inferDeliverableHeadingHint(trimmed);
-    const startsSection = DELIVERABLE_SECTION_START_PATTERNS.some((pattern) => pattern.test(trimmed));
-    const startsEvaluation = /evaluation criteria|technical evaluation|strategic planning|معايير التقييم/i.test(
-      trimmed
+    const normalizedHeading = stripSectionHeadingPrefix(trimmed);
+    const normalized = normalizeRequirementLine(normalizedHeading);
+    const headingHint = inferDeliverableHeadingHint(normalizedHeading);
+    const startsSection = DELIVERABLE_SECTION_START_PATTERNS.some(
+      (pattern) => pattern.test(trimmed) || pattern.test(normalizedHeading)
     );
-    const stopsSection = DELIVERABLE_SECTION_STOP_PATTERNS.some((pattern) => pattern.test(trimmed));
-
-    if (startsEvaluation) {
-      inEvaluation = true;
-    } else if (inEvaluation && stopsSection) {
-      inEvaluation = false;
-    }
-
-    if (inEvaluation) {
-      const strategicLine =
-        /strategic planning|creativity|brand localization|positioning|campaign|local insights|cultural|brand strategy|messaging|creative/i.test(
-          normalized
-        );
-      const evaluationDeliverableSignal =
-        /proposal|submission|submit|include|provide|deliver|methodology|approach|framework|plan|تقديم|تسليم|منهجية|خطة/i.test(
-          normalized
-        );
-      const narrativeOnly =
-        /demonstrated understanding|proven experience|ability to|showcase capability|understanding of/i.test(normalized);
-      if (strategicLine && evaluationDeliverableSignal && !narrativeOnly && normalized.length >= 20) {
-        out.push({
-          text: normalized,
-          hint: "strategicCreative",
-          explicit: true,
-          origin: "evaluation"
-        });
-      }
-    }
+    const stopsSection = DELIVERABLE_SECTION_STOP_PATTERNS.some(
+      (pattern) => pattern.test(trimmed) || pattern.test(normalizedHeading)
+    );
 
     if (startsSection) {
       inSection = true;
@@ -1517,6 +1506,88 @@ function fallbackExecutiveSummarySeed(text: string): string {
   return lines.join(" ").replace(/\s+/g, " ").trim();
 }
 
+function buildExecutiveSummaryFromSource(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
+  const text = parsedDocument.rawText;
+  const scopeSection = bySectionName(text, parsedDocument.sections, ["scope_of_work"]);
+  const scopeHeadingBlock = extractExactBlock(
+    text,
+    /scope\s+of\s+work|statement\s+of\s+work|services\s+required|نطاق\s+العمل/i,
+    2200
+  );
+
+  const candidate = scopeSection || scopeHeadingBlock || fallbackExecutiveSummarySeed(text);
+  const lines = candidate
+    .split(/\r?\n|\\r\\n|\\n/)
+    .map((line) => normalizeRequirementLine(stripSectionHeadingPrefix(line)))
+    .filter(Boolean)
+    .filter((line) => line.length >= 12)
+    .filter((line) => !SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(line)))
+    .filter((line) => !/^(scope of work|overview|key objectives?|program phases?|phase\s+\d+)/i.test(line))
+    .slice(0, 7);
+
+  const keyLines = lines.filter((line) =>
+    /(seeks?|seeking|requires?|scope|deliver|develop|strategy|campaign|locali[sz]ation|brand|proposal|تطوير|استراتيجية|حملة|العلامة)/i.test(
+      line
+    )
+  );
+
+  const summarySeed = (keyLines.length > 0 ? keyLines : lines).join(" ");
+  return normalizeExecutiveSummary(summarySeed || fallbackExecutiveSummarySeed(text));
+}
+
+function executiveSummaryQualityScore(summary: string): number {
+  const normalized = normalizeRequirementLine(summary);
+  if (!normalized) {
+    return 0;
+  }
+
+  const positiveHits =
+    (normalized.match(
+      /(brand|strategy|campaign|locali[sz]ation|deliverables?|proposal|requirements?|scope|technical|commercial|creative|استراتيجية|حملة|العلامة|المتطلبات|نطاق)/gi
+    ) ?? []).length;
+  const genericPenalty =
+    (normalized.match(
+      /(global event|bring together nations|pressing challenges|catalyst for innovation|extraordinary exposition|intercontinental connectivity)/gi
+    ) ?? []).length;
+  const sentenceCount = normalized.split(/(?<=[.!?؟])\s+/).filter(Boolean).length;
+
+  return Math.max(0, positiveHits * 2 + Math.min(sentenceCount, 4) - genericPenalty * 3);
+}
+
+function chooseExecutiveSummary(
+  claudeSummary: string,
+  sourceSummary: string,
+  fallbackSummary: string
+): string {
+  const claude = normalizeExecutiveSummary(claudeSummary || "");
+  const source = normalizeExecutiveSummary(sourceSummary || "");
+  const fallback = normalizeExecutiveSummary(fallbackSummary || "");
+
+  const claudeScore = executiveSummaryQualityScore(claude);
+  const sourceScore = executiveSummaryQualityScore(source);
+  const fallbackScore = executiveSummaryQualityScore(fallback);
+  const claudeLooksGeneric =
+    /(global event aiming to bring together|catalyst for innovation|pressing challenges|visionary concept of urban development|integral part of saudi vision)/i.test(
+      claude
+    );
+  const sourceLooksRfpSpecific =
+    /(proposal|technical|commercial|submission|deliver|scope|requirement|strategy|campaign|locali[sz]ation|brand)/i.test(
+      source
+    ) && source.length >= 120;
+
+  if (claudeLooksGeneric && sourceLooksRfpSpecific) {
+    return source;
+  }
+
+  if (sourceScore >= Math.max(claudeScore + 1, 3)) {
+    return source;
+  }
+  if (claudeScore >= Math.max(sourceScore, fallbackScore, 2)) {
+    return claude;
+  }
+  return source || claude || fallback;
+}
+
 function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
   const byKey = new Map<string, DeliverableItem>();
   const inferredCandidates: DeliverableItem[] = [];
@@ -1675,7 +1746,9 @@ const SCOPE_NON_WORK_PATTERNS = [
   /prepared by/i,
   /procurement department/i,
   /expo\s*2030\s*riyadh\s*company/i,
-  /fifa\s*world\s*cup|fifa\s*\d{4}|qatar\s*2022|expo\s*dubai/i,
+  /table of contents/i,
+  /page\s*\|\s*\d+/i,
+  /fifa\s*world\s*cup|fifa\s*\d{4}|fifa.*2022|2022.*fifa|qatar\s*2022|qatar.*2022|2022.*qatar|expo\s*dubai|dubai.*2020/i,
   /contact\s+us|www\./i,
   /موعد تقديم|آخر موعد|شروط التقديم|معايير التقييم|الشروط|اتفاقية/i
 ];
@@ -2178,8 +2251,10 @@ function postProcessEvaluationGroups(groups: EvaluationCriteriaGroup[]): Evaluat
   for (const group of groups) {
     const title = normalizeRequirementLine(group.title);
     const isBrokenHeading =
-      /^(then|into|and|or|with|for|to)\b/i.test(title) ||
-      /^(demonstrated|proven|showcase|capability|ability to|on[-\s]?time|communication|risk mitigation)/i.test(title);
+      /^(then|into|and|or|with|for|to)\b[\s,:-]*/i.test(title) ||
+      /^(demonstrated|proven|showcase|capability|ability to|on[-\s]?time|communication|risk mitigation)\b[\s,:-]*/i.test(
+        title
+      );
 
     if (isBrokenHeading) {
       const target = output[output.length - 1];
@@ -2497,13 +2572,14 @@ function buildDeliverablesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocu
   const scoped = buildSectionScopedText(
     text,
     parsedDocument.sections,
-    ["submission_requirements"],
+    ["submission_requirements", "proposal_submissions"],
     [
       /submission\s+format|submission\s+requirements?|proposal\s+requirements?|how\s+to\s+submit|متطلبات\s+التقديم/i,
       /technical\s+proposals?\s+should\s+include/i,
       /commercial\s+proposals?\s+should\s+include/i,
       /technical\s+proposal\s+submission/i,
-      /commercial\s+proposal\s+submission/i
+      /commercial\s+proposal\s+submission/i,
+      /proposal\s+submissions?/i
     ],
     6500
   );
@@ -2525,9 +2601,29 @@ function buildDeliverablesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocu
   const extractedLines = collectDeliverableSectionLines(text).map((entry) => entry.text);
   let mergedLines = dedupeStrings([...scopedLines, ...headingWindowLines, ...extractedLines]);
 
+  if (mergedLines.length > 0) {
+    const clauseExpanded = mergedLines
+      .flatMap((line) => splitRequirementClauses(line))
+      .map((line) => normalizeRequirementLine(line))
+      .filter((line) => line.length >= 8);
+    mergedLines = dedupeStrings([...mergedLines, ...clauseExpanded]);
+  }
+
   if (mergedLines.length < 12) {
-    const broadFallbackLines = text
+    const scopedFallbackCorpus = [
+      scoped,
+      headingWindowLines.join("\n"),
+      bySectionName(text, parsedDocument.sections, ["submission_requirements"]) ?? "",
+      bySectionName(text, parsedDocument.sections, ["proposal_submissions"]) ?? "",
+      extractExactBlock(text, /technical\s+proposals?\s+should\s+include/i, 4_500) ?? "",
+      extractExactBlock(text, /commercial\s+proposals?\s+should\s+include/i, 4_500) ?? ""
+    ]
+      .filter((value) => value.trim().length > 0)
+      .join("\n");
+
+    const broadFallbackLines = scopedFallbackCorpus
       .split(/\r?\n/)
+      .flatMap((line) => splitRequirementClauses(line))
       .map((line) => normalizeRequirementLine(line))
       .filter((line) => line.length >= 8)
       .filter((line) => !DELIVERABLE_NOISE_PATTERNS.some((pattern) => pattern.test(line)))
@@ -2543,7 +2639,7 @@ function buildDeliverablesSourceText(parsedDocument: AnalyzeRfpInput["parsedDocu
           hasSignal(line, STRATEGIC_CREATIVE_SUBMISSION_HINTS)
         );
       })
-      .slice(0, 120);
+      .slice(0, 140);
     mergedLines = dedupeStrings([...mergedLines, ...broadFallbackLines]);
   }
 
@@ -2562,9 +2658,9 @@ function buildImportantDatesSourceText(parsedDocument: AnalyzeRfpInput["parsedDo
   const scoped = buildSectionScopedText(
     text,
     parsedDocument.sections,
-    ["important_dates"],
+    ["important_dates", "requests_for_clarification", "proposal_submissions"],
     [
-      /important\s+dates?|timeline|milestones?|deadlines?|submission\s+schedule|الجدول\s+الزمني|المواعيد/i
+      /important\s+dates?|timeline|rfp\s+timeline|milestones?|deadlines?|submission\s+schedule|requests?\s+for\s+clarification|proposal\s+submissions?|الجدول\s+الزمني|المواعيد/i
     ],
     5000
   );
@@ -3096,15 +3192,20 @@ function mapClaudeToPass1Output(
     dates: deterministicDates.length > 0 ? 0.9 : importantDates[0]?.date !== "2099-12-31" ? 0.78 : 0.5,
     overall: 0.9
   };
+  const sourceExecutiveSummary = buildExecutiveSummaryFromSource(parsedDocument);
+  const fallbackExecutiveSummary = fallbackExecutiveSummarySeed(text);
+  const selectedExecutiveSummary = chooseExecutiveSummary(
+    claude.projectDescription || "",
+    sourceExecutiveSummary,
+    fallbackExecutiveSummary
+  );
 
   return {
     clientName: claude.clientName || "Unknown Client",
     clientNameArabic: /[\u0600-\u06FF]/.test(claude.clientName) ? claude.clientName : null,
     projectName: claude.projectName || "Untitled Project",
     projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
-    projectDescription: normalizeExecutiveSummary(
-      normalizeStructuredText(claude.projectDescription || fallbackExecutiveSummarySeed(text))
-    ),
+    projectDescription: selectedExecutiveSummary,
     scopeOfWork: selectedScope,
     evaluationCriteria: mergedEvaluation,
     evaluationCriteriaStructured,
@@ -3201,7 +3302,11 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     }
   }
 
-  const projectDescription = fallbackExecutiveSummarySeed(text);
+  const projectDescription = chooseExecutiveSummary(
+    "",
+    buildExecutiveSummaryFromSource(input.parsedDocument),
+    fallbackExecutiveSummarySeed(text)
+  );
 
   const evidence: Array<{ field: string; page: number; excerpt: string }> = [
     {
