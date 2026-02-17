@@ -16,6 +16,7 @@ import {
 } from "@/lib/research/provider-router";
 import { resolveClaims } from "@/lib/research/trust-resolver";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
+import { withHardTimeout } from "@/lib/extraction/claude-extractor";
 
 export interface ResearchClientInput {
   analysisId: string;
@@ -137,7 +138,7 @@ const ResearchQueriesSchema = z.object({
 
 /**
  * Generate semantically relevant search queries based on RFP context using Gemini.
- * Uses generateObject with retry logic for reliable structured output.
+ * Uses generateObject with retry logic, abort signals, and hard timeouts for reliable structured output.
  */
 async function generateSmartQueries(input: ResearchClientInput): Promise<{ english: string[]; arabic: string[] }> {
   const apiKey = resolveGoogleApiKey();
@@ -165,15 +166,25 @@ Put exact name in quotes for precise matching.`;
   // Retry up to 3 times (like extraction does)
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const result = await runWithGeminiFlashModel((model) =>
-        generateObject({
-          model: googleProvider(model),
-          schema: ResearchQueriesSchema,
-          temperature: 0,
-          maxOutputTokens: 800,
-          prompt
-        })
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => abortController.abort(), 30_000);
+
+      const result = await withHardTimeout(
+        runWithGeminiFlashModel((model) =>
+          generateObject({
+            model: googleProvider(model),
+            schema: ResearchQueriesSchema,
+            temperature: 0,
+            maxOutputTokens: 1200,
+            abortSignal: abortController.signal,
+            prompt
+          })
+        ),
+        35_000,
+        "Smart query generation timed out"
       );
+
+      clearTimeout(timeoutId);
 
       const english = (result.object.english ?? []).filter(Boolean).slice(0, 6);
       const arabic = (result.object.arabic ?? []).filter(Boolean).slice(0, 4);
@@ -186,7 +197,8 @@ Put exact name in quotes for precise matching.`;
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`[Research] Smart query attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);
       if (attempt < 2) {
-        await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+        const backoffMs = Math.min(2000, 400 * (attempt + 1));
+        await new Promise(r => setTimeout(r, backoffMs));
       }
     }
   }

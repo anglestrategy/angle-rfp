@@ -364,7 +364,7 @@ function mergeTextBlocks(values: string[], maxChars: number): string {
   return merged;
 }
 
-async function withHardTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+export async function withHardTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   const safeTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120_000;
   return await new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
