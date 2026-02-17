@@ -97,6 +97,116 @@ function shouldRetryScopeMatchWithTextMode(error: unknown): boolean {
   return /no output generated|validation|schema|json|unexpected end/i.test(message);
 }
 
+function normalizeMatchClass(value: unknown): "full" | "partial" | "none" | "uncertain" {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (normalized === "full" || normalized === "partial" || normalized === "none" || normalized === "uncertain") {
+    return normalized;
+  }
+  if (normalized.includes("full")) {
+    return "full";
+  }
+  if (normalized.includes("partial")) {
+    return "partial";
+  }
+  if (normalized.includes("none") || normalized.includes("out")) {
+    return "none";
+  }
+  return "uncertain";
+}
+
+function defaultConfidenceForClass(matchClass: "full" | "partial" | "none" | "uncertain"): number {
+  if (matchClass === "full") {
+    return 0.82;
+  }
+  if (matchClass === "partial") {
+    return 0.63;
+  }
+  if (matchClass === "none") {
+    return 0.66;
+  }
+  return 0.5;
+}
+
+function parseLineModeMatches(
+  raw: string,
+  scopeItems: string[]
+): z.infer<typeof ClaudeMatchResponseSchema> | null {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^```/.test(line))
+    .filter((line) => !/^\s*index\s*\|/i.test(line))
+    .filter((line) => !/^\s*format\s*:/i.test(line));
+
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const parsedByIndex = new Map<number, z.infer<typeof ScopeMatchSchema>>();
+  for (const line of lines) {
+    const normalized = line.replace(/^[\-\*\u2022]\s*/, "").trim();
+    const separator = normalized.includes("||") ? "||" : normalized.includes("|") ? "|" : null;
+    if (!separator) {
+      continue;
+    }
+
+    const parts = normalized.split(separator).map((part) => part.trim());
+    if (parts.length < 4) {
+      continue;
+    }
+
+    const indexValue = Number.parseInt(parts[0] ?? "", 10);
+    if (!Number.isFinite(indexValue) || indexValue < 1 || indexValue > scopeItems.length) {
+      continue;
+    }
+
+    const matchClass = normalizeMatchClass(parts[2]);
+    const confidence = toConfidence(parts[3] ?? defaultConfidenceForClass(matchClass));
+    const reasoning = parts.slice(4).join(" | ").trim();
+    const matchedServiceRaw = (parts[1] ?? "").trim();
+    const matchedService =
+      !matchedServiceRaw ||
+      /^(null|none|n\/a|unknown|no match)$/i.test(matchedServiceRaw)
+        ? null
+        : matchedServiceRaw;
+
+    const candidate = ScopeMatchSchema.parse({
+      scopeItem: scopeItems[indexValue - 1],
+      matchedService,
+      matchClass,
+      confidence,
+      reasoning
+    });
+
+    const existing = parsedByIndex.get(indexValue);
+    if (!existing || candidate.confidence > existing.confidence) {
+      parsedByIndex.set(indexValue, candidate);
+    }
+  }
+
+  if (parsedByIndex.size === 0) {
+    return null;
+  }
+
+  const matches: z.infer<typeof ScopeMatchSchema>[] = scopeItems.map((scopeItem, idx) => {
+    const index = idx + 1;
+    const existing = parsedByIndex.get(index);
+    if (existing) {
+      return existing;
+    }
+    return ScopeMatchSchema.parse({
+      scopeItem,
+      matchedService: null,
+      matchClass: "uncertain",
+      confidence: 0.5,
+      reasoning: "Line-mode fallback returned no entry for this item."
+    });
+  });
+
+  return { matches };
+}
+
 function toConfidence(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.min(1, value));
@@ -246,7 +356,34 @@ Return JSON only:
       );
       const parsed = parseScopeMatchFromText(textResult.text ?? "");
       if (!parsed) {
-        throw new Error("AI scope matching text-mode fallback could not parse JSON payload.");
+        const lineModeResult = await runWithGeminiFlashModel((model) =>
+          generateText({
+            model: googleProvider(model),
+            temperature: 0,
+            maxOutputTokens: 2200,
+            abortSignal: abortController.signal,
+            prompt:
+              `Classify each scope item with this strict line format only:\n` +
+              `index||matchedService||matchClass||confidence||reasoning\n` +
+              `Allowed matchClass: full|partial|none|uncertain\n` +
+              `Output one line per scope item, in order, no markdown.\n\n` +
+              `Agency service taxonomy:\n${serviceList}\n\n` +
+              `Scope items:\n${scopeItems.map((item, i) => `${i + 1}. ${item}`).join("\n")}`
+          })
+        );
+        const lineParsed = parseLineModeMatches(lineModeResult.text ?? "", scopeItems);
+        if (!lineParsed) {
+          throw new Error("AI scope matching fallback parse failed (json + line modes).");
+        }
+        console.warn("[ScopeMatch] Recovered using line-mode fallback.");
+        validated = lineParsed;
+        return validated.matches.map(m => ({
+          scopeItem: m.scopeItem,
+          service: m.matchedService || "No direct match",
+          class: m.matchClass,
+          confidence: m.confidence,
+          reasoning: m.reasoning
+        }));
       }
       console.warn("[ScopeMatch] Recovered using text-mode JSON fallback.");
       validated = parsed;
