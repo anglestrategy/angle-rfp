@@ -2984,6 +2984,179 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
   };
 }
 
+function mapClaudeToPass1OutputAiFirst(
+  extractionResult: ClaudeExtractionResult,
+  parsedDocument: AnalyzeRfpInput["parsedDocument"]
+): Pass1Output {
+  const claude: ClaudeExtractedFields = extractionResult.fields;
+  const coverage = extractionResult.coverage;
+  const text = parsedDocument.rawText;
+  const warnings: string[] = [...(parsedDocument.warnings ?? [])];
+
+  if (coverage.coveragePercent < 0.995) {
+    warnings.push("Document coverage is incomplete; some chunks were not analyzed successfully.");
+  }
+  if (coverage.missingSectionTags.length > 0) {
+    warnings.push(`Missing section hints: ${coverage.missingSectionTags.join(", ")}.`);
+  }
+
+  const sourceEvaluation = buildEvaluationCriteriaFromSource(parsedDocument);
+  const sourceScope = buildScopeFromSource(parsedDocument);
+  const sourceExecutiveSummary = buildExecutiveSummaryFromSource(parsedDocument);
+  const dateSourceText = buildImportantDatesSourceText(parsedDocument) || text;
+
+  const selectedExecutiveSummary = chooseExecutiveSummary(
+    claude.projectDescription || "",
+    sourceExecutiveSummary,
+    fallbackExecutiveSummarySeed(text)
+  );
+
+  let scopeOfWork = sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || ""));
+  if (countScopeItems(scopeOfWork) < 2) {
+    const scopedFallback = sanitizeScopeForAnalysis(normalizeStructuredText(sourceScope));
+    if (countScopeItems(scopedFallback) >= 2) {
+      scopeOfWork = scopedFallback;
+      warnings.push("Scope extraction was reinforced with source section context.");
+    } else if (scopeOfWork.trim().length === 0) {
+      scopeOfWork = "Scope of work not explicitly found.";
+      warnings.push("Scope extraction is sparse and should be manually reviewed.");
+    }
+  }
+
+  const aiEvaluation = sanitizeEvaluationCriteria(
+    normalizeStructuredText(claude.evaluationCriteria || "")
+  );
+  const fallbackEvaluation = sanitizeEvaluationCriteria(
+    normalizeStructuredText(sourceEvaluation.formatted || "Evaluation criteria not explicitly found.")
+  );
+  const evaluationSeed = aiEvaluation.length >= 40 ? aiEvaluation : fallbackEvaluation;
+  if (aiEvaluation.length < 40) {
+    warnings.push("Evaluation criteria were supplemented with source context due sparse AI output.");
+  }
+  const evaluationCriteriaStructured = postProcessEvaluationGroups(
+    buildEvaluationCriteriaStructuredFromText(evaluationSeed)
+  );
+  const evaluationCriteria =
+    evaluationCriteriaStructured.length > 0
+      ? formatEvaluationCriteriaStructured(evaluationCriteriaStructured)
+      : evaluationSeed;
+
+  const rawRequiredDeliverables = dedupeDeliverables(
+    claude.requiredDeliverables.map((deliverable) => ({
+      item: typeof deliverable === "string" ? deliverable : deliverable.item,
+      source: (typeof deliverable === "string" ? "verbatim" : deliverable.source) as "verbatim" | "inferred"
+    }))
+  );
+  const deliverableRequirements = dedupeDeliverableRequirementsGlobal(
+    buildDeliverableRequirementsFromClaude(claude)
+  );
+  const inferredDeliverables = [
+    ...deliverableRequirements.technical,
+    ...deliverableRequirements.commercial,
+    ...deliverableRequirements.strategicCreative
+  ].map((item) => ({
+    item: truncateAtWordBoundary((item.title || item.description || "").trim(), 140),
+    source: item.source ?? "inferred"
+  }));
+  const requiredDeliverables = rawRequiredDeliverables.length > 0
+    ? rawRequiredDeliverables
+    : dedupeDeliverables(inferredDeliverables).slice(0, 12);
+  if (requiredDeliverables.length === 0) {
+    warnings.push("AI did not identify explicit deliverables.");
+  }
+
+  const mappedDates = dedupeImportantDates(
+    claude.importantDates
+      .map((dateItem) => ({
+        title: dateItem.title,
+        date: dateItem.date,
+        type: dateItem.type,
+        isCritical: dateItem.type === "submission_deadline" || dateItem.type === "presentation"
+      }))
+      .filter((item) => item.title.trim().length >= 6 && item.date.trim().length >= 4)
+  );
+  const fallbackDates = extractDates(dateSourceText).filter(
+    (item) => item.date !== "2099-12-31" && item.title.trim().length >= 6
+  );
+  const importantDates = mappedDates.length > 0 ? mappedDates : dedupeImportantDates(fallbackDates);
+  if (importantDates.length === 0) {
+    warnings.push("[dates_low_confidence] Important dates were not confidently extracted.");
+  }
+
+  const submissionFallback = extractSubmission(text);
+  const submissionRequirements = {
+    method: claude.submissionRequirements?.method || submissionFallback.method,
+    email: claude.submissionRequirements?.email ?? submissionFallback.email,
+    physicalAddress: claude.submissionRequirements?.physicalAddress ?? submissionFallback.physicalAddress,
+    format: claude.submissionRequirements?.format || submissionFallback.format,
+    copies: claude.submissionRequirements?.copies ?? submissionFallback.copies,
+    otherRequirements: [] as string[]
+  };
+
+  const evidence: Array<{ field: string; page: number; excerpt: string }> = [
+    {
+      field: "projectDescription",
+      page: 1,
+      excerpt: selectedExecutiveSummary.slice(0, 200)
+    },
+    {
+      field: "scopeOfWork",
+      page: 1,
+      excerpt: scopeOfWork.slice(0, 200)
+    },
+    {
+      field: "evaluationCriteria",
+      page: 1,
+      excerpt: evaluationCriteria.slice(0, 200)
+    }
+  ].filter((item) => item.excerpt.trim().length > 0);
+
+  const coverageScore = Math.max(0.4, Math.min(1, coverage.coveragePercent));
+  const scopeScore = Math.max(0.45, Math.min(0.95, scopeOfWork.length >= 60 ? 0.9 : 0.6));
+  const evaluationScore = Math.max(0.45, Math.min(0.95, evaluationCriteria.length >= 60 ? 0.88 : 0.58));
+  const datesScore = importantDates.length > 0 ? 0.85 : 0.52;
+  const confidenceScores: Record<string, number> & { overall: number } = {
+    clientName: claude.clientName ? 0.93 : 0.52,
+    projectName: claude.projectName ? 0.92 : 0.56,
+    scopeOfWork: scopeScore,
+    evaluationCriteria: evaluationScore,
+    dates: datesScore,
+    overall: Math.max(
+      0.5,
+      Math.min(
+        0.97,
+        0.45 * coverageScore +
+          0.2 * scopeScore +
+          0.2 * evaluationScore +
+          0.15 * datesScore
+      )
+    )
+  };
+
+  const finalClientName =
+    claude.clientName || findLineValue(text, ["Client", "Client Name", "Issuer", "العميل"]) || "Unknown Client";
+  const finalProjectName =
+    claude.projectName || findLineValue(text, ["Project", "Project Name", "RFP", "اسم المشروع"]) || "Untitled Project";
+
+  return {
+    clientName: finalClientName,
+    clientNameArabic: /[\u0600-\u06FF]/.test(finalClientName) ? finalClientName : null,
+    projectName: finalProjectName,
+    projectNameOriginal: /[\u0600-\u06FF]/.test(finalProjectName) ? finalProjectName : null,
+    projectDescription: normalizeExecutiveSummary(selectedExecutiveSummary),
+    scopeOfWork,
+    evaluationCriteria,
+    evaluationCriteriaStructured,
+    requiredDeliverables,
+    deliverableRequirements,
+    importantDates,
+    submissionRequirements,
+    warnings,
+    evidence,
+    confidenceScores
+  };
+}
+
 function mapClaudeToPass1Output(
   extractionResult: ClaudeExtractionResult,
   parsedDocument: AnalyzeRfpInput["parsedDocument"]
@@ -3360,10 +3533,23 @@ function shouldAllowRegexFallback(): boolean {
   return false;
 }
 
+function shouldUseAiWrapperMode(): boolean {
+  if (process.env.RFP_AI_WRAPPER_MODE === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_WRAPPER_MODE === "0") {
+    return false;
+  }
+  return true;
+}
+
 export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1Output> {
   // Try AI extraction first
   try {
     const extractionResult = await extractWithClaude(input.parsedDocument.rawText);
+    if (shouldUseAiWrapperMode()) {
+      return mapClaudeToPass1OutputAiFirst(extractionResult, input.parsedDocument);
+    }
     return mapClaudeToPass1Output(extractionResult, input.parsedDocument);
   } catch (error) {
     console.error(

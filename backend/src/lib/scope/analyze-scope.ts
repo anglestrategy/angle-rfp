@@ -47,6 +47,16 @@ function roundToOneDecimalAsRatio(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
+function shouldUseScopeAiWrapperMode(): boolean {
+  if (process.env.SCOPE_AI_WRAPPER_MODE === "1") {
+    return true;
+  }
+  if (process.env.SCOPE_AI_WRAPPER_MODE === "0") {
+    return false;
+  }
+  return true;
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   if (size <= 0) {
     return [items];
@@ -234,6 +244,7 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   }
 
   const warnings: string[] = [];
+  const scopeAiWrapperMode = shouldUseScopeAiWrapperMode();
   let scopeItems = splitScopeItems(input.scopeOfWork);
   if (scopeItems.length === 0) {
     const salvage = input.scopeOfWork
@@ -248,7 +259,7 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   }
 
   const prefilteredNoiseItems: string[] = [];
-  if (scopeItems.length > 0) {
+  if (!scopeAiWrapperMode && scopeItems.length > 0) {
     const kept: string[] = [];
     const noiseSeen = new Set<string>();
     for (const scopeItem of scopeItems) {
@@ -300,15 +311,20 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
 
       try {
         const claudeMatches = await matchScopeWithClaude(batch, taxonomy);
-        batchResults[batchIndex] = claudeMatches.map((match) =>
-          normalizeAgencyDomainMatch(
-            {
-              ...match,
-              classificationSource: "semantic"
-            },
-            marketResearchSupported
-          )
-        );
+        batchResults[batchIndex] = scopeAiWrapperMode
+          ? claudeMatches.map((match) => ({
+            ...match,
+            classificationSource: "semantic" as const
+          }))
+          : claudeMatches.map((match) =>
+            normalizeAgencyDomainMatch(
+              {
+                ...match,
+                classificationSource: "semantic"
+              },
+              marketResearchSupported
+            )
+          );
       } catch (error) {
         console.error(`AI scope matching failed for batch ${batchIndex + 1}/${batches.length}, using token fallback:`, error);
         fallbackBatchCount += 1;
@@ -323,10 +339,12 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   await Promise.all(Array.from({ length: concurrency }, () => worker()));
   matches = batchResults.flat();
 
-  const matchedNoiseItems = matches
-    .map((match) => match.scopeItem)
-    .filter((scopeItem) => isLikelyNoiseScopeItem(scopeItem));
-  if (matchedNoiseItems.length > 0) {
+  const matchedNoiseItems = scopeAiWrapperMode
+    ? []
+    : matches
+      .map((match) => match.scopeItem)
+      .filter((scopeItem) => isLikelyNoiseScopeItem(scopeItem));
+  if (!scopeAiWrapperMode && matchedNoiseItems.length > 0) {
     const noiseKeys = new Set(matchedNoiseItems.map((item) => normalizeScopeKey(item)));
     matches = matches.filter((match) => !noiseKeys.has(normalizeScopeKey(match.scopeItem)));
     warnings.push(
@@ -378,12 +396,14 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   const uncertainItems = matches
     .filter((item) => item.class === "uncertain")
     .map((item) => item.scopeItem);
-  const noiseItems = [
-    ...prefilteredNoiseItems,
-    ...matchedNoiseItems,
-    ...collectScopeNoiseFragments(input.scopeOfWork, scopeItems)
-  ];
-  if (noiseItems.length > 0) {
+  const noiseItems = scopeAiWrapperMode
+    ? []
+    : [
+      ...prefilteredNoiseItems,
+      ...matchedNoiseItems,
+      ...collectScopeNoiseFragments(input.scopeOfWork, scopeItems)
+    ];
+  if (!scopeAiWrapperMode && noiseItems.length > 0) {
     warnings.push(`Scope contamination filtered: ${noiseItems.length} non-work metadata lines moved to unclassified items.`);
   }
   const unclassifiedItems = Array.from(

@@ -1,3 +1,5 @@
+import { ImageAnnotatorClient } from "@google-cloud/vision";
+
 export interface OcrResult {
   text: string;
   pagesOcred: number;
@@ -36,6 +38,21 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return String(error);
+}
+
+function hasGoogleVisionCredentials(): boolean {
+  return Boolean(
+    process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ||
+      process.env.GOOGLE_VISION_API_KEY?.trim()
+  );
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw ?? "");
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
 }
 
 function withTimeoutSignal(timeoutMs: number): AbortSignal {
@@ -174,25 +191,142 @@ class AzureDocumentIntelligenceOcrProvider implements OcrProvider {
   }
 }
 
+class GoogleVisionOcrProvider implements OcrProvider {
+  private readonly client: ImageAnnotatorClient;
+  private readonly pdfPageLimit: number;
+
+  constructor() {
+    const apiKey = process.env.GOOGLE_VISION_API_KEY?.trim();
+    const options: Record<string, unknown> = {};
+    if (apiKey) {
+      // Keep API-key compatibility for local/dev environments.
+      options.key = apiKey;
+    }
+    this.client = new ImageAnnotatorClient(
+      options as ConstructorParameters<typeof ImageAnnotatorClient>[0]
+    );
+    this.pdfPageLimit = Math.max(
+      1,
+      Math.min(20, parsePositiveInt(process.env.GOOGLE_VISION_PDF_PAGE_LIMIT, 5))
+    );
+  }
+
+  private isPdfInput(input: { fileBytes: Buffer; fileName: string }): boolean {
+    const lowerName = input.fileName.toLowerCase();
+    const header = input.fileBytes.subarray(0, 4).toString("latin1");
+    return lowerName.endsWith(".pdf") || header === "%PDF";
+  }
+
+  private async performPdfOcr(input: {
+    fileBytes: Buffer;
+    fileName: string;
+    pagesHint: number;
+  }): Promise<OcrResult> {
+    const pageCountHint = Math.max(1, input.pagesHint);
+    const pagesToProcess = Math.min(pageCountHint, this.pdfPageLimit);
+    const pageNumbers = Array.from({ length: pagesToProcess }, (_, index) => index + 1);
+
+    const [result] = await this.client.batchAnnotateFiles({
+      requests: [
+        {
+          inputConfig: {
+            content: input.fileBytes.toString("base64"),
+            mimeType: "application/pdf"
+          },
+          features: [{ type: "DOCUMENT_TEXT_DETECTION" as const }],
+          pages: pageNumbers
+        }
+      ]
+    });
+
+    const pageResponses = (result.responses?.[0]?.responses ?? []).flatMap((response) => {
+      const text = response.fullTextAnnotation?.text?.trim();
+      return text ? [text] : [];
+    });
+
+    const text = pageResponses.join("\n\n").trim();
+    if (!text) {
+      return {
+        text: "",
+        pagesOcred: 0,
+        warnings: [
+          `Google Vision returned no OCR text for ${input.fileName}.`
+        ]
+      };
+    }
+
+    const warnings: string[] = [
+      `OCR completed with Google Cloud Vision for ${input.fileName}.`
+    ];
+    if (pageCountHint > pagesToProcess) {
+      warnings.push(
+        `Google Vision processed ${pagesToProcess}/${pageCountHint} pages (configured limit ${this.pdfPageLimit}).`
+      );
+    }
+
+    return {
+      text,
+      pagesOcred: pagesToProcess,
+      warnings
+    };
+  }
+
+  private async performImageOcr(input: {
+    fileBytes: Buffer;
+    fileName: string;
+  }): Promise<OcrResult> {
+    const [result] = await this.client.documentTextDetection({
+      image: { content: input.fileBytes.toString("base64") },
+      imageContext: { languageHints: ["en", "ar"] }
+    });
+
+    const text = result.fullTextAnnotation?.text?.trim() ?? "";
+    if (!text) {
+      return {
+        text: "",
+        pagesOcred: 0,
+        warnings: [`Google Vision returned no OCR text for ${input.fileName}.`]
+      };
+    }
+
+    return {
+      text,
+      pagesOcred: 1,
+      warnings: [`OCR completed with Google Cloud Vision for ${input.fileName}.`]
+    };
+  }
+
+  async performOcr(input: {
+    fileBytes: Buffer;
+    fileName: string;
+    pagesHint: number;
+  }): Promise<OcrResult> {
+    try {
+      if (this.isPdfInput(input)) {
+        return await this.performPdfOcr(input);
+      }
+
+      return await this.performImageOcr(input);
+    } catch (error: unknown) {
+      return {
+        text: "",
+        pagesOcred: 0,
+        warnings: [`Google Vision OCR failed for ${input.fileName}: ${errorMessage(error)}`]
+      };
+    }
+  }
+}
+
 class NoopOcrProvider implements OcrProvider {
   async performOcr(input: {
     fileBytes: Buffer;
     fileName: string;
     pagesHint: number;
   }): Promise<OcrResult> {
-    const hasGoogleKey = Boolean(process.env.GOOGLE_VISION_API_KEY);
-    const warnings = hasGoogleKey
-      ? [
-          `[ocr_unavailable] GOOGLE_VISION_API_KEY is configured, but production OCR provider is Azure Document Intelligence. Set AZURE_DOCUMENT_INTELLIGENCE_* vars to enable OCR.`
-        ]
-      : [
-          `[ocr_unavailable] OCR fallback requested for ${input.fileName}, but no OCR provider is configured.`
-        ];
-
     return {
       text: "",
       pagesOcred: 0,
-      warnings
+      warnings: [`[ocr_unavailable] OCR fallback requested for ${input.fileName}, but no OCR provider is configured.`]
     };
   }
 }
@@ -216,6 +350,10 @@ export function createOcrProvider(): OcrProvider {
       pollIntervalMs: Number.isFinite(pollIntervalMs) ? pollIntervalMs : 1_500,
       maxPollAttempts: Number.isFinite(maxPollAttempts) ? Math.max(5, Math.floor(maxPollAttempts)) : 30
     });
+  }
+
+  if (hasGoogleVisionCredentials()) {
+    return new GoogleVisionOcrProvider();
   }
 
   return new NoopOcrProvider();

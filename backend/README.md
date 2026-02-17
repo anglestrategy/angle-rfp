@@ -21,7 +21,8 @@ This folder contains the Next.js backend for angle/RFP.
 - `OCR_AZURE_POLL_TIMEOUT_MS`
 - `OCR_AZURE_POLL_INTERVAL_MS`
 - `OCR_AZURE_MAX_POLL_ATTEMPTS`
-- `GOOGLE_VISION_API_KEY` (legacy compatibility only)
+- `GOOGLE_VISION_API_KEY` (enables Google Vision OCR fallback when Azure OCR is not configured)
+- `GOOGLE_APPLICATION_CREDENTIALS` (service-account credentials for Google Vision OCR)
 - `UNSTRUCTURED_API_KEY`
 - `UNSTRUCTURED_API_URL`
 - `AGENCY_SUPPORTS_MARKET_RESEARCH`

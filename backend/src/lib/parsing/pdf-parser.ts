@@ -39,6 +39,11 @@ function isLikelyCorruptedPdfText(text: string): boolean {
   const lines = normalized.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   const longLines = lines.filter((line) => line.length >= 80).length;
   const wordTokens = normalized.match(/[\p{L}\p{N}][\p{L}\p{N}\-]{1,}/gu) ?? [];
+  const alphaNumericChars = (normalized.match(/[\p{L}\p{N}]/gu) ?? []).length;
+  const alphaNumericRatio = alphaNumericChars / Math.max(normalized.length, 1);
+  const privateUseRatio = (normalized.match(/[\uE000-\uF8FF]/g) ?? []).length / Math.max(normalized.length, 1);
+  const controlCharRatio =
+    (normalized.match(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g) ?? []).length / Math.max(normalized.length, 1);
   const uniqueTokenRatio =
     wordTokens.length > 0
       ? new Set(wordTokens.map((token) => token.toLowerCase())).size / wordTokens.length
@@ -48,7 +53,10 @@ function isLikelyCorruptedPdfText(text: string): boolean {
 
   return (
     readableRatio < 0.7 ||
+    (normalized.length >= 180 && alphaNumericRatio < 0.3) ||
     replacementRatio > 0.005 ||
+    privateUseRatio > 0.01 ||
+    controlCharRatio > 0.0025 ||
     binaryMarkerHits >= 3 ||
     (wordTokens.length >= 120 && uniqueTokenRatio < 0.12) ||
     (wordTokens.length >= 200 && punctuationHeavyRatio > 0.22) ||
