@@ -64,7 +64,7 @@ describe("model resolver", () => {
       return model;
     });
 
-    expect(response).toBe("claude-sonnet-4-5");
+    expect(response).toBe(DEFAULT_CLAUDE_SONNET_MODEL);
   });
 });
 

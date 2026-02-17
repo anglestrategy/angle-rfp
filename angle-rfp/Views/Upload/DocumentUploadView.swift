@@ -2,7 +2,7 @@
 //  DocumentUploadView.swift
 //  angle-rfp
 //
-//  Editorial-style document upload view with animated drop zone.
+//  Bold editorial upload view with strong typography.
 //
 
 import SwiftUI
@@ -48,77 +48,135 @@ struct DocumentUploadView: View {
 
     var body: some View {
         SceneContainer {
-            VStack(spacing: 0) {
-                Spacer()
+            VStack(alignment: .leading, spacing: 0) {
+                // Top section with headline
+                VStack(alignment: .leading, spacing: 20) {
+                    Text("ANGLE / RFP")
+                        .font(.custom("IBM Plex Mono", size: 10).weight(.medium))
+                        .tracking(2)
+                        .foregroundColor(DesignSystem.Palette.Text.muted)
 
-                // Main content
-                VStack(spacing: 32) {
-                    // Title
-                    VStack(spacing: 8) {
-                        Text("Drop your RFP")
-                            .font(.custom("Urbanist", size: 48).weight(.bold))
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Analyze your next")
+                            .font(.custom("Urbanist", size: 40).weight(.bold))
                             .foregroundColor(DesignSystem.Palette.Text.primary)
 
-                        Text("PDF, DOCX, or TXT files")
-                            .font(.custom("Urbanist", size: 16))
-                            .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                        Text("opportunity")
+                            .font(.custom("Urbanist", size: 40).weight(.bold))
+                            .foregroundColor(DesignSystem.Palette.Accent.primary)
                     }
 
-                    // Drop zone
-                    AnimatedDropZone(isDragging: $isDragging) {
-                        showFilePicker = true
-                    }
+                    Text("Extract key details, evaluate scope\nalignment, and calculate fit score.")
+                        .font(.custom("Urbanist", size: 15))
+                        .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                        .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 60)
+                .padding(.horizontal, 40)
 
-                    // File queue
-                    if !uploadQueue.isEmpty {
-                        VStack(spacing: 10) {
-                            ForEach(uploadQueue.prefix(4)) { item in
-                                FileCard(item: item) {
+                Spacer()
+                    .frame(height: 48)
+
+                // Drop zone - full width within padding
+                AnimatedDropZone(isDragging: $isDragging) {
+                    showFilePicker = true
+                }
+                .padding(.horizontal, 40)
+
+                // File queue
+                if !uploadQueue.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("\(uploadQueue.count) file\(uploadQueue.count == 1 ? "" : "s") queued")
+                                .font(.custom("IBM Plex Mono", size: 11))
+                                .foregroundColor(DesignSystem.Palette.Text.muted)
+
+                            Spacer()
+
+                            Button(action: { uploadQueue.removeAll(); onQueueChanged([]) }) {
+                                Text("Clear all")
+                                    .font(.custom("Urbanist", size: 12).weight(.medium))
+                                    .foregroundColor(DesignSystem.Palette.Text.muted)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        VStack(spacing: 2) {
+                            ForEach(uploadQueue.prefix(3)) { item in
+                                FileRow(item: item) {
                                     removeItem(item)
                                 }
                             }
 
-                            if uploadQueue.count > 4 {
-                                Text("+\(uploadQueue.count - 4) more files")
-                                    .font(.custom("Urbanist", size: 13))
+                            if uploadQueue.count > 3 {
+                                Text("+\(uploadQueue.count - 3) more")
+                                    .font(.custom("IBM Plex Mono", size: 11))
                                     .foregroundColor(DesignSystem.Palette.Text.muted)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 12)
                             }
                         }
-                        .frame(maxWidth: 400)
                     }
+                    .padding(.horizontal, 40)
+                    .padding(.top, 24)
+                    .transition(.opacity)
                 }
 
                 Spacer()
 
-                // Bottom actions
-                VStack(spacing: 20) {
+                // Bottom bar
+                HStack(alignment: .center) {
                     if showDemoButton {
                         Button(action: onRunDemo) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 14))
-                                Text("Run Demo")
-                                    .font(.custom("Urbanist", size: 16).weight(.semibold))
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(DesignSystem.Palette.Text.muted)
+                                    .frame(width: 6, height: 6)
+                                Text("Run demo")
+                                    .font(.custom("Urbanist", size: 13).weight(.medium))
+                                    .foregroundColor(DesignSystem.Palette.Text.muted)
                             }
                         }
-                        .buttonStyle(.accentGradient)
+                        .buttonStyle(.plain)
                     }
+
+                    Spacer()
 
                     if hasReadyFiles {
                         Button(action: beginAnalysis) {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 8) {
                                 Text("Begin Analysis")
-                                    .font(.custom("Urbanist", size: 16).weight(.semibold))
+                                    .font(.custom("Urbanist", size: 14).weight(.semibold))
                                 Image(systemName: "arrow.right")
-                                    .font(.system(size: 14, weight: .semibold))
+                                    .font(.system(size: 12, weight: .semibold))
                             }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(DesignSystem.Palette.Accent.primary)
+                            )
                         }
-                        .buttonStyle(.accentGradient)
+                        .buttonStyle(.plain)
                     }
                 }
-                .padding(.bottom, 40)
+                .padding(.horizontal, 40)
+                .padding(.vertical, 24)
+                .background(
+                    Rectangle()
+                        .fill(Color.white.opacity(0.02))
+                        .overlay(
+                            Rectangle()
+                                .fill(Color.white.opacity(0.04))
+                                .frame(height: 1),
+                            alignment: .top
+                        )
+                )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .animation(.easeOut(duration: 0.2), value: uploadQueue.count)
         }
         .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
             handleDrop(providers: providers)

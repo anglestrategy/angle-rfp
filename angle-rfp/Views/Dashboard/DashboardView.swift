@@ -330,11 +330,13 @@ struct DashboardView: View {
                                     .font(.custom("Urbanist", size: 13).weight(.semibold))
                                     .foregroundColor(DesignSystem.Palette.Text.primary)
 
-                                Text(item.description)
-                                    .font(.custom("Urbanist", size: 13))
-                                    .foregroundColor(DesignSystem.Palette.Text.secondary)
-                                    .lineSpacing(4)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                if shouldShowDeliverableDescription(item.title, item.description) {
+                                    Text(item.description)
+                                        .font(.custom("Urbanist", size: 13))
+                                        .foregroundColor(DesignSystem.Palette.Text.secondary)
+                                        .lineSpacing(4)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
 
                             Spacer(minLength: 8)
@@ -349,6 +351,29 @@ struct DashboardView: View {
                 }
             }
         }
+    }
+
+    private func shouldShowDeliverableDescription(_ title: String, _ description: String) -> Bool {
+        func normalized(_ value: String) -> String {
+            value
+                .lowercased()
+                .replacingOccurrences(of: "[^a-z0-9\\s]", with: " ", options: .regularExpression)
+                .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        let t = normalized(title)
+        let d = normalized(description)
+        if d.isEmpty {
+            return false
+        }
+        if d == t {
+            return false
+        }
+        if d.hasPrefix("\(t) ") && d.count <= t.count + 8 {
+            return false
+        }
+        return true
     }
 
     // MARK: - Dates Section

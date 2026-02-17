@@ -18,9 +18,12 @@ struct EvaluationCriteriaView: View {
                 ForEach(Array(factors.enumerated()), id: \.offset) { index, factor in
                     factorRow(factor, isLast: index == factors.count - 1)
                 }
+            } else if let beautified = beautifiedText, !beautified.sections.isEmpty {
+                structuredSections(beautified.sections)
+                    .padding(20)
             } else if let text = fallbackText ?? beautifiedText?.formatted, !text.isEmpty {
                 // Plain text fallback
-                Text(text)
+                Text(cleanPlainText(text))
                     .font(.custom("Urbanist", size: 14))
                     .foregroundColor(DesignSystem.Palette.Text.secondary)
                     .lineSpacing(6)
@@ -123,6 +126,53 @@ struct EvaluationCriteriaView: View {
         }
 
         return factors.isEmpty ? nil : factors.sorted { $0.weight > $1.weight }
+    }
+
+    @ViewBuilder
+    private func structuredSections(_ sections: [TextSection]) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(sections) { section in
+                switch section.type {
+                case .heading, .subheading:
+                    Text(cleanPlainText(section.content))
+                        .font(.custom("Urbanist", size: 15).weight(.semibold))
+                        .foregroundColor(DesignSystem.Palette.Text.primary)
+                case .bulletList, .numberedList:
+                    let items = (section.items ?? [section.content]).map(cleanPlainText).filter { !$0.isEmpty }
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(items, id: \.self) { item in
+                            HStack(alignment: .top, spacing: 10) {
+                                Circle()
+                                    .fill(DesignSystem.Palette.Accent.primary)
+                                    .frame(width: 5, height: 5)
+                                    .padding(.top, 7)
+
+                                Text(item)
+                                    .font(.custom("Urbanist", size: 14))
+                                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                                    .lineSpacing(4)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                default:
+                    Text(cleanPlainText(section.content))
+                        .font(.custom("Urbanist", size: 14))
+                        .foregroundColor(DesignSystem.Palette.Text.secondary)
+                        .lineSpacing(5)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func cleanPlainText(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "```", with: "")
+            .replacingOccurrences(of: "^#{1,6}\\s*", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\*\\*", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

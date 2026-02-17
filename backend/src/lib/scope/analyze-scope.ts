@@ -79,11 +79,29 @@ function normalizeAgencyDomainMatch(match: {
   if (isMarketResearchScopeItem(match.scopeItem) && !marketResearchSupported) {
     return {
       ...match,
-      service: "No direct match",
-      class: "none",
-      confidence: Math.min(match.confidence, 0.35),
+      service: match.service === "No direct match" ? "Market-research capability requires confirmation" : match.service,
+      class: "uncertain",
+      confidence: Math.min(Math.max(match.confidence, 0.35), 0.6),
       classificationSource: "rule",
-      reasoning: "Market research capability is outside configured agency scope."
+      reasoning: "Market-research capability is profile-limited; manual confirmation required."
+    };
+  }
+
+  if (isMarketResearchScopeItem(match.scopeItem) && marketResearchSupported) {
+    if (match.class === "none" || match.class === "uncertain") {
+      return {
+        ...match,
+        service: match.service === "No direct match" ? "Market research & insights" : match.service,
+        class: "partial",
+        confidence: Math.max(match.confidence, 0.55),
+        classificationSource: "rule",
+        reasoning: match.reasoning || "Capability profile explicitly supports market-research scope."
+      };
+    }
+
+    return {
+      ...match,
+      classificationSource: match.classificationSource ?? "semantic"
     };
   }
 
@@ -143,16 +161,22 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
   const marketResearchPolicy = resolveMarketResearchSupport(taxonomySupportsMarketResearch(taxonomy));
   const marketResearchSupported = marketResearchPolicy.supported;
   let fallbackBatchCount = 0;
-  for (let i = 0; i < batches.length; i += 1) {
-    const batch = batches[i];
-    if (batch.length === 0) {
-      continue;
-    }
+  const batchResults: Array<typeof matches> = new Array(batches.length).fill(null).map(() => []);
+  const concurrency = Math.max(1, Math.min(3, Number(process.env.SCOPE_MATCH_CONCURRENCY ?? 2)));
+  let cursor = 0;
 
-    try {
-      const claudeMatches = await matchScopeWithClaude(batch, taxonomy);
-      matches.push(
-        ...claudeMatches.map((match) =>
+  async function worker(): Promise<void> {
+    while (cursor < batches.length) {
+      const batchIndex = cursor;
+      cursor += 1;
+      const batch = batches[batchIndex];
+      if (!batch || batch.length === 0) {
+        continue;
+      }
+
+      try {
+        const claudeMatches = await matchScopeWithClaude(batch, taxonomy);
+        batchResults[batchIndex] = claudeMatches.map((match) =>
           normalizeAgencyDomainMatch(
             {
               ...match,
@@ -160,14 +184,20 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
             },
             marketResearchSupported
           )
-        )
-      );
-    } catch (error) {
-      console.error(`Claude scope matching failed for batch ${i + 1}/${batches.length}, using token fallback:`, error);
-      fallbackBatchCount += 1;
-      matches.push(...matchScopeItems(batch, taxonomy).map((match) => ({ ...match, classificationSource: match.classificationSource ?? "token" })));
+        );
+      } catch (error) {
+        console.error(`AI scope matching failed for batch ${batchIndex + 1}/${batches.length}, using token fallback:`, error);
+        fallbackBatchCount += 1;
+        batchResults[batchIndex] = matchScopeItems(batch, taxonomy).map((match) => ({
+          ...match,
+          classificationSource: match.classificationSource ?? "token"
+        }));
+      }
     }
   }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  matches = batchResults.flat();
 
   if (fallbackBatchCount > 0 && fallbackBatchCount === batches.length) {
     warnings.push("Scope matching used deterministic fallback for this document.");

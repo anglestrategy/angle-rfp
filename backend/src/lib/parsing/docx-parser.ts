@@ -20,20 +20,14 @@ export async function parseDocxBuffer(fileBytes: Buffer): Promise<DocxParseResul
     if (text.length > 0) {
       return { text, warnings };
     }
-  } catch {
-    warnings.push("DOCX parser could not read document structure. Attempting fallback decode.");
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`DOCX parser could not read document structure. (${message})`);
   }
 
-  const fallbackText = fileBytes.toString("utf8").replace(/\0/g, "").trim();
-  if (fallbackText.length === 0) {
-    throw makeError(400, "validation_error", "DOCX file contains no readable text", "parse-document", {
-      retryable: false
-    });
-  }
-
-  warnings.push("DOCX fallback decode used; extracted text may be incomplete.");
-  return {
-    text: fallbackText,
-    warnings
-  };
+  // DOCX is a ZIP container; utf8 fallback decode produces gibberish and pollutes extraction quality.
+  throw makeError(422, "validation_error", "DOCX text extraction failed; document could not be parsed reliably", "parse-document", {
+    retryable: true,
+    details: { warnings }
+  });
 }

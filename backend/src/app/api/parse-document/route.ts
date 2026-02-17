@@ -4,10 +4,11 @@ import { errorEnvelope, successEnvelope } from "@/lib/api/envelope";
 import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { reserveUserDailyAnalysis, registerAnalysisUsage } from "@/lib/ops/cost-budget";
 import { parseDocumentInput } from "@/lib/parsing/parse-document";
+import { storeParsedDocument } from "@/lib/parsing/parsed-document-store";
 import { parseBearerToken } from "@/lib/security/auth";
 
 // Allows long-running parse requests (OCR/Unstructured) on serverless platforms.
-export const maxDuration = 300;
+export const maxDuration = 600;
 
 export async function POST(request: NextRequest) {
   const context = buildRequestContext(request);
@@ -15,6 +16,7 @@ export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
     const analysisId = String(form.get("analysisId") ?? "").trim();
+    const responseMode = String(form.get("responseMode") ?? "").trim().toLowerCase();
     const maybeFile = form.get("file");
 
     if (!analysisId) {
@@ -42,13 +44,28 @@ export async function POST(request: NextRequest) {
       mimeType: maybeFile.type,
       fileBytes
     });
+    storeParsedDocument(analysisId, parsed);
 
     registerAnalysisUsage({
       analysisId,
       ocrPages: parsed.ocrStats?.pagesOcred ?? 0
     });
 
-    return successEnvelope(context, parsed, {
+    const payload = responseMode === "reference"
+      ? {
+          ...parsed,
+          // Keep parsed payload persisted server-side for downstream stages, while returning
+          // a lightweight response to avoid large transfer latency/timeouts on desktop clients.
+          normalizedText: "",
+          rawText: "",
+          sections: [],
+          chunkIndex: [],
+          tables: [],
+          evidenceMap: []
+        }
+      : parsed;
+
+    return successEnvelope(context, payload, {
       warnings: parsed.warnings,
       partialResult: parsed.warnings.length > 0
     });

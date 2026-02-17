@@ -117,7 +117,7 @@ describe("analyzeScopeInput", () => {
     expect(match.class).not.toBe("none");
   });
 
-  test("classifies market-research activities as out-of-scope", async () => {
+  test("does not force market-research activities to out-of-scope", async () => {
     clearTaxonomyCacheForTests();
     const taxonomy = await loadAgencyTaxonomy();
     const [tokenMatch] = matchScopeItems(
@@ -126,7 +126,7 @@ describe("analyzeScopeInput", () => {
     );
 
     expect(tokenMatch).toBeDefined();
-    expect(tokenMatch.class).toBe("none");
+    expect(tokenMatch.class).not.toBe("none");
 
     const result = await analyzeScopeInput({
       analysisId: "f7df722f-9968-4c17-980a-fcb53aaf56d1",
@@ -139,7 +139,7 @@ describe("analyzeScopeInput", () => {
 
     const marketMatch = result.matches.find((item) => /market research|focus groups|benchmark/i.test(item.scopeItem));
     expect(marketMatch).toBeDefined();
-    expect(marketMatch?.class).toBe("none");
+    expect(marketMatch?.class).not.toBe("none");
   });
 
   test("keeps market research in-scope when taxonomy explicitly supports it", () => {

@@ -2,7 +2,7 @@
 //  DashboardSection.swift
 //  angle-rfp
 //
-//  Editorial section wrapper for dashboard content.
+//  Editorial section wrapper - clean label, no chrome.
 //
 
 import SwiftUI
@@ -18,26 +18,11 @@ struct DashboardSection<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Section header
-            HStack(spacing: 12) {
-                Text(title.uppercased())
-                    .font(.custom("Urbanist", size: 11).weight(.bold))
-                    .tracking(1.6)
-                    .foregroundColor(DesignSystem.Palette.Text.tertiary)
-
-                Rectangle()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                DesignSystem.Palette.Text.muted,
-                                Color.clear
-                            ],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .frame(height: 1)
-            }
+            // Section label
+            Text(title.uppercased())
+                .font(.custom("IBM Plex Mono", size: 10).weight(.medium))
+                .tracking(1.5)
+                .foregroundColor(DesignSystem.Palette.Text.muted)
 
             // Content
             content

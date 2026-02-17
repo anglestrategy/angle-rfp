@@ -1,5 +1,9 @@
 import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
-import { extractWithClaude, type ClaudeExtractedFields } from "@/lib/extraction/claude-extractor";
+import {
+  extractWithClaude,
+  type ClaudeExtractedFields,
+  type ClaudeExtractionResult
+} from "@/lib/extraction/claude-extractor";
 
 export interface DeliverableItem {
   item: string;
@@ -41,6 +45,23 @@ export interface Pass1Output {
   evidence: Array<{ field: string; page: number; excerpt: string }>;
   confidenceScores: Record<string, number> & { overall: number };
 }
+
+function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw ?? "");
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
+
+const MAX_DELIVERABLES_PER_CATEGORY = positiveIntFromEnv(
+  process.env.EXTRACTION_MAX_DELIVERABLES_PER_CATEGORY,
+  20
+);
+const MAX_SCOPE_ITEMS_FOR_ANALYSIS = positiveIntFromEnv(
+  process.env.EXTRACTION_MAX_SCOPE_ITEMS,
+  80
+);
 
 function bySectionName(
   text: string,
@@ -274,6 +295,31 @@ const DELIVERABLE_CLAUSE_DROP_PATTERNS = [
   /infrastructure (?:security|operations|standards)/i
 ];
 
+const GENERIC_DELIVERABLE_DIRECTIVE_PATTERNS = [
+  /proposals?\s+address\s+all\s+requirements/i,
+  /following\s+(sections?|areas?)\s+(within|in)\s+(their\s+)?proposal/i,
+  /all proposal documents will be submitted/i,
+  /referred to as ["“]?vendor["”]?/i,
+  /vendor to prepare and submit/i,
+  /no clarification,?\s+explanation/i,
+  /no vendor may add/i
+];
+
+const CONCRETE_DELIVERABLE_ARTIFACT_PATTERNS = [
+  /executive summary/i,
+  /methodology|approach/i,
+  /credentials?|references?|vendor profile|track record/i,
+  /\bcv\b|resume|team composition|account team|consultants?|smes?/i,
+  /certificate/i,
+  // Removed: /technical proposal/i - too broad, captures narrative text
+  // Removed: /commercial proposal|financial proposal/i - too broad
+  /pricing\s+breakdown|fee\s+schedule|cost\s+breakdown/i, // More specific than /pricing|fees/
+  /encrypted file|password/i,
+  /project management plan|risk management plan|communication.*framework|scheduling management/i,
+  /brand strategy|positioning|messaging framework|campaign plan/i,
+  /عرض فني|عرض مالي|منهجية|سيرة|مرجع|شهادة|ملف الشركة|الدفع|مالي|فني|استراتيجي|إبداعي/
+];
+
 const DELIVERABLE_HINT_PATTERNS: Record<DeliverableHeadingHint, RegExp[]> = {
   technical: [
     /technical proposals?\s+should\s+include/i,
@@ -390,6 +436,17 @@ function hasSignal(line: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(line));
 }
 
+function isConcreteDeliverableLine(line: string): boolean {
+  const normalized = normalizeRequirementLine(line);
+  if (!normalized) {
+    return false;
+  }
+  if (GENERIC_DELIVERABLE_DIRECTIVE_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return false;
+  }
+  return CONCRETE_DELIVERABLE_ARTIFACT_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 const TECHNICAL_SUBMISSION_HINTS = [
   /technical proposal/i,
   /executive summary/i,
@@ -421,6 +478,9 @@ const STRATEGIC_CREATIVE_SUBMISSION_HINTS = [
 
 function isSubmissionDeliverableLine(line: string, category: DeliverableCategory): boolean {
   if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(line))) {
+    return false;
+  }
+  if (!isConcreteDeliverableLine(line)) {
     return false;
   }
 
@@ -527,11 +587,14 @@ function extractDeliverables(text: string): DeliverableItem[] {
   for (const candidate of allCandidates) {
     for (const clause of splitRequirementClauses(candidate)) {
       const clean = cleanDeliverableRequirementText(clause);
-      if (!clean || clean.length < 16) {
+      if (!clean || clean.length < 5) {
         continue;
       }
 
       if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(clean))) {
+        continue;
+      }
+      if (!isConcreteDeliverableLine(clean)) {
         continue;
       }
 
@@ -550,7 +613,7 @@ function extractDeliverables(text: string): DeliverableItem[] {
         source: "verbatim"
       });
 
-      if (out.length >= 16) {
+      if (out.length >= 40) {
         return out;
       }
     }
@@ -667,10 +730,13 @@ function normalizeCategoryItems(
       220
     );
 
-    if (!cleanDescription || cleanDescription.length < 14) {
+    if (!cleanDescription || cleanDescription.length < 10) {
       continue;
     }
     if (DELIVERABLE_CLAUSE_DROP_PATTERNS.some((pattern) => pattern.test(cleanDescription))) {
+      continue;
+    }
+    if (!isConcreteDeliverableLine(cleanDescription)) {
       continue;
     }
     if (!isSubmissionDeliverableLine(cleanDescription, category)) {
@@ -690,7 +756,7 @@ function normalizeCategoryItems(
       source: item.source
     });
 
-    if (out.length >= 8) {
+    if (out.length >= MAX_DELIVERABLES_PER_CATEGORY) {
       break;
     }
   }
@@ -730,7 +796,7 @@ function mergeDeliverableRequirements(
       }
       seen.add(key);
       merged.push(item);
-      if (merged.length >= 8) {
+      if (merged.length >= MAX_DELIVERABLES_PER_CATEGORY) {
         break;
       }
     }
@@ -819,11 +885,11 @@ function buildDeliverableRequirements(
   };
 
   const sectionLines = collectDeliverableSectionLines(text);
-  const candidateLines = sectionLines.slice(0, 260);
+  const candidateLines = sectionLines.slice(0, 1200);
   for (const candidateLine of candidateLines) {
     for (const clause of splitRequirementClauses(candidateLine.text)) {
       const line = cleanDeliverableRequirementText(clause);
-      if (!line || line.length < 14) {
+      if (!line || line.length < 8) {
         continue;
       }
 
@@ -896,7 +962,10 @@ function buildDeliverableRequirements(
 
   for (const deliverable of requiredDeliverables) {
     const clean = cleanDeliverableRequirementText(deliverable.item);
-    if (!clean || clean.length < 12) {
+    if (!clean || clean.length < 8) {
+      continue;
+    }
+    if (!isConcreteDeliverableLine(clean)) {
       continue;
     }
     const category = classifyDeliverableCategory(clean);
@@ -935,9 +1004,9 @@ function buildDeliverableRequirements(
     );
   }
 
-  grouped.technical = grouped.technical.slice(0, 8);
-  grouped.commercial = grouped.commercial.slice(0, 8);
-  grouped.strategicCreative = grouped.strategicCreative.slice(0, 8);
+  grouped.technical = grouped.technical.slice(0, MAX_DELIVERABLES_PER_CATEGORY);
+  grouped.commercial = grouped.commercial.slice(0, MAX_DELIVERABLES_PER_CATEGORY);
+  grouped.strategicCreative = grouped.strategicCreative.slice(0, MAX_DELIVERABLES_PER_CATEGORY);
 
   return grouped;
 }
@@ -1129,12 +1198,55 @@ function dedupeDeliverables(items: DeliverableItem[]): DeliverableItem[] {
   return Array.from(byKey.values());
 }
 
+function ensureRequiredDeliverables(
+  items: DeliverableItem[],
+  grouped: DeliverableRequirements
+): DeliverableItem[] {
+  const deduped = dedupeDeliverables(items);
+  if (deduped.length > 0) {
+    return deduped;
+  }
+
+  const inferred: DeliverableItem[] = [];
+  const pushFromCategory = (categoryItems: DeliverableRequirementItem[]): void => {
+    for (const item of categoryItems.slice(0, 2)) {
+      const candidate = item.title?.trim() || item.description?.trim();
+      if (!candidate) {
+        continue;
+      }
+      inferred.push({
+        item: truncateAtWordBoundary(candidate, 140),
+        source: item.source ?? "inferred"
+      });
+    }
+  };
+
+  pushFromCategory(grouped.technical);
+  pushFromCategory(grouped.commercial);
+  pushFromCategory(grouped.strategicCreative);
+
+  if (inferred.length === 0) {
+    inferred.push(
+      {
+        item: "Technical Proposal Submission",
+        source: "inferred"
+      },
+      {
+        item: "Commercial Proposal Submission",
+        source: "inferred"
+      }
+    );
+  }
+
+  return dedupeDeliverables(inferred);
+}
+
 const SCOPE_NON_WORK_PATTERNS = [
   /submission deadline/i,
   /intent to tender/i,
   /deadline for questions/i,
   /responses?\s+to\s+questions?/i,
-  /proposal submission/i,
+  /proposal submission deadline/i,
   /submission requirements?/i,
   /evaluation criteria/i,
   /special conditions?/i,
@@ -1158,8 +1270,19 @@ const SCOPE_HEADING_PATTERNS = [
   /^important dates?$/i,
   /^program phases?.*/i,
   /^phase\s*\d+[:\s]/i,
-  /^(?:\d+\.?\s*)?(research and analysis(?:\s*\/\s*benchmarks?)?|strategic foundation|local brand|local design system|brand book|post-launch plan|project management)$/i,
   /^نطاق العمل$/i
+];
+
+const SCOPE_PHASE_TITLE_PATTERNS = [
+  /^(?:\d+[\.\)]\s*)?phase\s*\d+[:\s]/i,
+  /^(?:\d+[\.\)]\s*)?program phases?(?:\s*\(.*\))?$/i,
+  /^(?:\d+[\.\)]\s*)?research and analysis\s*\/\s*benchmarks$/i,
+  /^(?:\d+[\.\)]\s*)?strategic foundation and alignment$/i,
+  /^(?:\d+[\.\)]\s*)?local brand and launch campaign strategy development$/i,
+  /^(?:\d+[\.\)]\s*)?local design system$/i,
+  /^(?:\d+[\.\)]\s*)?brand book$/i,
+  /^(?:\d+[\.\)]\s*)?post-?launch plan$/i,
+  /^(?:\d+[\.\)]\s*)?project management$/i
 ];
 
 const SCOPE_ACTION_VERB_PATTERN =
@@ -1212,6 +1335,10 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
       continue;
     }
 
+    if (SCOPE_PHASE_TITLE_PATTERNS.some((pattern) => pattern.test(cleaned))) {
+      continue;
+    }
+
     if (SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(cleaned))) {
       continue;
     }
@@ -1226,7 +1353,7 @@ function sanitizeScopeForAnalysis(scopeText: string): string {
     seen.add(normalized);
     workItems.push(cleaned);
 
-    if (workItems.length >= 12) {
+    if (workItems.length >= MAX_SCOPE_ITEMS_FOR_ANALYSIS) {
       break;
     }
   }
@@ -1332,9 +1459,12 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
 
     seen.add(dedupeKey);
 
-    if (/^\d+\.\s/.test(line)) {
+    // Detect numbered headings like "1. Technical" OR weighted headings like "Technical Evaluation (40%)"
+    const isNumberedHeading = /^\d+\.\s/.test(line);
+    const isWeightedHeading = /^[A-Z][A-Za-z\s]{5,60}\s*[\(\-–]\s*\d+\s*%/.test(line);
+    if (isNumberedHeading || isWeightedHeading) {
       previousWasNumberedHeading = inlineTail == null;
-      output.push(line);
+      output.push(isNumberedHeading ? line : `## ${line}`);
       if (inlineTail) {
         const sentenceParts = splitEvaluationSentences(inlineTail);
         const parts = sentenceParts.length > 0 ? sentenceParts : [inlineTail];
@@ -1382,9 +1512,10 @@ function sanitizeEvaluationCriteria(criteriaText: string): string {
 
 function evaluationStructureScore(text: string): number {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const headingCount = lines.filter((line) => /^\d+\.\s/.test(line)).length;
+  const numberedHeadingCount = lines.filter((line) => /^\d+\.\s/.test(line)).length;
+  const weightedHeadingCount = lines.filter((line) => /^(?:##\s+)?[A-Z][A-Za-z\s]{5,60}\s*[\(\-–]\s*\d+\s*%/.test(line)).length;
   const bulletCount = lines.filter((line) => /^•\s+/.test(line)).length;
-  return headingCount * 3 + bulletCount;
+  return (numberedHeadingCount + weightedHeadingCount) * 3 + bulletCount;
 }
 
 function buildEvaluationCriteriaFromTables(
@@ -1455,24 +1586,69 @@ function buildEvaluationCriteriaFromSource(
   const sectionText = bySectionName(text, parsedDocument.sections, ["evaluation_criteria"]);
   const tableText = buildEvaluationCriteriaFromTables(parsedDocument.tables);
   const headingText = extractExactBlock(text, /evaluation\s+criteria|technical\s+evaluation\s+criteria|معايير\s+التقييم/i, 3500);
-  const candidate = sectionText ?? tableText ?? headingText ?? "";
-  return sanitizeEvaluationCriteria(normalizeStructuredText(candidate));
+  const candidates: Array<{ source: "section" | "table" | "heading"; value: string }> = [];
+
+  if (sectionText && sectionText.trim().length > 0) {
+    candidates.push({
+      source: "section",
+      value: sanitizeEvaluationCriteria(normalizeStructuredText(sectionText))
+    });
+  }
+  if (tableText && tableText.trim().length > 0) {
+    candidates.push({
+      source: "table",
+      value: sanitizeEvaluationCriteria(normalizeStructuredText(tableText))
+    });
+  }
+  if (headingText && headingText.trim().length > 0) {
+    candidates.push({
+      source: "heading",
+      value: sanitizeEvaluationCriteria(normalizeStructuredText(headingText))
+    });
+  }
+
+  if (candidates.length === 0) {
+    return "Evaluation criteria not explicitly found.";
+  }
+
+  const scoreCandidate = (candidate: { source: "section" | "table" | "heading"; value: string }): number => {
+    const clean = candidate.value.trim();
+    if (!clean || /not explicitly found/i.test(clean)) {
+      return 0;
+    }
+    const structure = evaluationStructureScore(clean);
+    const length = Math.min(clean.length / 1800, 1);
+    const tableBonus = candidate.source === "table" ? 1.5 : 0;
+    return structure + length + tableBonus;
+  };
+
+  candidates.sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+  return candidates[0]!.value;
 }
 
 function chooseBestEvaluationCriteria(primary: string, fallback: string): string {
-  const primaryMissing = /not explicitly found/i.test(primary) || primary.trim().length < 80;
-  if (primaryMissing && fallback.trim().length > 0) {
+  const primaryClean = primary.trim();
+  const fallbackClean = fallback.trim();
+  const primaryMissing = /not explicitly found/i.test(primaryClean) || primaryClean.length < 80;
+  const fallbackMissing = /not explicitly found/i.test(fallbackClean) || fallbackClean.length < 80;
+
+  if (primaryMissing && !fallbackMissing) {
     return fallback;
+  }
+  if (fallbackMissing) {
+    return primary;
   }
 
   const primaryScore = evaluationStructureScore(primary);
   const fallbackScore = evaluationStructureScore(fallback);
 
-  if (primaryScore >= 6) {
-    return primary;
+  if (fallbackScore >= primaryScore + 2) {
+    return fallback;
   }
-
-  if (fallbackScore > primaryScore + 4 && fallback.trim().length > 0) {
+  if (fallbackScore > primaryScore && fallbackClean.length >= Math.floor(primaryClean.length * 0.75)) {
+    return fallback;
+  }
+  if (fallbackScore === primaryScore && fallbackClean.length > Math.floor(primaryClean.length * 1.15)) {
     return fallback;
   }
 
@@ -1529,11 +1705,19 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
 }
 
 function mapClaudeToPass1Output(
-  claude: ClaudeExtractedFields,
+  extractionResult: ClaudeExtractionResult,
   parsedDocument: AnalyzeRfpInput["parsedDocument"]
 ): Pass1Output {
+  const claude: ClaudeExtractedFields = extractionResult.fields;
+  const coverage = extractionResult.coverage;
   const text = parsedDocument.rawText;
-  const warnings: string[] = [];
+  const warnings: string[] = [...(parsedDocument.warnings ?? [])];
+  if (coverage.coveragePercent < 0.995) {
+    warnings.push("Document coverage is incomplete; some chunks were not analyzed successfully.");
+  }
+  if (coverage.missingSectionTags.length > 0) {
+    warnings.push(`Missing section hints: ${coverage.missingSectionTags.join(", ")}.`);
+  }
   const sourceEvaluation = buildEvaluationCriteriaFromSource(parsedDocument);
   const claudeEvaluation = sanitizeEvaluationCriteria(
     normalizeStructuredText(claude.evaluationCriteria || "Evaluation criteria not explicitly found.")
@@ -1545,15 +1729,40 @@ function mapClaudeToPass1Output(
       source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
     }))
   );
-  const heuristicDeliverableRequirements = buildDeliverableRequirements(
-    text,
-    mergedEvaluation,
-    requiredDeliverables
-  );
   const claudeDeliverableRequirements = buildDeliverableRequirementsFromClaude(claude);
-  const mergedDeliverableRequirements = hasDeliverableRequirementContent(claudeDeliverableRequirements)
-    ? mergeDeliverableRequirements(claudeDeliverableRequirements, heuristicDeliverableRequirements)
-    : heuristicDeliverableRequirements;
+  const allowHeuristicDeliverableFallback =
+    process.env.ALLOW_HEURISTIC_DELIVERABLE_FALLBACK === "1" || process.env.NODE_ENV === "test";
+  const heuristicDeliverableRequirements = allowHeuristicDeliverableFallback
+    ? buildDeliverableRequirements(
+      text,
+      mergedEvaluation,
+      requiredDeliverables
+    )
+    : { technical: [], commercial: [], strategicCreative: [] };
+  const mergedDeliverableRequirements: DeliverableRequirements = {
+    technical: claudeDeliverableRequirements.technical.length > 0
+      ? claudeDeliverableRequirements.technical
+      : heuristicDeliverableRequirements.technical,
+    commercial: claudeDeliverableRequirements.commercial.length > 0
+      ? claudeDeliverableRequirements.commercial
+      : heuristicDeliverableRequirements.commercial,
+    strategicCreative: claudeDeliverableRequirements.strategicCreative.length > 0
+      ? claudeDeliverableRequirements.strategicCreative
+      : heuristicDeliverableRequirements.strategicCreative
+  };
+  if (!allowHeuristicDeliverableFallback) {
+    const hasAnyDeliverableRequirement =
+      mergedDeliverableRequirements.technical.length > 0 ||
+      mergedDeliverableRequirements.commercial.length > 0 ||
+      mergedDeliverableRequirements.strategicCreative.length > 0;
+    if (!hasAnyDeliverableRequirement) {
+      warnings.push("Deliverable requirement groups were not confidently extracted from AI output.");
+    }
+  }
+  const canonicalRequiredDeliverables = ensureRequiredDeliverables(
+    requiredDeliverables,
+    mergedDeliverableRequirements
+  );
 
   // Map Claude date types to our format with isCritical flag
   const mappedDates = claude.importantDates.map((d) => ({
@@ -1605,17 +1814,17 @@ function mapClaudeToPass1Output(
     projectDescription: normalizeExecutiveSummary(
       normalizeStructuredText(claude.projectDescription || fallbackExecutiveSummarySeed(text))
     ),
-    scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || text.slice(0, 1200))),
+    scopeOfWork: sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || "")),
     evaluationCriteria: mergedEvaluation,
-    requiredDeliverables,
+    requiredDeliverables: canonicalRequiredDeliverables,
     deliverableRequirements: mergedDeliverableRequirements,
     importantDates,
     submissionRequirements: {
-      method: claude.submissionRequirements.method || "Unknown",
-      email: claude.submissionRequirements.email,
-      physicalAddress: claude.submissionRequirements.physicalAddress,
-      format: claude.submissionRequirements.format || "Unspecified",
-      copies: claude.submissionRequirements.copies,
+      method: claude.submissionRequirements?.method || "Unknown",
+      email: claude.submissionRequirements?.email ?? null,
+      physicalAddress: claude.submissionRequirements?.physicalAddress ?? null,
+      format: claude.submissionRequirements?.format || "Unspecified",
+      copies: claude.submissionRequirements?.copies ?? null,
       otherRequirements: [] // Don't put deliverables here - they belong in requiredDeliverables
     },
     warnings,
@@ -1627,7 +1836,7 @@ function mapClaudeToPass1Output(
 function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   // Original regex-based extraction as fallback
   const text = input.parsedDocument.rawText;
-  const warnings: string[] = ["Claude extraction failed; using regex fallback."];
+  const warnings: string[] = ["AI extraction failed; using deterministic fallback."];
 
   const clientName =
     findLineValue(text, ["Client", "Client Name", "Issuer", "العميل"]) ??
@@ -1639,7 +1848,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
 
   const scopeFromSection = bySectionName(text, input.parsedDocument.sections, ["scope_of_work"]);
   const scopeFromHeading = extractExactBlock(text, /scope\s+of\s+work|نطاق\s+العمل/i, 2000);
-  const scopeOfWork = scopeFromSection ?? scopeFromHeading ?? text.slice(0, Math.min(1200, text.length));
+  const scopeOfWork = scopeFromSection ?? scopeFromHeading ?? "Scope of work not explicitly found.";
 
   if (!scopeFromSection && !scopeFromHeading) {
     warnings.push("Scope section not clearly detected; fallback extraction used.");
@@ -1656,6 +1865,16 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   const requiredDeliverables = extractDeliverables(text);
   const importantDates = extractDates(text);
   const submissionRequirements = extractSubmission(text);
+  const dedupedRequiredDeliverables = dedupeDeliverables(requiredDeliverables);
+  const deliverableRequirements = buildDeliverableRequirements(
+    text,
+    sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
+    dedupedRequiredDeliverables
+  );
+  const canonicalRequiredDeliverables = ensureRequiredDeliverables(
+    dedupedRequiredDeliverables,
+    deliverableRequirements
+  );
 
   const projectDescription = fallbackExecutiveSummarySeed(text);
 
@@ -1689,12 +1908,8 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     projectDescription: normalizeExecutiveSummary(projectDescription),
     scopeOfWork: sanitizeScopeForAnalysis(scopeOfWork),
     evaluationCriteria: sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
-    requiredDeliverables: dedupeDeliverables(requiredDeliverables),
-    deliverableRequirements: buildDeliverableRequirements(
-      text,
-      sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
-      dedupeDeliverables(requiredDeliverables)
-    ),
+    requiredDeliverables: canonicalRequiredDeliverables,
+    deliverableRequirements,
     importantDates,
     submissionRequirements,
     warnings,
@@ -1707,29 +1922,28 @@ function shouldAllowRegexFallback(): boolean {
   if (process.env.RFP_ALLOW_REGEX_FALLBACK === "1") {
     return true;
   }
-  // Local/test environments without Anthropic key should still be runnable.
-  if (!process.env.ANTHROPIC_API_KEY) {
+  // Allow deterministic fallback in tests so CI is stable without external API calls.
+  if (process.env.NODE_ENV === "test") {
     return true;
   }
-  const profile = process.env.ANALYSIS_PROFILE?.trim().toLowerCase() || "high_assurance";
-  return profile !== "high_assurance";
+  return false;
 }
 
 export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1Output> {
-  // Try Claude extraction first
+  // Try AI extraction first
   try {
-    const claudeResult = await extractWithClaude(input.parsedDocument.rawText);
-    return mapClaudeToPass1Output(claudeResult, input.parsedDocument);
+    const extractionResult = await extractWithClaude(input.parsedDocument.rawText);
+    return mapClaudeToPass1Output(extractionResult, input.parsedDocument);
   } catch (error) {
     console.error(
-      "Claude extraction failed, using fallback:",
+      "AI extraction failed, using fallback:",
       error instanceof Error
         ? { message: error.message, stack: error.stack }
         : error
     );
     if (!shouldAllowRegexFallback()) {
       throw new Error(
-        "Claude extraction failed in high-assurance mode; regex fallback is disabled."
+        "AI extraction failed in high-assurance mode; deterministic fallback is disabled."
       );
     }
     return runPass1ExtractionFallback(input);

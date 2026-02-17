@@ -2,7 +2,7 @@
 //  ScopeBreakdown.swift
 //  angle-rfp
 //
-//  Visual breakdown of agency vs non-agency scope.
+//  Clean scope breakdown with minimal styling.
 //
 
 import SwiftUI
@@ -17,88 +17,86 @@ struct ScopeBreakdown: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            // Visual bar
-            GeometryReader { geo in
-                HStack(spacing: 2) {
-                    // Agency portion
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    DesignSystem.Palette.Accent.primary,
-                                    DesignSystem.Palette.Accent.secondary
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: geo.size.width * agencyPercentage)
+        VStack(alignment: .leading, spacing: 24) {
+            // Visual bar with labels
+            VStack(alignment: .leading, spacing: 12) {
+                GeometryReader { geo in
+                    HStack(spacing: 2) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(DesignSystem.Palette.Accent.primary)
+                            .frame(width: geo.size.width * agencyPercentage)
 
-                    // Non-agency portion
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(DesignSystem.Palette.Background.surface)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(DesignSystem.Palette.Background.surface)
+                    }
+                }
+                .frame(height: 6)
+
+                // Percentage labels
+                HStack {
+                    Text("\(Int(agencyPercentage * 100))% in scope")
+                        .font(.custom("IBM Plex Mono", size: 11))
+                        .foregroundColor(DesignSystem.Palette.Accent.primary)
+
+                    Spacer()
+
+                    Text("\(Int(nonAgencyPercentage * 100))% outside")
+                        .font(.custom("IBM Plex Mono", size: 11))
+                        .foregroundColor(DesignSystem.Palette.Text.muted)
                 }
             }
-            .frame(height: 12)
 
-            // Details
-            HStack(alignment: .top, spacing: 32) {
-                // Agency services
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(DesignSystem.Palette.Accent.primary)
-                            .frame(width: 8, height: 8)
-                        Text("Agency Work")
-                            .font(.custom("Urbanist", size: 13).weight(.semibold))
-                            .foregroundColor(DesignSystem.Palette.Text.primary)
-                        Text("\(Int(agencyPercentage * 100))%")
-                            .font(.custom("IBM Plex Mono", size: 12))
-                            .foregroundColor(DesignSystem.Palette.Accent.primary)
-                    }
+            // Service lists - two equal columns
+            HStack(alignment: .top, spacing: 0) {
+                // Agency services (left column)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Agency Services")
+                        .font(.custom("Urbanist", size: 13).weight(.semibold))
+                        .foregroundColor(DesignSystem.Palette.Text.primary)
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(agencyServices.prefix(5), id: \.self) { service in
-                            Text("• \(service)")
-                                .font(.custom("Urbanist", size: 12))
-                                .foregroundColor(DesignSystem.Palette.Text.tertiary)
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(DesignSystem.Palette.Accent.primary)
+                                    .frame(width: 4, height: 4)
+                                Text(service)
+                                    .font(.custom("Urbanist", size: 13))
+                                    .foregroundColor(DesignSystem.Palette.Text.secondary)
+                            }
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                // Non-agency services
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(DesignSystem.Palette.Text.muted)
-                            .frame(width: 8, height: 8)
-                        Text("Outside Scope")
-                            .font(.custom("Urbanist", size: 13).weight(.semibold))
-                            .foregroundColor(DesignSystem.Palette.Text.primary)
-                        Text("\(Int(nonAgencyPercentage * 100))%")
-                            .font(.custom("IBM Plex Mono", size: 12))
-                            .foregroundColor(DesignSystem.Palette.Text.muted)
-                    }
+                // Non-agency services (right column)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Outside Scope")
+                        .font(.custom("Urbanist", size: 13).weight(.semibold))
+                        .foregroundColor(DesignSystem.Palette.Text.primary)
 
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         ForEach(nonAgencyServices.prefix(5), id: \.self) { service in
-                            Text("• \(service)")
-                                .font(.custom("Urbanist", size: 12))
-                                .foregroundColor(DesignSystem.Palette.Text.muted)
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(DesignSystem.Palette.Text.muted)
+                                    .frame(width: 4, height: 4)
+                                Text(service)
+                                    .font(.custom("Urbanist", size: 13))
+                                    .foregroundColor(DesignSystem.Palette.Text.muted)
+                            }
                         }
                     }
                 }
-
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(20)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(DesignSystem.Palette.Background.elevated)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(Color.white.opacity(0.04), lineWidth: 1)
                 )
         )

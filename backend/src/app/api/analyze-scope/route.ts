@@ -4,8 +4,8 @@ import { errorEnvelope, successEnvelope } from "@/lib/api/envelope";
 import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { analyzeScopeInput } from "@/lib/scope/analyze-scope";
 
-// Extend timeout for Claude API calls (Pro plan required for >10s)
-// Increased to 180s (3 min) to accommodate Claude scope matching with batches (120s + buffer)
+// Extend timeout for AI model calls (Pro plan required for >10s)
+// Increased to 180s (3 min) to accommodate scope matching batches.
 export const maxDuration = 180;
 
 export async function POST(request: NextRequest) {

@@ -10,9 +10,6 @@ export type ParsedFormat = "pdf" | "docx" | "txt";
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
 const MAX_PAGES = 250;
-// Increased from 500K to 1.5M to support 300+ page RFPs and improve analysis intelligence.
-// Claude can handle 200K context efficiently; more content = better extraction quality.
-const MAX_EXTRACTED_CHARS = 1_500_000;
 const DEFAULT_MAX_UNSTRUCTURED_BYTES = 18 * 1024 * 1024;
 
 const supportedMimeTypeToFormat: Record<string, ParsedFormat> = {
@@ -34,8 +31,15 @@ export interface ParsedDocumentV1 {
   analysisId: string;
   detectedFormat: ParsedFormat;
   primaryLanguage: "arabic" | "english" | "mixed";
+  normalizedText?: string;
   rawText: string;
   sections: Array<{ name: string; startOffset: number; endOffset: number }>;
+  chunkIndex: Array<{
+    index: number;
+    startOffset: number;
+    endOffset: number;
+    sectionHints: string[];
+  }>;
   tables: Array<{
     title: string;
     headers: string[];
@@ -94,6 +98,10 @@ function shouldUseUnstructuredParser(params: {
   rawTextLength: number;
   warnings: string[];
 }): boolean {
+  if (process.env.UNSTRUCTURED_DISABLED === "1") {
+    return false;
+  }
+
   if (params.detectedFormat === "txt") {
     return false;
   }
@@ -121,8 +129,8 @@ function shouldUseUnstructuredParser(params: {
     return params.needsOcr || warningSignal || lowTextDensity;
   }
 
-  // high_assurance: selective premium parsing, not unconditional.
-  return params.needsOcr || warningSignal || lowTextDensity || largePdf || structuredHint;
+  // high_assurance: always attempt premium parser when available.
+  return true;
 }
 
 function maxUnstructuredBytes(): number {
@@ -131,6 +139,44 @@ function maxUnstructuredBytes(): number {
     return Math.floor(fromEnvMb * 1024 * 1024);
   }
   return DEFAULT_MAX_UNSTRUCTURED_BYTES;
+}
+
+function resolveExtractedCharLimit(profile: AnalysisProfile): {
+  limit: number | null;
+  ignoredConfiguredLimit: number | null;
+} {
+  const fromEnv = Number(process.env.PARSE_MAX_EXTRACTED_CHARS ?? "");
+  if (!Number.isFinite(fromEnv) || fromEnv <= 0) {
+    return { limit: null, ignoredConfiguredLimit: null };
+  }
+
+  const normalized = Math.floor(fromEnv);
+  const allowTruncation = process.env.ALLOW_PARSE_TRUNCATION === "1";
+  if (profile === "high_assurance" && !allowTruncation) {
+    // High-assurance mode must avoid silent semantic blind spots.
+    return {
+      limit: null,
+      ignoredConfiguredLimit: normalized
+    };
+  }
+
+  return { limit: normalized, ignoredConfiguredLimit: null };
+}
+
+function textQualityScore(text: string): number {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) {
+    return 0;
+  }
+
+  const alphaNumericCount = (trimmed.match(/[\p{L}\p{N}]/gu) ?? []).length;
+  const printableRatio = alphaNumericCount / Math.max(trimmed.length, 1);
+  const lineCount = trimmed.split(/\r?\n/).length;
+  const avgLineLength = trimmed.length / Math.max(1, lineCount);
+  const structureScore = avgLineLength >= 20 && avgLineLength <= 260 ? 0.2 : 0.08;
+  const binaryNoisePenalty = /endobj|stream|endstream|xref|trailer|%%eof|\/type\s*\/page/iu.test(trimmed) ? 0.25 : 0;
+
+  return Math.max(0, Math.min(1, printableRatio * 0.72 + structureScore - binaryNoisePenalty));
 }
 
 function assertLimits(fileName: string, fileBytes: Buffer): void {
@@ -156,6 +202,40 @@ function estimateParseConfidence(params: {
   const warningPenalty = Math.min(params.warnings * 0.04, 0.25);
 
   return Math.max(0, Math.min(1, 0.2 + lengthScore + sectionScore + tableScore - warningPenalty - ocrPenalty));
+}
+
+function buildChunkIndex(
+  text: string,
+  sections: Array<{ name: string; startOffset: number; endOffset: number }>
+): ParsedDocumentV1["chunkIndex"] {
+  const chunkSize = 16_000;
+  const overlap = 1_200;
+  const step = Math.max(1, chunkSize - overlap);
+  const chunks: ParsedDocumentV1["chunkIndex"] = [];
+  let cursor = 0;
+  let index = 0;
+
+  while (cursor < text.length) {
+    const end = Math.min(text.length, cursor + chunkSize);
+    const sectionHints = sections
+      .filter((section) => section.startOffset < end && section.endOffset > cursor)
+      .map((section) => section.name);
+
+    chunks.push({
+      index,
+      startOffset: cursor,
+      endOffset: end,
+      sectionHints
+    });
+
+    if (end >= text.length) {
+      break;
+    }
+    cursor += step;
+    index += 1;
+  }
+
+  return chunks;
 }
 
 export async function parseDocumentInput(input: ParseDocumentInput): Promise<ParsedDocumentV1> {
@@ -222,6 +302,10 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     parserProvenance.push("ocr");
   }
 
+  if (detectedFormat !== "txt" && !process.env.UNSTRUCTURED_API_KEY && analysisProfile === "high_assurance") {
+    warnings.push("UNSTRUCTURED_API_KEY is not configured; complex layout/table extraction quality may be reduced.");
+  }
+
   if (detectedFormat !== "txt" && process.env.UNSTRUCTURED_API_KEY) {
     const shouldUseUnstructured = shouldUseUnstructuredParser({
       analysisProfile,
@@ -245,9 +329,27 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
             mimeType: input.mimeType
           });
 
-          if (unstructured && unstructured.text.length > Math.max(Math.floor(rawText.length * 0.75), 500)) {
-            rawText = unstructured.text;
-            sourceType = "unstructured";
+          if (unstructured && unstructured.text.trim().length > 500) {
+            const localScore = textQualityScore(rawText);
+            const unstructuredScore = textQualityScore(unstructured.text);
+            const warningSignal = warnings.some((warning) =>
+              /limited|no direct text extracted|unable to extract|image-only|fallback|ocr/i.test(warning)
+            );
+
+            const shouldPreferUnstructured =
+              warningSignal ||
+              needsOcr ||
+              unstructuredScore >= localScore + 0.05 ||
+              localScore < 0.42;
+
+            if (shouldPreferUnstructured) {
+              rawText = unstructured.text;
+              sourceType = "unstructured";
+            } else {
+              warnings.push(
+                `Unstructured output kept as secondary context (local quality score ${localScore.toFixed(2)} >= unstructured ${unstructuredScore.toFixed(2)}).`
+              );
+            }
           }
           parserProvenance.push("unstructured");
 
@@ -269,8 +371,22 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     });
   }
 
-  const boundedText = truncateText(trimmedText, MAX_EXTRACTED_CHARS);
+  const extractedCharLimitState = resolveExtractedCharLimit(analysisProfile);
+  const extractedCharLimit = extractedCharLimitState.limit;
+  if (extractedCharLimitState.ignoredConfiguredLimit) {
+    warnings.push(
+      `PARSE_MAX_EXTRACTED_CHARS=${extractedCharLimitState.ignoredConfiguredLimit} ignored in high_assurance mode. Set ALLOW_PARSE_TRUNCATION=1 to force truncation.`
+    );
+  }
+  const boundedText =
+    extractedCharLimit && extractedCharLimit > 0
+      ? truncateText(trimmedText, extractedCharLimit)
+      : trimmedText;
+  if (extractedCharLimit && boundedText.length < trimmedText.length) {
+    warnings.push(`Parsed text was truncated from ${trimmedText.length} to ${boundedText.length} characters.`);
+  }
   const sections = detectSections(boundedText);
+  const chunkIndex = buildChunkIndex(boundedText, sections);
   const tables = extractTables(boundedText);
   const evidenceMap = buildEvidenceMap(boundedText, sections, sourceType);
   const primaryLanguage = detectPrimaryLanguage(normalizeForMatching(boundedText));
@@ -288,8 +404,10 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     analysisId: input.analysisId,
     detectedFormat,
     primaryLanguage,
+    normalizedText: boundedText,
     rawText: boundedText,
     sections,
+    chunkIndex,
     tables,
     evidenceMap,
     parseConfidence,

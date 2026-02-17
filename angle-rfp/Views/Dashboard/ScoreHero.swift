@@ -2,7 +2,7 @@
 //  ScoreHero.swift
 //  angle-rfp
 //
-//  Hero score display for dashboard header.
+//  Editorial score display - bold typography, minimal chrome.
 //
 
 import SwiftUI
@@ -20,68 +20,32 @@ struct ScoreHero: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            // Score with glow
-            ZStack {
-                // Glow background
-                Circle()
-                    .fill(
-                        RadialGradient(
-                            colors: [
-                                scoreColor.opacity(0.3),
-                                Color.clear
-                            ],
-                            center: .center,
-                            startRadius: 20,
-                            endRadius: 60
-                        )
-                    )
-                    .frame(width: 120, height: 120)
+        VStack(alignment: .trailing, spacing: 8) {
+            // Large score number
+            Text("\(score)")
+                .font(.custom("IBM Plex Mono", size: 56).weight(.light))
+                .foregroundColor(scoreColor)
 
-                // Score ring
-                Circle()
-                    .stroke(
-                        DesignSystem.Palette.Background.surface,
-                        lineWidth: 6
-                    )
-                    .frame(width: 80, height: 80)
-
-                Circle()
-                    .trim(from: 0, to: CGFloat(score) / 100)
-                    .stroke(
-                        scoreColor,
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round)
-                    )
-                    .frame(width: 80, height: 80)
-                    .rotationEffect(.degrees(-90))
-
-                // Score number
-                Text("\(score)")
-                    .font(.custom("IBM Plex Mono", size: 32).weight(.bold))
-                    .foregroundColor(scoreColor)
-            }
-
-            // Recommendation label
-            Text(recommendation)
-                .font(.custom("Urbanist", size: 13).weight(.semibold))
-                .foregroundColor(DesignSystem.Palette.Text.secondary)
+            // Single label based on score
+            Text(scoreLabel)
+                .font(.custom("Urbanist", size: 13).weight(.medium))
+                .foregroundColor(DesignSystem.Palette.Text.muted)
         }
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(DesignSystem.Palette.Background.elevated)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(scoreColor.opacity(0.2), lineWidth: 1)
-                )
-        )
+    }
+
+    private var scoreLabel: String {
+        switch score {
+        case 0..<40: return "Low Potential"
+        case 40..<70: return "Review Recommended"
+        default: return "Strong Potential"
+        }
     }
 }
 
 #if DEBUG
 struct ScoreHero_Previews: PreviewProvider {
     static var previews: some View {
-        HStack(spacing: 20) {
+        VStack(alignment: .trailing, spacing: 40) {
             ScoreHero(score: 78, recommendation: "Strong Fit")
             ScoreHero(score: 52, recommendation: "Review Needed")
             ScoreHero(score: 28, recommendation: "Low Potential")

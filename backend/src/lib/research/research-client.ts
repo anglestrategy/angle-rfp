@@ -1,5 +1,5 @@
 import { generateObject } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { makeError } from "@/lib/api/errors";
 import { InMemoryCircuitBreaker } from "@/lib/ops/circuit-breaker";
@@ -15,7 +15,7 @@ import {
   type RoutedProviderName
 } from "@/lib/research/provider-router";
 import { resolveClaims } from "@/lib/research/trust-resolver";
-import { runWithClaudeHaikuModel } from "@/lib/ai/model-resolver";
+import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
 export interface ResearchClientInput {
   analysisId: string;
@@ -128,24 +128,24 @@ export interface ClientResearchV1 {
   warnings: string[];
 }
 
-// Schema for Claude-generated research queries
+// Schema for model-generated research queries
 const ResearchQueriesSchema = z.object({
-  english: z.array(z.string()).min(4).max(8),
-  arabic: z.array(z.string()).min(2).max(6)
+  english: z.array(z.string()).default([]),
+  arabic: z.array(z.string()).default([])
 });
 
 /**
- * Generate semantically relevant search queries based on RFP context using Claude.
+ * Generate semantically relevant search queries based on RFP context using Gemini.
  * This produces better research results than static templates.
  */
 async function generateSmartQueries(input: ResearchClientInput): Promise<{ english: string[]; arabic: string[] }> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = resolveGoogleApiKey();
 
   // Fall back to basic queries if no API key or no context
   if (!apiKey || !input.rfpContext) {
     return buildBasicQueries(input);
   }
-  const anthropicProvider = createAnthropic({ apiKey });
+  const googleProvider = createGoogleGenerativeAI({ apiKey });
 
   const context = input.rfpContext;
   const contextSummary = [
@@ -177,28 +177,44 @@ IMPORTANT:
 - Generate queries that would reveal the organization's importance and scale
 - Arabic queries should use the Arabic name if provided
 
-Return JSON only:
+  Return JSON only:
 {
   "english": ["query1", "query2", ...],  // 4-8 queries
   "arabic": ["query1", "query2", ...]    // 2-6 queries
 }`;
 
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 60_000);
+
   try {
-    const result = await runWithClaudeHaikuModel((model) =>
+    const result = await runWithGeminiFlashModel((model) =>
       generateObject({
-        model: anthropicProvider(model),
+        model: googleProvider(model),
         schema: ResearchQueriesSchema,
         temperature: 0,
         maxOutputTokens: 1000,
-        timeout: { totalMs: 60_000 },
+        abortSignal: abortController.signal,
         prompt
       })
     );
-    return result.object;
+    const basic = buildBasicQueries(input);
+    const english = Array.from(
+      new Set((result.object.english ?? []).map((q) => q.trim()).filter(Boolean))
+    ).slice(0, 8);
+    const arabic = Array.from(
+      new Set((result.object.arabic ?? []).map((q) => q.trim()).filter(Boolean))
+    ).slice(0, 6);
+
+    return {
+      english: english.length >= 4 ? english : basic.english,
+      arabic: arabic.length >= 2 ? arabic : basic.arabic
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("Smart query generation failed, using basic queries:", message);
     return buildBasicQueries(input);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

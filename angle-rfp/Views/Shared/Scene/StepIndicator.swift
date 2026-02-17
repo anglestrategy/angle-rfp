@@ -13,14 +13,14 @@ struct StepIndicator: View {
     let completedSteps: Set<Int>
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 6) {
             ForEach(Array(steps.indices), id: \.self) { index in
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     stepDot(index: index)
 
                     if index == currentStep {
                         Text(steps[index])
-                            .font(.custom("Urbanist", size: 15).weight(.semibold))
+                            .font(.custom("Urbanist", size: 13).weight(.semibold))
                             .foregroundColor(.white)
                             .lineLimit(1)
                     }
@@ -31,6 +31,7 @@ struct StepIndicator: View {
                 }
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder
@@ -63,17 +64,17 @@ struct StepIndicator: View {
                 .fill(DesignSystem.Palette.Background.base)
                 .overlay(
                     Circle()
-                        .stroke(stroke, lineWidth: isActive ? 1.8 : 1.2)
+                        .stroke(stroke, lineWidth: isActive ? 1.5 : 1)
                 )
-                .frame(width: 18, height: 18)
+                .frame(width: 16, height: 16)
 
             if isCompleted {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(.system(size: 8, weight: .bold))
                     .foregroundColor(contentColor)
             } else {
                 Text("\(index + 1)")
-                    .font(.custom("Urbanist", size: 11).weight(.semibold))
+                    .font(.custom("Urbanist", size: 10).weight(.semibold))
                     .foregroundColor(contentColor)
             }
         }
@@ -83,8 +84,8 @@ struct StepIndicator: View {
     private func connector(after index: Int) -> some View {
         let completed = index < currentStep
         return Rectangle()
-            .fill(Color.white.opacity(completed ? 0.18 : 0.12))
-            .frame(width: 26, height: 1)
+            .fill(Color.white.opacity(completed ? 0.18 : 0.08))
+            .frame(width: 28, height: 1)
             .clipShape(Capsule())
             .accessibilityHidden(true)
     }

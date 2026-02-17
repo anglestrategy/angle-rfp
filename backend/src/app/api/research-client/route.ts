@@ -5,8 +5,8 @@ import { makeError, normalizeUnknownError } from "@/lib/api/errors";
 import { registerAnalysisUsage } from "@/lib/ops/cost-budget";
 import { researchClientInput } from "@/lib/research/research-client";
 
-// Extend timeout for Claude API + external research providers (Pro plan required for >10s)
-// Increased to 300s (5 min) for Claude research + provider calls
+// Extend timeout for AI model + external research providers (Pro plan required for >10s)
+// Increased to 300s (5 min) for research orchestration + provider calls.
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {

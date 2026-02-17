@@ -16,21 +16,36 @@ struct AppHeader: View {
     private let stepTitles = ["Upload", "Parse", "Criteria", "Research", "Score", "Results"]
 
     var body: some View {
-        HStack(spacing: 18) {
-            Text("angle/RFP")
-                .font(.custom("Urbanist", size: 16).weight(.semibold))
+        HStack(spacing: 0) {
+            // Logo
+            Text("angle")
+                .font(.custom("Urbanist", size: 15).weight(.bold))
+                .foregroundColor(.white)
+            + Text("/")
+                .font(.custom("Urbanist", size: 15).weight(.medium))
+                .foregroundColor(DesignSystem.Palette.Accent.primary)
+            + Text("RFP")
+                .font(.custom("Urbanist", size: 15).weight(.bold))
                 .foregroundColor(.white)
 
-            StepIndicator(
-                steps: stepTitles,
-                currentStep: currentStep,
-                completedSteps: completedSteps
-            )
+            // Divider
+            Rectangle()
+                .fill(Color.white.opacity(0.12))
+                .frame(width: 1, height: 16)
+                .padding(.horizontal, 16)
 
-            Spacer()
+            // Step indicator - scrollable if needed
+            ScrollView(.horizontal, showsIndicators: false) {
+                StepIndicator(
+                    steps: stepTitles,
+                    currentStep: currentStep,
+                    completedSteps: completedSteps
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Status + Settings
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 if !apiKeysConfigured {
                     apiWarningBadge
                 }
@@ -38,14 +53,14 @@ struct AppHeader: View {
                 settingsButton
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
         .background(
             Rectangle()
-                .fill(DesignSystem.Palette.Background.base)
+                .fill(DesignSystem.Palette.Background.deepest)
                 .overlay(
                     Rectangle()
-                        .fill(Color.white.opacity(0.04))
+                        .fill(Color.white.opacity(0.06))
                         .frame(height: 1),
                     alignment: .bottom
                 )

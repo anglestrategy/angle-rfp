@@ -53,21 +53,34 @@ export async function parseWithUnstructured(input: {
 
   const endpoint = process.env.UNSTRUCTURED_API_URL?.trim() || "https://api.unstructuredapp.io/general/v0/general";
   const fetchFn = input.fetchFn ?? fetch;
+  const analysisProfile = (process.env.ANALYSIS_PROFILE?.trim().toLowerCase() || "high_assurance");
+  const defaultTimeoutMs = analysisProfile === "high_assurance" ? 30_000 : 20_000;
+  const defaultMaxAttempts = analysisProfile === "high_assurance" ? 1 : 2;
+  const strategy = process.env.UNSTRUCTURED_STRATEGY?.trim() || (analysisProfile === "high_assurance" ? "hi_res" : "fast");
 
-  const timeoutMs = Number(process.env.UNSTRUCTURED_TIMEOUT_MS ?? 45_000);
+  const parsedTimeoutMs = Number(process.env.UNSTRUCTURED_TIMEOUT_MS ?? "");
+  const timeoutMs =
+    Number.isFinite(parsedTimeoutMs) && parsedTimeoutMs > 0
+      ? parsedTimeoutMs
+      : defaultTimeoutMs;
+  const parsedMaxAttempts = Number(process.env.UNSTRUCTURED_MAX_ATTEMPTS ?? "");
+  const maxAttempts =
+    Number.isFinite(parsedMaxAttempts) && parsedMaxAttempts > 0
+      ? Math.floor(parsedMaxAttempts)
+      : defaultMaxAttempts;
   const response = await fetchWithRetry({
     url: endpoint,
     operationName: "Unstructured parse",
     fetchFn,
-    timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 45_000,
-    maxAttempts: 2,
+    timeoutMs,
+    maxAttempts,
     baseDelayMs: 750,
     maxDelayMs: 4_000,
     retryOnStatusCodes: [408, 425, 429, 500, 502, 503, 504],
     buildInit: () => {
       const formData = new FormData();
       formData.append("files", toBlob(input.fileBytes), input.fileName);
-      formData.append("strategy", process.env.UNSTRUCTURED_STRATEGY?.trim() || "hi_res");
+      formData.append("strategy", strategy);
       formData.append("skip_infer_table_types", "false");
       formData.append("languages", "eng,ara");
 
@@ -99,6 +112,6 @@ export async function parseWithUnstructured(input: {
 
   return {
     text,
-    warnings: ["Unstructured parser path used for high-fidelity extraction."]
+    warnings: [`Unstructured parser path used (${strategy} strategy).`]
   };
 }

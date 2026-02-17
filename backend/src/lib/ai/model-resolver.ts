@@ -3,8 +3,27 @@ const INVALID_MODEL_ALIASES = new Set([
   "claude-haiku-4-5-latest"
 ]);
 
-export const DEFAULT_CLAUDE_SONNET_MODEL = "claude-sonnet-4-5-20250929";
-export const DEFAULT_CLAUDE_HAIKU_MODEL = "claude-haiku-4-5-20251001";
+export const DEFAULT_GEMINI_FLASH_MODEL = "gemini-3-flash";
+// Backward-compatible aliases while legacy names are still referenced.
+export const DEFAULT_CLAUDE_SONNET_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
+export const DEFAULT_CLAUDE_HAIKU_MODEL = DEFAULT_GEMINI_FLASH_MODEL;
+
+export function resolveGoogleApiKey(): string | null {
+  const candidates = [
+    process.env.GOOGLE_API_KEY,
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = normalizedEnvValue(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
+}
 
 function normalizedEnvValue(value: string | undefined): string | null {
   if (!value) {
@@ -19,7 +38,7 @@ function warnInvalidModel(envVar: string, value: string, fallback: string): void
   console.warn(
     JSON.stringify({
       level: "warn",
-      event: "invalid_claude_model_override",
+      event: "invalid_model_override",
       envVar,
       providedValue: value,
       fallbackModel: fallback
@@ -48,22 +67,28 @@ function resolveModelFromEnv(
   return fallback;
 }
 
-export function resolveClaudeSonnetModel(): string {
+export function resolveGeminiFlashModel(): string {
   return resolveModelFromEnv(
     [
+      { envVar: "GEMINI_MODEL_FLASH", value: process.env.GEMINI_MODEL_FLASH },
+      { envVar: "GOOGLE_MODEL_FLASH", value: process.env.GOOGLE_MODEL_FLASH },
+      { envVar: "GOOGLE_GENERATIVE_AI_MODEL", value: process.env.GOOGLE_GENERATIVE_AI_MODEL },
+      // Soft backward-compatibility with previous envs if users copied model string there.
       { envVar: "CLAUDE_MODEL_SONNET", value: process.env.CLAUDE_MODEL_SONNET },
-      // Backward compatibility: legacy generic model env var maps to sonnet.
+      { envVar: "CLAUDE_MODEL_HAIKU", value: process.env.CLAUDE_MODEL_HAIKU },
       { envVar: "CLAUDE_MODEL", value: process.env.CLAUDE_MODEL }
     ],
-    DEFAULT_CLAUDE_SONNET_MODEL
+    DEFAULT_GEMINI_FLASH_MODEL
   );
 }
 
+// Backward-compatible resolver aliases.
+export function resolveClaudeSonnetModel(): string {
+  return resolveGeminiFlashModel();
+}
+
 export function resolveClaudeHaikuModel(): string {
-  return resolveModelFromEnv(
-    [{ envVar: "CLAUDE_MODEL_HAIKU", value: process.env.CLAUDE_MODEL_HAIKU }],
-    DEFAULT_CLAUDE_HAIKU_MODEL
-  );
+  return resolveGeminiFlashModel();
 }
 
 function dedupe(values: string[]): string[] {
@@ -79,27 +104,18 @@ function dedupe(values: string[]): string[] {
   return output;
 }
 
-export function getClaudeSonnetModelCandidates(): string[] {
+export function getGeminiFlashModelCandidates(): string[] {
   return dedupe([
-    resolveClaudeSonnetModel(),
-    "claude-sonnet-4-5-20250929",
-    "claude-sonnet-4-5",
-    "claude-sonnet-4-20250514",
-    "claude-3-7-sonnet-20250219",
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-20241022"
+    resolveGeminiFlashModel(),
+    "gemini-3-flash",
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash"
   ]);
 }
 
-export function getClaudeHaikuModelCandidates(): string[] {
-  return dedupe([
-    resolveClaudeHaikuModel(),
-    "claude-haiku-4-5-20251001",
-    "claude-haiku-4-5",
-    "claude-3-5-haiku-20241022",
-    "claude-3-5-haiku-latest",
-    "claude-3-haiku-20240307"
-  ]);
+export function getClaudeSonnetModelCandidates(): string[] {
+  return getGeminiFlashModelCandidates();
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
@@ -175,10 +191,13 @@ function isModelNotFoundError(error: unknown): boolean {
   const status = extractStatus(error);
   const message = extractMessage(error);
   const errorType = extractErrorType(error);
-  return status === 404 && (errorType === "not_found_error" || /not_found_error|model:/i.test(message));
+  return status === 404 && (
+    errorType === "not_found_error" ||
+    /not_found_error|model:|models?\/|not found/i.test(message)
+  );
 }
 
-export function normalizeAnthropicError(
+export function normalizeModelError(
   error: unknown,
   context: {
     model: string;
@@ -193,7 +212,7 @@ export function normalizeAnthropicError(
   if (looksLikeMissingModel) {
     const requestIdSuffix = requestId ? ` request_id=${requestId}.` : "";
     return new Error(
-      `Anthropic model '${context.model}' is not available. Check ${context.envVars.join(", ")}.${requestIdSuffix} Upstream: ${message}`
+      `AI model '${context.model}' is not available. Check ${context.envVars.join(", ")}.${requestIdSuffix} Upstream: ${message}`
     );
   }
 
@@ -202,6 +221,16 @@ export function normalizeAnthropicError(
   }
 
   return new Error(message);
+}
+
+export function normalizeAnthropicError(
+  error: unknown,
+  context: {
+    model: string;
+    envVars: string[];
+  }
+): Error {
+  return normalizeModelError(error, context);
 }
 
 async function runWithModelFallback<T>(
@@ -222,7 +251,7 @@ async function runWithModelFallback<T>(
         console.warn(
           JSON.stringify({
             level: "warn",
-            event: "anthropic_model_not_found",
+            event: "model_not_found",
             model,
             attempted,
             envVars
@@ -231,14 +260,14 @@ async function runWithModelFallback<T>(
         continue;
       }
 
-      throw normalizeAnthropicError(error, {
+      throw normalizeModelError(error, {
         model,
         envVars
       });
     }
   }
 
-  const normalized = normalizeAnthropicError(lastModelNotFoundError, {
+  const normalized = normalizeModelError(lastModelNotFoundError, {
     model: attempted[attempted.length - 1] ?? "unknown",
     envVars
   });
@@ -247,18 +276,19 @@ async function runWithModelFallback<T>(
   );
 }
 
-export async function runWithClaudeSonnetModel<T>(run: (model: string) => Promise<T>): Promise<T> {
+export async function runWithGeminiFlashModel<T>(run: (model: string) => Promise<T>): Promise<T> {
   return runWithModelFallback(
-    getClaudeSonnetModelCandidates(),
-    ["CLAUDE_MODEL_SONNET", "CLAUDE_MODEL"],
+    getGeminiFlashModelCandidates(),
+    ["GEMINI_MODEL_FLASH", "GOOGLE_MODEL_FLASH", "GOOGLE_GENERATIVE_AI_MODEL"],
     run
   );
 }
 
+// Backward-compatible wrappers so existing imports keep working while we migrate callsites.
+export async function runWithClaudeSonnetModel<T>(run: (model: string) => Promise<T>): Promise<T> {
+  return runWithGeminiFlashModel(run);
+}
+
 export async function runWithClaudeHaikuModel<T>(run: (model: string) => Promise<T>): Promise<T> {
-  return runWithModelFallback(
-    getClaudeHaikuModelCandidates(),
-    ["CLAUDE_MODEL_HAIKU"],
-    run
-  );
+  return runWithGeminiFlashModel(run);
 }

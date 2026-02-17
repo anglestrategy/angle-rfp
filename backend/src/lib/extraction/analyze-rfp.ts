@@ -11,8 +11,16 @@ export interface AnalyzeRfpInput {
   parsedDocument: {
     schemaVersion: string;
     analysisId: string;
+    detectedFormat?: "pdf" | "docx" | "txt";
+    normalizedText?: string;
     rawText: string;
     sections: Array<{ name: string; startOffset: number; endOffset: number }>;
+    chunkIndex?: Array<{
+      index: number;
+      startOffset: number;
+      endOffset: number;
+      sectionHints: string[];
+    }>;
     tables: Array<{
       title: string;
       headers: string[];
@@ -21,6 +29,13 @@ export interface AnalyzeRfpInput {
       confidence: number;
     }>;
     evidenceMap: Array<{ page: number; charStart: number; charEnd: number; excerpt: string; sourceType: string }>;
+    parseConfidence?: number;
+    ocrStats?: {
+      used: boolean;
+      pagesOcred: number;
+    } | null;
+    parserProvenance?: string[];
+    warnings?: string[];
     primaryLanguage: "arabic" | "english" | "mixed";
   };
 }
@@ -139,10 +154,11 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   const pass4 = runPass4Completeness(input, pass1);
   const pass5 = runPass5Conflicts(input, pass1);
 
-  // Run text beautification in parallel for key content fields
-  // TODO: Re-enable after timeout fixes are validated
-  // Temporarily disabled to reduce timeout pressure (saves 3x120s = 360s of Claude API calls)
-  const ENABLE_BEAUTIFIER = false;
+  // Run text beautification for structured rendering.
+  // Default is enabled because deterministic formatting is fast and reliable.
+  const ENABLE_BEAUTIFIER =
+    process.env.ENABLE_BEAUTIFIER !== "0" &&
+    process.env.ENABLE_TEXT_BEAUTIFIER !== "0";
 
   let beautifiedText: ExtractedRfpDataV1["beautifiedText"];
   let beautifierError: string | null = null;
@@ -185,6 +201,18 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   if ((pass1.evidence?.length ?? 0) < 4) {
     qualityFlags.add("low_evidence_density");
   }
+  const incompleteCoverage = pass1.warnings.some((warning) =>
+    /coverage is incomplete|missing section hints/i.test(warning)
+  );
+  const parseTruncated = pass1.warnings.some((warning) =>
+    /parsed text was truncated/i.test(warning)
+  );
+  if (incompleteCoverage) {
+    qualityFlags.add("incomplete_document_coverage");
+  }
+  if (parseTruncated) {
+    qualityFlags.add("incomplete_document_coverage");
+  }
   const criticalMissing = pass4.missingInformation.some((item) =>
     /scope|evaluation|deliverable|deadline|submission|client|project/i.test(item.field)
   );
@@ -202,8 +230,11 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
   if (criticalMissing) {
     blockReasons.push("Critical fields are missing or incomplete.");
   }
-  if (evidenceDensity < 0.4) {
-    blockReasons.push("Evidence density is below minimum threshold.");
+  if (incompleteCoverage) {
+    blockReasons.push("Document coverage is incomplete; critical sections were not fully analyzed.");
+  }
+  if (parseTruncated) {
+    blockReasons.push("Parsed document was truncated by configured limits; full-document analysis is incomplete.");
   }
   if (qualityFlags.has("conflicts_detected")) {
     blockReasons.push("Conflicting extracted values require manual review.");

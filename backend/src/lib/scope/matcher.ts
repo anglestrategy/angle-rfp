@@ -26,6 +26,11 @@ const AGENCY_DOMAIN_HINTS = [
   /brand/i,
   /campaign/i,
   /marketing/i,
+  /research/i,
+  /insights?/i,
+  /benchmark/i,
+  /market mapping/i,
+  /competitive/i,
   /communication/i,
   /content/i,
   /design/i,
@@ -142,7 +147,6 @@ const STRUCTURAL_LINE_PATTERNS = [
   /^(executive summary)$/i,
   /^(overview|key objectives|deliverables|timeline|important dates|submission requirements|special conditions)$/i,
   /^(scope of work|evaluation criteria|project description|financial potential)$/i,
-  /^(market mapping|competitive research|brand book|post launch plan)$/i,
   /^(phase|section)\s+\d+/i,
   /^(نطاق العمل|المخرجات|الجدول الزمني|معايير التقييم|الشروط الخاصة)$/
 ];
@@ -305,12 +309,8 @@ function classifyMatch(scopeItem: string, service: AgencyService, score: number)
 }
 
 export function matchScopeItems(scopeItems: string[], services: AgencyService[]): ScopeMatch[] {
-  const marketResearchSupported = taxonomySupportsMarketResearch(services);
-
   return scopeItems.map((scopeItem) => {
-    const isExplicitOutOfScope =
-      containsAny(scopeItem, OUT_OF_SCOPE_HINTS) ||
-      (isMarketResearchScopeItem(scopeItem) && !marketResearchSupported);
+    const isExplicitOutOfScope = containsAny(scopeItem, OUT_OF_SCOPE_HINTS);
 
     const scopeTokens = tokenize(scopeItem);
     let bestService: AgencyService | null = null;

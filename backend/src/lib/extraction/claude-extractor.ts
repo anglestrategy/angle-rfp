@@ -1,7 +1,7 @@
 import { generateObject } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
-import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
 function coerceString(value: unknown, fallback = ""): string {
   if (typeof value === "string") {
@@ -14,274 +14,721 @@ function coerceString(value: unknown, fallback = ""): string {
   return fallback;
 }
 
-const nullableString = (fallback = "") =>
-  z.preprocess((value) => coerceString(value, fallback), z.string());
+function parseCopyCount(value: unknown): number | null {
+  const normalized = coerceString(value, "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const digits = normalized.match(/\d+/)?.[0];
+  if (!digits) {
+    return null;
+  }
+  const parsed = Number.parseInt(digits, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-const nullableOptionalString = () =>
-  z.preprocess((value) => {
-    const normalized = coerceString(value, "");
-    return normalized.length > 0 ? normalized : null;
-  }, z.string().nullable());
-
-// Schema for deliverables with source tagging
-const DeliverableSchema = z.union([
-  // Support both old format (string) and new format (object with source)
-  z.string().transform((val) => ({ item: val, source: "verbatim" as const })),
+const LooseDeliverableSchema = z.union([
+  z.string(),
   z.object({
-    item: z.string(),
-    source: z.enum(["verbatim", "inferred"]).default("verbatim")
+    item: z.string().nullable().optional(),
+    source: z.enum(["verbatim", "inferred"]).optional()
   })
 ]);
 
-const DeliverableRequirementEntrySchema = z.object({
-  title: nullableString(""),
-  description: nullableString(""),
-  source: z.enum(["verbatim", "inferred"]).default("verbatim")
+const LooseDeliverableRequirementEntrySchema = z.object({
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  source: z.enum(["verbatim", "inferred"]).optional()
 });
 
-const DeliverableRequirementGroupsSchema = z.object({
-  technical: z.array(DeliverableRequirementEntrySchema).default([]),
-  commercial: z.array(DeliverableRequirementEntrySchema).default([]),
-  strategicCreative: z.array(DeliverableRequirementEntrySchema).default([])
+const LooseDeliverableRequirementGroupsSchema = z.object({
+  technical: z.array(LooseDeliverableRequirementEntrySchema).default([]),
+  commercial: z.array(LooseDeliverableRequirementEntrySchema).default([]),
+  strategicCreative: z.array(LooseDeliverableRequirementEntrySchema).default([])
 });
 
-// Schema for runtime validation of Claude's response
-const ClaudeExtractedFieldsSchema = z.object({
-  clientName: nullableString(""),
-  projectName: nullableString(""),
-  projectDescription: nullableString(""),
-  scopeOfWork: nullableString(""),
-  evaluationCriteria: nullableString(""),
-  requiredDeliverables: z.array(DeliverableSchema).default([]),
-  deliverableRequirements: DeliverableRequirementGroupsSchema.default({
+const ClaudeWindowFieldsSchema = z.object({
+  clientName: z.string().nullable().optional(),
+  projectName: z.string().nullable().optional(),
+  projectDescription: z.string().nullable().optional(),
+  scopeOfWork: z.string().nullable().optional(),
+  evaluationCriteria: z.string().nullable().optional(),
+  requiredDeliverables: z.array(LooseDeliverableSchema).default([]),
+  deliverableRequirements: LooseDeliverableRequirementGroupsSchema.default({
     technical: [],
     commercial: [],
     strategicCreative: []
   }),
-  importantDates: z.array(z.object({
-    title: nullableString(""),
-    date: nullableString(""),
-    type: z.enum(["submission_deadline", "qa_deadline", "presentation", "other"]).default("other")
-  })).default([]),
+  importantDates: z.array(
+    z.object({
+      title: z.string().nullable().optional(),
+      date: z.string().nullable().optional(),
+      type: z.enum(["submission_deadline", "qa_deadline", "presentation", "other"]).optional()
+    })
+  ).default([]),
   submissionRequirements: z.object({
-    method: nullableString("Unknown"),
-    email: nullableOptionalString(),
-    format: nullableString("Unspecified"),
-    physicalAddress: nullableOptionalString(),
-    // Handle both string and number from Claude (it sometimes returns "3" instead of 3)
-    copies: z.preprocess((value) => {
-      if (value === null || value === undefined || value === "") {
-        return null;
-      }
-      if (typeof value === "number" && Number.isFinite(value)) {
-        return Math.floor(value);
-      }
-      if (typeof value === "string") {
-        const digits = value.match(/\d+/)?.[0];
-        if (!digits) {
-          return null;
-        }
-        const parsed = Number.parseInt(digits, 10);
-        return Number.isFinite(parsed) ? parsed : null;
-      }
-      return null;
-    }, z.number().nullable())
-  }).default({
-    method: "Unknown",
-    email: null,
-    format: "Unspecified",
-    physicalAddress: null,
-    copies: null
-  })
+    method: z.string().nullable().optional(),
+    email: z.string().nullable().optional(),
+    format: z.string().nullable().optional(),
+    physicalAddress: z.string().nullable().optional(),
+    copies: z.union([z.string(), z.number(), z.null()]).optional()
+  }).default({})
 });
 
-export type ClaudeExtractedFields = z.infer<typeof ClaudeExtractedFieldsSchema>;
+type ClaudeWindowFields = z.infer<typeof ClaudeWindowFieldsSchema>;
 
-// Claude Sonnet 4.5 has 200K token context.
-// Empirical token usage: ~1.7 chars per token (varies by language/formatting)
-// Budget: 200K tokens - 8K response - 25K prompt overhead = ~167K tokens available
-// Safe character limit: 167K tokens × 1.7 chars/token = ~284K characters
-// This ensures we stay well under the 200K token limit while maximizing input size.
-const MAX_INPUT_CHARS = 284_000;
+export interface ClaudeExtractedFields {
+  clientName: string;
+  projectName: string;
+  projectDescription: string;
+  scopeOfWork: string;
+  evaluationCriteria: string;
+  requiredDeliverables: Array<{ item: string; source: "verbatim" | "inferred" }>;
+  deliverableRequirements: {
+    technical: Array<{ title: string; description: string; source: "verbatim" | "inferred" }>;
+    commercial: Array<{ title: string; description: string; source: "verbatim" | "inferred" }>;
+    strategicCreative: Array<{ title: string; description: string; source: "verbatim" | "inferred" }>;
+  };
+  importantDates: Array<{
+    title: string;
+    date: string;
+    type: "submission_deadline" | "qa_deadline" | "presentation" | "other";
+  }>;
+  submissionRequirements: {
+    method: string;
+    email: string | null;
+    format: string;
+    physicalAddress: string | null;
+    copies: number | null;
+  };
+}
 
-// Default timeout for Claude API requests.
-const API_TIMEOUT_MS = 120_000;
+function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFields {
+  const normalizeEntry = (entry: { title?: string | null; description?: string | null; source?: "verbatim" | "inferred" }) => ({
+    title: coerceString(entry.title, ""),
+    description: coerceString(entry.description, ""),
+    source: entry.source === "inferred" ? "inferred" as const : "verbatim" as const
+  });
+
+  const normalizeOptional = (value: unknown): string | null => {
+    const normalized = coerceString(value, "").trim();
+    return normalized.length > 0 ? normalized : null;
+  };
+
+  const normalizeDeliverable = (
+    item: string | { item?: string | null; source?: "verbatim" | "inferred" }
+  ): { item: string; source: "verbatim" | "inferred" } => {
+    if (typeof item === "string") {
+      return { item: coerceString(item, ""), source: "verbatim" };
+    }
+    return {
+      item: coerceString(item.item, ""),
+      source: item.source === "inferred" ? "inferred" : "verbatim"
+    };
+  };
+
+  return {
+    clientName: coerceString(input.clientName, ""),
+    projectName: coerceString(input.projectName, ""),
+    projectDescription: coerceString(input.projectDescription, ""),
+    scopeOfWork: coerceString(input.scopeOfWork, ""),
+    evaluationCriteria: coerceString(input.evaluationCriteria, ""),
+    requiredDeliverables: (input.requiredDeliverables ?? [])
+      .map((entry) => normalizeDeliverable(entry))
+      .filter((entry) => entry.item.trim().length > 0),
+    deliverableRequirements: {
+      technical: (input.deliverableRequirements?.technical ?? [])
+        .map((entry) => normalizeEntry(entry))
+        .filter((entry) => entry.title.length > 0 || entry.description.length > 0),
+      commercial: (input.deliverableRequirements?.commercial ?? [])
+        .map((entry) => normalizeEntry(entry))
+        .filter((entry) => entry.title.length > 0 || entry.description.length > 0),
+      strategicCreative: (input.deliverableRequirements?.strategicCreative ?? [])
+        .map((entry) => normalizeEntry(entry))
+        .filter((entry) => entry.title.length > 0 || entry.description.length > 0)
+    },
+    importantDates: (input.importantDates ?? []).map((item) => ({
+      title: coerceString(item.title, ""),
+      date: coerceString(item.date, ""),
+      type: item.type ?? "other"
+    })),
+    submissionRequirements: {
+      method: coerceString(input.submissionRequirements?.method, "Unknown"),
+      email: normalizeOptional(input.submissionRequirements?.email),
+      format: coerceString(input.submissionRequirements?.format, "Unspecified"),
+      physicalAddress: normalizeOptional(input.submissionRequirements?.physicalAddress),
+      copies: parseCopyCount(input.submissionRequirements?.copies ?? null)
+    }
+  };
+}
+
+export interface ExtractionCoverage {
+  chunksTotal: number;
+  chunksAnalyzed: number;
+  coveragePercent: number;
+  missingSectionTags: string[];
+  rawTextChars: number;
+  contextChars: number;
+}
+
+export interface ClaudeExtractionResult {
+  fields: ClaudeExtractedFields;
+  coverage: ExtractionCoverage;
+}
+
+function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
+  const parsed = Number(raw ?? "");
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
+
+const API_TIMEOUT_MS = positiveIntFromEnv(process.env.EXTRACTION_MODEL_TIMEOUT_MS, 180_000);
+const WINDOW_TIMEOUT_MS = positiveIntFromEnv(process.env.EXTRACTION_WINDOW_TIMEOUT_MS, 120_000);
+const EXTRACTION_TOTAL_TIMEOUT_MS = positiveIntFromEnv(process.env.EXTRACTION_TOTAL_TIMEOUT_MS, 9 * 60 * 1000);
+const WINDOW_CONTEXT_CHARS = positiveIntFromEnv(process.env.EXTRACTION_WINDOW_CONTEXT_CHARS, 180_000);
+const WINDOW_CONCURRENCY = Math.max(
+  1,
+  Math.min(4, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_CONCURRENCY, 2))
+);
+const WINDOW_MAX_RETRIES = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_RETRIES, 1)));
+const WINDOW_MAX_SPLIT_DEPTH = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_SPLIT_DEPTH, 1)));
+const CHUNK_SIZE_CHARS = positiveIntFromEnv(process.env.EXTRACTION_CHUNK_SIZE_CHARS, 12_000);
+const CHUNK_OVERLAP_CHARS = Math.min(
+  CHUNK_SIZE_CHARS - 1,
+  positiveIntFromEnv(process.env.EXTRACTION_CHUNK_OVERLAP_CHARS, 1_200)
+);
+const PROJECT_DESCRIPTION_MERGE_MAX_CHARS = positiveIntFromEnv(
+  process.env.EXTRACTION_PROJECT_DESCRIPTION_MAX_CHARS,
+  6_000
+);
+const SCOPE_MERGE_MAX_CHARS = positiveIntFromEnv(
+  process.env.EXTRACTION_SCOPE_MAX_CHARS,
+  24_000
+);
+const EVALUATION_MERGE_MAX_CHARS = positiveIntFromEnv(
+  process.env.EXTRACTION_EVALUATION_MAX_CHARS,
+  24_000
+);
+const EXTRACTION_MIN_COVERAGE = (() => {
+  const parsed = Number(process.env.EXTRACTION_MIN_COVERAGE ?? "");
+  if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1) {
+    return parsed;
+  }
+  return 0.98;
+})();
+interface DocChunk {
+  index: number;
+  start: number;
+  end: number;
+  text: string;
+  tags: string[];
+}
+
+interface ChunkWindow {
+  index: number;
+  chunks: DocChunk[];
+}
+
+const CRITICAL_TAGS = ["scope", "evaluation", "deliverables", "dates", "submission"];
+const TAG_RULES: Array<{ tag: string; pattern: RegExp }> = [
+  { tag: "scope", pattern: /scope\s+of\s+work|statement\s+of\s+work|scope\s+items|نطاق\s+العمل/iu },
+  { tag: "evaluation", pattern: /evaluation\s+criteria|technical\s+evaluation|scoring|weight(?:ed)?|معايير\s+التقييم/iu },
+  { tag: "deliverables", pattern: /deliverables?|required\s+submission|proposal\s+requirements?|المخرجات|التسليم/iu },
+  { tag: "dates", pattern: /important\s+dates?|timeline|deadline|submission date|موعد|تاريخ/iu },
+  { tag: "submission", pattern: /submission\s+format|submission\s+requirements?|طريقة\s+التقديم|portal|email/i },
+  { tag: "legal", pattern: /terms?\s*&?\s*conditions?|liability|governing law|indemnif|الشروط/iu }
+];
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function sectionWindow(rawText: string, pattern: RegExp, maxChars = 9_000): string | null {
-  const match = pattern.exec(rawText);
-  if (!match || typeof match.index !== "number") {
-    return null;
+function detectTags(text: string): string[] {
+  const tags = new Set<string>();
+  for (const rule of TAG_RULES) {
+    if (rule.pattern.test(text)) {
+      tags.add(rule.tag);
+    }
+  }
+  return Array.from(tags);
+}
+
+function chunkDocument(rawText: string): DocChunk[] {
+  const chunks: DocChunk[] = [];
+  let cursor = 0;
+  let index = 0;
+  const step = Math.max(1, CHUNK_SIZE_CHARS - CHUNK_OVERLAP_CHARS);
+
+  while (cursor < rawText.length) {
+    const end = Math.min(rawText.length, cursor + CHUNK_SIZE_CHARS);
+    const text = rawText.slice(cursor, end).trim();
+    if (text.length > 0) {
+      chunks.push({
+        index,
+        start: cursor,
+        end,
+        text,
+        tags: detectTags(text)
+      });
+      index += 1;
+    }
+    if (end >= rawText.length) {
+      break;
+    }
+    cursor += step;
   }
 
-  const start = Math.max(0, match.index - 800);
-  const end = Math.min(rawText.length, start + maxChars);
-  const window = rawText.slice(start, end).trim();
-  return window.length > 120 ? window : null;
+  return chunks;
 }
 
-function buildFocusedExtractionInput(rawText: string): string {
-  // SEND THE ENTIRE DOCUMENT - NO SNIPPETS, NO "FOCUSING"
-  // Claude Sonnet 4 can handle 500K chars easily, and we need complete context for intelligent analysis.
-  // The old "focused" approach extracted only ~60K chars of snippets, causing poor quality.
-
-  const normalized = normalizeWhitespace(rawText);
-
-  // Only truncate if document exceeds Claude's context limit (500K chars)
-  if (normalized.length > MAX_INPUT_CHARS) {
-    console.warn(`[Extraction] Document exceeds ${MAX_INPUT_CHARS} chars, truncating from ${normalized.length}`);
-    return normalized.slice(0, MAX_INPUT_CHARS);
+function renderCoverageContext(chunks: DocChunk[], _budgetChars: number): string {
+  if (chunks.length === 0) {
+    return "";
   }
 
-  return normalized;
+  return chunks
+    .map((chunk) => {
+      const tags = chunk.tags.join(",") || "none";
+      return `[chunk:${chunk.index} range:${chunk.start}-${chunk.end} tags:${tags}]\n${chunk.text}`;
+    })
+    .join("\n\n");
 }
 
-const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Your job is to extract and CLEARLY STRUCTURE key information from RFP documents so busy executives can quickly understand what's being asked.
+function buildChunkWindows(chunks: DocChunk[]): ChunkWindow[] {
+  if (chunks.length === 0) {
+    return [];
+  }
 
-CRITICAL INSTRUCTIONS FOR INTELLIGENT EXTRACTION:
-1. READ CAREFULLY: Scope, deliverables, and evaluation criteria are often in middle/end sections - read the entire document
-2. INFER INTELLIGENTLY: If information is implied but not explicit, extract it and mark source as "inferred"
-3. LOOK EVERYWHERE: Check headers, footers, tables, appendices for requirements
-4. BE THOROUGH: Extract ALL deliverables, not just the obvious ones
-5. CONTEXT MATTERS: If submission requirements reference other sections, find and extract that content
-6. CLIENT IDENTIFICATION: Look for the organization ISSUING the RFP (letterhead, "Issued by:", "Client:", Arabic "العميل")
-   - Common mistake: extracting bidder names instead of client name
-   - The client is WHO IS ASKING for proposals, not who will submit them
+  const windows: ChunkWindow[] = [];
+  let cursor = 0;
+  while (cursor < chunks.length) {
+    const windowChunks: DocChunk[] = [];
+    let usedChars = 0;
+    while (cursor < chunks.length) {
+      const next = chunks[cursor];
+      const nextCost = next.text.length + 120;
+      if (windowChunks.length > 0 && usedChars + nextCost > WINDOW_CONTEXT_CHARS) {
+        break;
+      }
+      windowChunks.push(next);
+      usedChars += nextCost;
+      cursor += 1;
+    }
+    if (windowChunks.length === 0) {
+      windowChunks.push(chunks[cursor]);
+      cursor += 1;
+    }
+    windows.push({
+      index: windows.length,
+      chunks: windowChunks
+    });
+  }
 
-EXTRACTION PRIORITIES (in order of importance):
-- Client name and project title (critical for accurate identification)
-- Project description and objectives
-- Complete scope of work (all phases, all deliverables)
-- Evaluation criteria (ALL factors with percentages)
-- Timeline and milestones
-- Budget constraints and payment terms
-- Submission requirements (format, copies, deadline)
-- Technical requirements and constraints
-
-If text is truncated, focus on extracting the MOST IMPORTANT sections first (client, scope, evaluation).
-
-Extract the following fields from this RFP document. Return ONLY valid JSON, no markdown or explanations.
-
-{
-  "clientName": "The issuing organization's name",
-  "projectName": "The project or RFP title",
-  "projectDescription": "2-3 sentence executive summary of the project",
-  "scopeOfWork": "Core in-scope work items only, concise bullet lines (max 12)",
-  "evaluationCriteria": "Well-structured criteria with weights (see format below)",
-  "requiredDeliverables": [{"item": "Technical Proposal", "source": "verbatim"}, {"item": "Past Project Portfolio", "source": "inferred"}],
-  "deliverableRequirements": {
-    "technical": [{"title": "...", "description": "...", "source": "verbatim|inferred"}],
-    "commercial": [{"title": "...", "description": "...", "source": "verbatim|inferred"}],
-    "strategicCreative": [{"title": "...", "description": "...", "source": "verbatim|inferred"}]
-  },
-  "importantDates": [{"title": "...", "date": "YYYY-MM-DD", "type": "submission_deadline|qa_deadline|presentation|other"}],
-  "submissionRequirements": {"method": "Email|Portal|Physical", "email": "...", "format": "PDF|Word", "physicalAddress": "...", "copies": null}
+  return windows;
 }
 
-CRITICAL FORMATTING RULES FOR scopeOfWork AND evaluationCriteria:
+function renderWindowContext(window: ChunkWindow): string {
+  const coverageContext = renderCoverageContext(window.chunks, WINDOW_CONTEXT_CHARS);
+  return ["[window_coverage_context]", coverageContext].join("\n");
+}
 
-For scopeOfWork:
-- Return only concise work-item bullets.
-- Do NOT include headings, phases, timeline tables, or admin text.
-- Do NOT include markdown headings such as "## Executive Summary" or "## Scope of Work".
-- Each bullet should be one actionable work item (preferably <= 18 words).
-- Max 12 bullets.
-- Use this exact style:
-"• [Core scope item 1]\\n• [Core scope item 2]\\n• [Core scope item 3]"
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeWhitespace(value);
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(normalized);
+  }
+  return output;
+}
 
-For evaluationCriteria:
-- Use plain text only (no markdown headings, no **bold**, no code fences).
-- Prefer a clean numbered format:
-"1. [Criteria Name] (XX%)\\n[Short explanation]\\n\\n2. [Criteria Name] (XX%)\\n[Short explanation]\\n\\n3. [Criteria Name] (XX%)\\n[Short explanation]"
-- Preserve table group boundaries when criteria comes from a table.
+function mergeTextBlocks(values: string[], maxChars: number): string {
+  const unique = dedupeStrings(values);
+  if (unique.length === 0) {
+    return "";
+  }
+  let merged = unique.join("\n");
+  if (merged.length > maxChars) {
+    merged = merged.slice(0, maxChars).trim();
+  }
+  return merged;
+}
 
-For deliverableRequirements:
-- Fill only actual proposal submission requirements (what we need to prepare/submit in the pitch).
-- Group items under technical, commercial, strategicCreative.
-- Exclude legal boilerplate, definitions, liabilities, and terms/conditions text.
-- Exclude generic contract clauses unless they explicitly require a submission artifact.
-- Keep each description concise and actionable (one requirement per item).
+async function withHardTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  const safeTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 120_000;
+  return await new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(message));
+    }, safeTimeout);
 
-EXTRACTION RULES:
-1. clientName: The organization ISSUING the RFP (not bidders). Look for letterhead, "Client:", "Issued by:", or Arabic "العميل".
-2. scopeOfWork: Extract only in-scope delivery requirements. Exclude bid admin details, response mechanics, evaluation rubric text, legal/commercial terms, and timeline milestones.
-3. evaluationCriteria: Extract ALL criteria with their weights. Organize by category if multiple exist.
-4. requiredDeliverables: Specific items to submit with source tagging:
-   - "source": "verbatim" if explicitly stated in RFP (e.g., "Submit technical proposal")
-   - "source": "inferred" if derived from evaluation criteria or implied requirements
-5. deliverableRequirements:
-   - technical: proposal artifacts such as methodology, credentials, team/CVs, references, certificates.
-   - commercial: pricing, commercial/financial proposal, payment terms, tax/subtotal/grand-total if requested.
-   - strategicCreative: strategic/creative proposal requirements derived from scope/evaluation criteria.
-   - NEVER include terms-and-conditions boilerplate or non-submission legal text.
-6. importantDates: Parse any date format to YYYY-MM-DD. Skip addresses containing numbers.
-7. Skip page numbers, headers, footers, table of contents entries.
-8. Do NOT duplicate section headings. Each heading should appear only once in scopeOfWork/evaluationCriteria.
-9. Keep scope bullets concise and non-redundant; never output long phase-by-phase prose.
-10. Bid/tender response deadlines belong in importantDates, not scopeOfWork.
-11. Do NOT repeat the same criterion text under multiple numbered sections.
+    operation
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+  });
+}
 
-IMPORTANT: Your output should be READABLE and EXECUTIVE-LEVEL. Prioritize concise decision-useful content, not full document copy.
+function mergeDeliverables(
+  results: ClaudeExtractedFields[]
+): ClaudeExtractedFields["requiredDeliverables"] {
+  const merged = new Map<string, { item: string; source: "verbatim" | "inferred" }>();
 
-RFP Document:
+  for (const result of results) {
+    for (const raw of result.requiredDeliverables) {
+      const entry = typeof raw === "string"
+        ? { item: raw, source: "verbatim" as const }
+        : { item: raw.item, source: raw.source };
+      const item = normalizeWhitespace(entry.item);
+      if (!item) {
+        continue;
+      }
+      const key = item.toLowerCase();
+      const existing = merged.get(key);
+      if (!existing || (existing.source === "inferred" && entry.source === "verbatim")) {
+        merged.set(key, { item, source: entry.source });
+      }
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
+function mergeDeliverableRequirementGroup(
+  groups: Array<ClaudeExtractedFields["deliverableRequirements"]>,
+  key: keyof ClaudeExtractedFields["deliverableRequirements"]
+): ClaudeExtractedFields["deliverableRequirements"][typeof key] {
+  const deduped = new Map<string, { title: string; description: string; source: "verbatim" | "inferred" }>();
+  for (const group of groups) {
+    for (const item of group[key]) {
+      const title = normalizeWhitespace(item.title);
+      const description = normalizeWhitespace(item.description);
+      if (!title && !description) {
+        continue;
+      }
+      const dedupeKey = `${title.toLowerCase()}|${description.toLowerCase()}`;
+      const existing = deduped.get(dedupeKey);
+      if (!existing || (existing.source === "inferred" && item.source === "verbatim")) {
+        deduped.set(dedupeKey, {
+          title,
+          description,
+          source: item.source
+        });
+      }
+    }
+  }
+  return Array.from(deduped.values());
+}
+
+function mergeImportantDates(results: ClaudeExtractedFields[]): ClaudeExtractedFields["importantDates"] {
+  const deduped = new Map<string, ClaudeExtractedFields["importantDates"][number]>();
+  for (const result of results) {
+    for (const item of result.importantDates) {
+      const title = normalizeWhitespace(item.title);
+      const date = normalizeWhitespace(item.date);
+      if (!title && !date) {
+        continue;
+      }
+      const dedupeKey = `${title.toLowerCase()}|${date}|${item.type}`;
+      if (!deduped.has(dedupeKey)) {
+        deduped.set(dedupeKey, {
+          title,
+          date,
+          type: item.type
+        });
+      }
+    }
+  }
+  return Array.from(deduped.values());
+}
+
+function pickSubmissionRequirements(results: ClaudeExtractedFields[]): ClaudeExtractedFields["submissionRequirements"] {
+  for (const result of results) {
+    const candidate = result.submissionRequirements;
+    const hasSignal =
+      normalizeWhitespace(candidate.method) !== "" ||
+      normalizeWhitespace(candidate.format) !== "" ||
+      normalizeWhitespace(candidate.email ?? "") !== "";
+    if (hasSignal) {
+      return candidate;
+    }
+  }
+  return {
+    method: "Unknown",
+    email: null,
+    format: "Unspecified",
+    physicalAddress: null,
+    copies: null
+  };
+}
+
+function mergeWindowResults(results: ClaudeExtractedFields[]): ClaudeExtractedFields {
+  const projectDescriptions = results.map((r) => r.projectDescription);
+  const scopeBlocks = results.map((r) => r.scopeOfWork);
+  const evaluationBlocks = results.map((r) => r.evaluationCriteria);
+
+  const firstNonEmpty = (values: string[]): string =>
+    dedupeStrings(values).find((value) => value.length > 0) ?? "";
+
+  const deliverableRequirementGroups = results.map((result) => result.deliverableRequirements);
+
+  return {
+    clientName: firstNonEmpty(results.map((r) => r.clientName)),
+    projectName: firstNonEmpty(results.map((r) => r.projectName)),
+    projectDescription: mergeTextBlocks(projectDescriptions, PROJECT_DESCRIPTION_MERGE_MAX_CHARS),
+    scopeOfWork: mergeTextBlocks(scopeBlocks, SCOPE_MERGE_MAX_CHARS),
+    evaluationCriteria: mergeTextBlocks(evaluationBlocks, EVALUATION_MERGE_MAX_CHARS),
+    requiredDeliverables: mergeDeliverables(results),
+    deliverableRequirements: {
+      technical: mergeDeliverableRequirementGroup(deliverableRequirementGroups, "technical"),
+      commercial: mergeDeliverableRequirementGroup(deliverableRequirementGroups, "commercial"),
+      strategicCreative: mergeDeliverableRequirementGroup(deliverableRequirementGroups, "strategicCreative")
+    },
+    importantDates: mergeImportantDates(results),
+    submissionRequirements: pickSubmissionRequirements(results)
+  };
+}
+
+const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Extract decision-useful structured data.
+
+You are given a coverage-annotated document context with chunk markers. Read ALL chunks, especially priority chunks.
+Return ONLY valid JSON matching the requested schema.
+
+RULES:
+1. clientName must be the RFP issuer (not bidders/vendors).
+2. scopeOfWork must include only actual execution scope items, concise bullets.
+3. evaluationCriteria must be clean, grouped, no markdown artifacts.
+4. requiredDeliverables must contain PROJECT DELIVERABLES - what the agency will CREATE for the client:
+   - Strategic documents (brand strategy, positioning, messaging frameworks)
+   - Creative outputs (campaigns, concepts, key visuals, brand identity)
+   - Design assets (templates, guidelines, adaptations)
+   - Content/production (videos, photography, copy, content calendars)
+
+   DO NOT include PROPOSAL SUBMISSION requirements (CVs, certificates, technical proposals,
+   compliance docs, commercial proposals). These belong in deliverableRequirements.
+
+   Focus on the Scope of Work section. List 5-8 MAJOR deliverables for executive scanning.
+
+5. deliverableRequirements categorizes what the PROPOSAL must include (for bid preparation):
+   - technical: methodology, team CVs, certifications, credentials
+   - commercial: pricing, payment terms, financial docs
+   - strategicCreative: sample work, case studies, creative approach
+   Exclude legal boilerplate and generic terms/conditions.
+6. importantDates should include critical deadlines in YYYY-MM-DD where possible.
+7. Keep text executive-grade, concise, and non-duplicative.
+
+Context:
 `;
 
-export async function extractWithClaude(rawText: string): Promise<ClaudeExtractedFields> {
+export async function extractWithClaude(rawText: string): Promise<ClaudeExtractionResult> {
   const startTime = Date.now();
   console.log(`[Extraction] Starting at ${new Date().toISOString()}, timeout: ${API_TIMEOUT_MS}ms`);
-  console.log(`[Extraction] Input size: ${rawText.length} chars (will be focused to max ${MAX_INPUT_CHARS} chars)`);
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-
+  const apiKey = resolveGoogleApiKey();
   if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY environment variable is not set");
-  }
-  const anthropicProvider = createAnthropic({ apiKey });
-
-  const focusedText = buildFocusedExtractionInput(rawText);
-
-  // Log if truncation occurred
-  if (focusedText.length < rawText.length) {
-    const truncationPercent = ((1 - focusedText.length / rawText.length) * 100).toFixed(1);
-    console.warn(`[Extraction] Truncated RFP from ${rawText.length} to ${focusedText.length} chars (${truncationPercent}% removed)`);
-  } else {
-    console.log(`[Extraction] Using full RFP content (${focusedText.length} chars, no truncation)`);
-  }
-
-  // Create abort controller for request-level timeout
-  const abortController = new AbortController();
-  const timeoutId = setTimeout(() => {
-    console.error(`[Extraction] Timeout triggered after ${API_TIMEOUT_MS}ms, aborting request`);
-    abortController.abort();
-  }, API_TIMEOUT_MS);
-
-  try {
-    const result = await runWithClaudeSonnetModel((model) =>
-      generateObject({
-        model: anthropicProvider(model),
-        schema: ClaudeExtractedFieldsSchema,
-        temperature: 0,
-        maxOutputTokens: 8000,
-        abortSignal: abortController.signal,
-        prompt: EXTRACTION_PROMPT + focusedText
-      })
+    throw new Error(
+      "No Gemini API key configured. Set GOOGLE_API_KEY or GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY."
     );
-
-    clearTimeout(timeoutId);
-    const duration = Date.now() - startTime;
-    console.log(`[Extraction] Completed successfully in ${duration}ms`);
-    return result.object;
-  } catch (parseError) {
-    clearTimeout(timeoutId);
-    const duration = Date.now() - startTime;
-    console.error(`[Extraction] Failed after ${duration}ms:`, parseError);
-
-    if (parseError instanceof z.ZodError) {
-      throw new Error(`Claude response validation failed: ${parseError.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`);
-    }
-    throw new Error(`Claude structured extraction failed: ${parseError}`);
   }
+  const googleProvider = createGoogleGenerativeAI({ apiKey });
+  const normalized = normalizeWhitespace(rawText);
+  const chunks = chunkDocument(normalized);
+  const windows = buildChunkWindows(chunks);
+  const windowContexts = windows.map((window) => renderWindowContext(window));
+  const criticalTagUniverse = new Set(chunks.flatMap((chunk) => chunk.tags));
+
+  if (windows.length === 0) {
+    throw new Error("No extractable content available after normalization.");
+  }
+
+  console.log(
+    `[Extraction] Planned ${windows.length} windows across ${chunks.length} total chunks (` +
+      `full-document AI coverage, raw chars=${normalized.length})`
+  );
+
+  const successfulResults: ClaudeExtractedFields[] = [];
+  const analyzedChunkIndexes = new Set<number>();
+  const failedWindows: Array<{ index: number; message: string }> = [];
+  const activeControllers = new Set<AbortController>();
+  const deadlineAt = startTime + EXTRACTION_TOTAL_TIMEOUT_MS;
+  let windowCursor = 0;
+  let stopRequested = false;
+
+  function ensureWithinDeadline(): void {
+    if (Date.now() <= deadlineAt) {
+      return;
+    }
+    stopRequested = true;
+    for (const controller of activeControllers) {
+      controller.abort();
+    }
+    throw new Error(
+      `AI extraction exceeded total budget (${Math.round(EXTRACTION_TOTAL_TIMEOUT_MS / 1000)}s).`
+    );
+  }
+
+  async function executeWindowAttempt(window: ChunkWindow, context: string): Promise<ClaudeExtractedFields> {
+    const abortController = new AbortController();
+    activeControllers.add(abortController);
+    const timeoutId = setTimeout(() => abortController.abort(), WINDOW_TIMEOUT_MS);
+    try {
+      const result = await withHardTimeout(
+        runWithGeminiFlashModel((model) =>
+          generateObject({
+            model: googleProvider(model),
+            schema: ClaudeWindowFieldsSchema,
+            temperature: 0,
+            maxOutputTokens: 6000,
+            abortSignal: abortController.signal,
+            prompt:
+              `${EXTRACTION_PROMPT}\n` +
+              `You are processing window ${window.index + 1} of ${windows.length}. ` +
+              "Extract only information explicitly present in this window. " +
+              "If a field is not present in this window, leave it empty.\n\n" +
+              context
+          })
+        ),
+        WINDOW_TIMEOUT_MS + 5_000,
+        `Extraction window ${window.index + 1} timed out after ${Math.round((WINDOW_TIMEOUT_MS + 5_000) / 1000)}s`
+      );
+      return canonicalizeWindowFields(result.object);
+    } finally {
+      clearTimeout(timeoutId);
+      activeControllers.delete(abortController);
+    }
+  }
+
+  async function processWindow(window: ChunkWindow, depth = 0): Promise<void> {
+    ensureWithinDeadline();
+    const context = renderWindowContext(window);
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= WINDOW_MAX_RETRIES; attempt += 1) {
+      ensureWithinDeadline();
+      try {
+        const normalized = await executeWindowAttempt(window, context);
+        successfulResults.push(normalized);
+        for (const chunk of window.chunks) {
+          analyzedChunkIndexes.add(chunk.index);
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        const retryable = attempt < WINDOW_MAX_RETRIES;
+        if (retryable) {
+          const backoffMs = Math.min(2000, 400 * (attempt + 1));
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          continue;
+        }
+      }
+    }
+
+    if (depth < WINDOW_MAX_SPLIT_DEPTH && window.chunks.length > 1) {
+      const midpoint = Math.ceil(window.chunks.length / 2);
+      const left: ChunkWindow = {
+        index: window.index,
+        chunks: window.chunks.slice(0, midpoint)
+      };
+      const right: ChunkWindow = {
+        index: window.index,
+        chunks: window.chunks.slice(midpoint)
+      };
+
+      await processWindow(left, depth + 1);
+      await processWindow(right, depth + 1);
+      return;
+    }
+
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    failedWindows.push({ index: window.index, message });
+  }
+
+  async function worker(): Promise<void> {
+    while (!stopRequested && windowCursor < windows.length) {
+      ensureWithinDeadline();
+      const currentIndex = windowCursor;
+      windowCursor += 1;
+      const window = windows[currentIndex];
+      try {
+        await processWindow(window);
+      } catch (error) {
+        stopRequested = true;
+        const message = error instanceof Error ? error.message : String(error);
+        failedWindows.push({ index: window.index, message });
+      }
+    }
+  }
+
+  const workers: Promise<void>[] = [];
+  const effectiveConcurrency = Math.max(1, Math.min(WINDOW_CONCURRENCY, windows.length));
+  for (let i = 0; i < effectiveConcurrency; i += 1) {
+    workers.push(worker());
+  }
+  await Promise.allSettled(workers);
+
+  if (successfulResults.length === 0) {
+    const reason = failedWindows[0]?.message ?? "unknown extraction failure";
+    throw new Error(`AI structured extraction failed across all windows: ${reason}`);
+  }
+
+  const mergedFields = mergeWindowResults(successfulResults);
+  const analyzedTags = new Set<string>();
+  for (const chunk of chunks) {
+    if (analyzedChunkIndexes.has(chunk.index)) {
+      for (const tag of chunk.tags) {
+        analyzedTags.add(tag);
+      }
+    }
+  }
+
+  const missingSectionTags = CRITICAL_TAGS.filter(
+    (tag) => criticalTagUniverse.has(tag) && !analyzedTags.has(tag)
+  );
+  const coveragePercent = chunks.length === 0 ? 0 : analyzedChunkIndexes.size / chunks.length;
+
+  if (missingSectionTags.length > 0) {
+    throw new Error(
+      `AI extraction did not cover critical sections: ${missingSectionTags.join(", ")}.`
+    );
+  }
+  if (coveragePercent < EXTRACTION_MIN_COVERAGE) {
+    throw new Error(
+      `AI extraction coverage below threshold (${Math.round(coveragePercent * 100)}% < ${Math.round(
+        EXTRACTION_MIN_COVERAGE * 100
+      )}%).`
+    );
+  }
+
+  const duration = Date.now() - startTime;
+  console.log(
+    `[Extraction] Completed in ${duration}ms, windows_ok=${successfulResults.length}/${windows.length}, coverage=${Math.round(
+      coveragePercent * 100
+    )}%`
+  );
+
+  return {
+    fields: mergedFields,
+    coverage: {
+      chunksTotal: chunks.length,
+      chunksAnalyzed: analyzedChunkIndexes.size,
+      coveragePercent,
+      missingSectionTags,
+      rawTextChars: normalized.length,
+      contextChars: windowContexts.reduce((sum, context) => sum + context.length, 0)
+    }
+  };
 }

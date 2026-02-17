@@ -67,19 +67,16 @@ describe("parseDocumentInput", () => {
     expect(parsed.warnings.some((warning) => warning.includes("OCR"))).toBe(true);
   });
 
-  test("parses DOCX payload with fallback decode when structure is invalid", async () => {
+  test("fails DOCX parse when file is structurally invalid", async () => {
     const fakeDocxPayload = Buffer.from("Project Name: Mock DOCX\nScope of Work\nEvaluation Criteria", "utf8");
-
-    const parsed = await parseDocumentInput({
-      analysisId: uuid(),
-      fileName: "sample.docx",
-      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      fileBytes: fakeDocxPayload
-    });
-
-    expect(parsed.detectedFormat).toBe("docx");
-    expect(parsed.rawText).toContain("Project Name");
-    expect(parsed.warnings.length).toBeGreaterThan(0);
+    await expect(
+      parseDocumentInput({
+        analysisId: uuid(),
+        fileName: "sample.docx",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        fileBytes: fakeDocxPayload
+      })
+    ).rejects.toThrowError(/DOCX text extraction failed/i);
   });
 
   test("rejects file above max size", async () => {

@@ -82,15 +82,9 @@ final class BackendAnalysisClient {
     private let pdfParser = PDFParsingService()
     private let txtParser = TXTParsingService()
 
-    private enum Limits {
-        static let extractionRawTextChars = 350_000
-        static let extractionMaxTables = 40
-        static let extractionMaxEvidenceItems = 220
-    }
-
     private enum StageTimeouts {
-        static let parse: TimeInterval = 330
-        static let extract: TimeInterval = 660  // Increased to 11 minutes to match backend maxDuration (600s) + buffer
+        static let parse: TimeInterval = 420
+        static let extract: TimeInterval = 780
         static let scope: TimeInterval = 200    // Increased to match backend timeout (180s) + buffer
         static let research: TimeInterval = 330 // Increased to match backend timeout (300s) + buffer
         static let score: TimeInterval = 180
@@ -119,8 +113,8 @@ final class BackendAnalysisClient {
     private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = 120  // Increased to 2 minutes (matches backend Claude API timeout)
-        configuration.timeoutIntervalForResource = 720 // Increased to 12 minutes (matches backend maxDuration + buffer)
+        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForResource = 420
         return URLSession(configuration: configuration)
     }
 
@@ -156,17 +150,15 @@ final class BackendAnalysisClient {
         allWarnings.append(contentsOf: parsed.warnings)
         onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.22, warnings: parsed.warnings))
 
-        let extractionDocument = compactParsedDocumentForExtraction(parsed)
-
         onStageUpdate(BackendStageUpdate(stage: .extract, progress: 0.28, warnings: []))
         let extractedEnvelope: ApiEnvelope<ExtractedRFPDataV1Payload> = try await withStageTimeout(
             stage: .extract,
             seconds: StageTimeouts.extract
         ) {
-            try await self.postJSON(
-                path: "/api/analyze-rfp",
+            try await self.pollExtractionResult(
+                analysisId: analysisId,
                 traceId: traceId,
-                body: AnalyzeRfpRequestV1(analysisId: analysisId, parsedDocument: extractionDocument)
+                onStageUpdate: onStageUpdate
             )
         }
         let extracted = try extractedEnvelope.requireData()
@@ -320,29 +312,52 @@ final class BackendAnalysisClient {
         }
 
         let boundary = "Boundary-\(UUID().uuidString)"
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 300
-        request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
-        request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
-        request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
-        request.addValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.httpBody = multipartBody(
+        let requestBody = multipartBody(
             boundary: boundary,
             analysisId: analysisId,
             fileName: documentURL.lastPathComponent,
             fileData: fileData
         )
 
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            if let urlError = error as? URLError, urlError.code == .timedOut {
+        var lastError: Error?
+        var data: Data = Data()
+        var response: URLResponse?
+
+        for attempt in 1...3 {
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 210
+            request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
+            request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
+            request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
+            request.addValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+            request.httpBody = requestBody
+
+            do {
+                (data, response) = try await session.data(for: request)
+                lastError = nil
+                break
+            } catch {
+                lastError = error
+                if !isTransientNetworkError(error) || attempt == 3 {
+                    break
+                }
+                let backoffSeconds = UInt64(min(6, attempt * 2))
+                try await Task.sleep(nanoseconds: backoffSeconds * 1_000_000_000)
+            }
+        }
+
+        if let lastError {
+            if let urlError = lastError as? URLError, urlError.code == .timedOut {
                 throw BackendAnalysisClientError.parseTimeout
             }
-            throw error
+            throw lastError
         }
+
+        guard let response else {
+            throw BackendAnalysisClientError.invalidResponse
+        }
+
         guard let httpResponse = response as? HTTPURLResponse else {
             throw BackendAnalysisClientError.invalidResponse
         }
@@ -610,10 +625,164 @@ final class BackendAnalysisClient {
         return envelope
     }
 
+    private func getJSON<Output: Decodable>(
+        path: String,
+        traceId: String
+    ) async throws -> ApiEnvelope<Output> {
+        let config = try requireBackendConfiguration()
+        let cleanedPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
+        guard let endpoint = URL(string: cleanedPath, relativeTo: config.baseURL)?.absoluteURL else {
+            throw BackendAnalysisClientError.invalidBaseURL
+        }
+
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeoutInterval(for: cleanedPath)
+        request.addValue("Bearer \(config.token)", forHTTPHeaderField: "Authorization")
+        request.addValue(traceId, forHTTPHeaderField: "X-Trace-Id")
+        request.addValue(UUID().uuidString.lowercased(), forHTTPHeaderField: "Idempotency-Key")
+        request.addValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw BackendAnalysisClientError.invalidResponse
+        }
+
+        let envelope = try decoder.decode(ApiEnvelope<Output>.self, from: data)
+        if let apiError = envelope.error {
+            throw BackendAnalysisClientError.httpError(statusCode: httpResponse.statusCode, message: apiError.message)
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw BackendAnalysisClientError.httpError(
+                statusCode: httpResponse.statusCode,
+                message: HTTPURLResponse.localizedString(forStatusCode: httpResponse.statusCode)
+            )
+        }
+
+        return envelope
+    }
+
+    private func pollExtractionResult(
+        analysisId: String,
+        traceId: String,
+        onStageUpdate: @escaping (BackendStageUpdate) -> Void
+    ) async throws -> ApiEnvelope<ExtractedRFPDataV1Payload> {
+        var startAttempt = 0
+        while true {
+            do {
+                _ = try await postJSON(
+                    path: "/api/analyze/start",
+                    traceId: traceId,
+                    body: AnalyzeStartRequestV1(analysisId: analysisId, parsedDocument: nil)
+                ) as ApiEnvelope<AnalyzeJobStateV1>
+                break
+            } catch {
+                startAttempt += 1
+                guard isTransientNetworkError(error), startAttempt < 4 else {
+                    throw error
+                }
+                let retryDelay = UInt64(min(2 + startAttempt, 6))
+                try await Task.sleep(nanoseconds: retryDelay * 1_000_000_000)
+            }
+        }
+
+        var lastWarningSet: Set<String> = []
+        var transientFailureCount = 0
+        let maxTransientFailures = 8
+
+        while true {
+            try Task.checkCancellation()
+
+            let statusEnvelope: ApiEnvelope<AnalyzeJobStateV1>
+            do {
+                statusEnvelope = try await getJSON(
+                    path: "/api/analyze/status?analysisId=\(analysisId)",
+                    traceId: traceId
+                )
+                transientFailureCount = 0
+            } catch {
+                guard isTransientNetworkError(error) else {
+                    throw error
+                }
+
+                transientFailureCount += 1
+                if transientFailureCount >= maxTransientFailures {
+                    throw BackendAnalysisClientError.httpError(
+                        statusCode: 504,
+                        message: "Connection to backend was unstable during extraction polling."
+                    )
+                }
+
+                let retryInSeconds = min(8, 1 + transientFailureCount)
+                onStageUpdate(
+                    BackendStageUpdate(
+                        stage: .extract,
+                        progress: max(0.28, min(0.92, 0.28 + Double(transientFailureCount) * 0.01)),
+                        warnings: ["Transient network interruption while polling extraction. Retrying..."]
+                    )
+                )
+                try await Task.sleep(nanoseconds: UInt64(retryInSeconds) * 1_000_000_000)
+                continue
+            }
+            let status = try statusEnvelope.requireData()
+
+            let progress = max(0, min(status.progress, 1))
+            let stageProgress = 0.28 + (progress * 0.14)
+            let warnings = Array(Set(status.warnings)).sorted()
+            if Set(warnings) != lastWarningSet {
+                lastWarningSet = Set(warnings)
+            }
+            onStageUpdate(BackendStageUpdate(stage: .extract, progress: stageProgress, warnings: warnings))
+
+            switch status.status.lowercased() {
+            case "succeeded":
+                return try await getJSON(
+                    path: "/api/analyze/result?analysisId=\(analysisId)",
+                    traceId: traceId
+                )
+            case "failed":
+                throw BackendAnalysisClientError.httpError(
+                    statusCode: 422,
+                    message: status.errorMessage ?? "Extraction failed on backend."
+                )
+            default:
+                try await Task.sleep(nanoseconds: 1_250_000_000)
+            }
+        }
+    }
+
+    private func isTransientNetworkError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else {
+            return false
+        }
+
+        switch urlError.code {
+        case .timedOut,
+             .networkConnectionLost,
+             .notConnectedToInternet,
+             .cannotConnectToHost,
+             .cannotFindHost,
+             .dnsLookupFailed,
+             .resourceUnavailable,
+             .cannotLoadFromNetwork:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func timeoutInterval(for path: String) -> TimeInterval {
-        switch path {
+        let normalizedPath = path.components(separatedBy: "?").first ?? path
+        switch normalizedPath {
         case "api/analyze-rfp":
             return 660  // Increased to 11 minutes to match backend maxDuration (600s) + buffer
+        case "api/analyze/start":
+            return 30
+        case "api/analyze/status":
+            return 20
+        case "api/analyze/result":
+            return 45
         case "api/research-client":
             return 330  // Increased to match backend timeout (300s) + buffer
         case "api/analyze-scope":
@@ -647,49 +816,6 @@ final class BackendAnalysisClient {
         }
     }
 
-    private func compactParsedDocumentForExtraction(_ parsed: ParsedDocumentV1) -> ParsedDocumentV1 {
-        if parsed.rawText.count <= Limits.extractionRawTextChars &&
-            parsed.tables.count <= Limits.extractionMaxTables &&
-            parsed.evidenceMap.count <= Limits.extractionMaxEvidenceItems {
-            return parsed
-        }
-
-        let truncatedRawText = String(parsed.rawText.prefix(Limits.extractionRawTextChars))
-        let maxOffset = truncatedRawText.count
-        let trimmedSections = parsed.sections.compactMap { section -> ParsedSectionV1? in
-            let start = min(max(section.startOffset, 0), maxOffset)
-            let end = min(max(section.endOffset, 0), maxOffset)
-            guard end > start else { return nil }
-            return ParsedSectionV1(name: section.name, startOffset: start, endOffset: end)
-        }
-
-        let trimmedEvidence = parsed.evidenceMap.prefix(Limits.extractionMaxEvidenceItems).map { item in
-            let start = min(max(item.charStart, 0), maxOffset)
-            let end = min(max(item.charEnd, 0), maxOffset)
-            return EvidenceMapItemV1(
-                page: item.page,
-                charStart: start,
-                charEnd: max(start, end),
-                excerpt: String(item.excerpt.prefix(320)),
-                sourceType: item.sourceType
-            )
-        }
-
-        return ParsedDocumentV1(
-            schemaVersion: parsed.schemaVersion,
-            analysisId: parsed.analysisId,
-            detectedFormat: parsed.detectedFormat,
-            primaryLanguage: parsed.primaryLanguage,
-            rawText: truncatedRawText,
-            sections: trimmedSections,
-            tables: Array(parsed.tables.prefix(Limits.extractionMaxTables)),
-            evidenceMap: Array(trimmedEvidence),
-            parseConfidence: parsed.parseConfidence,
-            ocrStats: parsed.ocrStats,
-            warnings: parsed.warnings
-        )
-    }
-
     private func multipartBody(
         boundary: String,
         analysisId: String,
@@ -702,6 +828,10 @@ final class BackendAnalysisClient {
         body.append("--\(boundary)\(lineBreak)".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"analysisId\"\(lineBreak)\(lineBreak)".data(using: .utf8)!)
         body.append("\(analysisId)\(lineBreak)".data(using: .utf8)!)
+
+        body.append("--\(boundary)\(lineBreak)".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"responseMode\"\(lineBreak)\(lineBreak)".data(using: .utf8)!)
+        body.append("reference\(lineBreak)".data(using: .utf8)!)
 
         let mimeType = inferredMimeType(fileName: fileName)
         body.append("--\(boundary)\(lineBreak)".data(using: .utf8)!)
@@ -817,10 +947,10 @@ final class BackendAnalysisClient {
             nonAgencyServices: Array(nonAgencyServicesSet),
             agencyServicePercentage: scope.agencyServicePercentage,
             outputQuantities: OutputQuantities(
-                videoProduction: scope.outputQuantities.videoProduction,
-                motionGraphics: scope.outputQuantities.motionGraphics,
-                visualDesign: scope.outputQuantities.visualDesign,
-                contentOnly: scope.outputQuantities.contentOnly
+                videoProduction: scope.outputQuantities.videoProduction.map { Int($0) },
+                motionGraphics: scope.outputQuantities.motionGraphics.map { Int($0) },
+                visualDesign: scope.outputQuantities.visualDesign.map { Int($0) },
+                contentOnly: scope.outputQuantities.contentOnly.map { Int($0) }
             ),
             outputTypes: scope.outputTypes.compactMap { outputType(from: $0) }
         )
@@ -835,7 +965,7 @@ final class BackendAnalysisClient {
                     score: item.score,
                     maxScore: 100,
                     reasoning: item.evidence.joined(separator: " | "),
-                    identified: item.identified ?? true
+                    identified: item.identified
                 )
             },
             formulaExplanation: "Deterministic 11-factor weighted model with red-flag and completeness penalties."

@@ -899,6 +899,11 @@ struct ContentView: View {
     @MainActor
     private func updateStage(_ stage: AnalysisStage, progress: Double) {
         let clampedProgress = max(0, min(progress, 1))
+        if stage == .complete {
+            currentStage = .complete
+            analysisProgress = 1.0
+            return
+        }
         if stage.rawValue > currentStage.rawValue {
             currentStage = stage
         } else if stage == .parsing && currentStage == .parsing {

@@ -1,14 +1,29 @@
 import { generateObject } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import type { AgencyService } from "@/lib/scope/taxonomy-loader";
-import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
+
+const AI_MATCH_TIMEOUT_MS = 90_000;
+
+function toConfidence(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.min(1, value));
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.min(1, parsed));
+    }
+  }
+  return 0.5;
+}
 
 const ScopeMatchSchema = z.object({
   scopeItem: z.string(),
   matchedService: z.string().nullable(),
   matchClass: z.enum(["full", "partial", "none", "uncertain"]),
-  confidence: z.number().min(0).max(1),
+  confidence: z.preprocess((value) => toConfidence(value), z.number()),
   reasoning: z.string().optional().default("")
 });
 
@@ -28,12 +43,14 @@ export async function matchScopeWithClaude(
   scopeItems: string[],
   services: AgencyService[]
 ): Promise<ClaudeScopeMatch[]> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = resolveGoogleApiKey();
 
   if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+    throw new Error(
+      "No Gemini API key configured. Set GOOGLE_API_KEY or GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY."
+    );
   }
-  const anthropicProvider = createAnthropic({ apiKey });
+  const googleProvider = createGoogleGenerativeAI({ apiKey });
 
   // Build the service taxonomy list
   const serviceList = services.map(s => `- ${s.category}: ${s.service}`).join("\n");
@@ -67,6 +84,21 @@ For each scope item, find the BEST matching service from the agency taxonomy. Us
 
 **IMPORTANT:** If an item is general project management, timeline management, project coordination, deliverable management, or administrative work related to the creative project, classify as "partial" with the closest matching agency capability (often project management or account services), NOT "none". Only use "none" for truly unrelated work like construction, legal services, IT infrastructure, etc.
 
+**Strategy Research is CORE Agency Work:**
+Creative agencies perform strategy research to inform brand and campaign development:
+- Cultural analysis and local market understanding → "full" match to Research & Discovery services
+- Competitive benchmarking and analysis → "full" match to Research & Discovery services
+- Consumer insights and behavioral research → "full" match to Research & Discovery services
+- Audience research and profiling → "full" match to Research & Discovery services
+- Brand audits and positioning research → "full" match to Research & Discovery services
+
+Only classify as "none" for work agencies typically DON'T do:
+- Large-scale quantitative field research (surveys, panels) requiring specialized firms
+- Media buying and placement execution
+- PR/earned media distribution
+- Technical development/IT engineering
+- Legal/compliance services
+
 Be generous with matching - if the scope item is related to marketing, branding, design, content, creative work, or project coordination, there's likely a match. Use "uncertain" instead of "none" when ambiguous.
 Keep reasoning extremely short (max 10 words).
 Return strictly valid JSON with no markdown fences and no extra text.
@@ -83,14 +115,17 @@ Return JSON only:
   ]
 }`;
 
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), AI_MATCH_TIMEOUT_MS);
+
   try {
-    const result = await runWithClaudeSonnetModel((model) =>
+    const result = await runWithGeminiFlashModel((model) =>
       generateObject({
-        model: anthropicProvider(model),
+        model: googleProvider(model),
         schema: ClaudeMatchResponseSchema,
         temperature: 0,
         maxOutputTokens: 2200,
-        timeout: { totalMs: 120_000 },
+        abortSignal: abortController.signal,
         prompt
       })
     );
@@ -105,8 +140,10 @@ Return JSON only:
     }));
   } catch (error) {
     if (error instanceof z.ZodError) {
-      throw new Error(`Claude match response validation failed: ${error.issues.map(e => e.message).join(", ")}`);
+      throw new Error(`AI match response validation failed: ${error.issues.map(e => e.message).join(", ")}`);
     }
-    throw new Error(`Claude scope matching failed: ${error}`);
+    throw new Error(`AI scope matching failed: ${error}`);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

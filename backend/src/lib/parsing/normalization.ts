@@ -43,50 +43,80 @@ export interface SectionSpan {
   endOffset: number;
 }
 
-const sectionPatterns: Array<{ name: string; patterns: RegExp[] }> = [
+const sectionHeadingMatchers: Array<{ name: string; patterns: RegExp[] }> = [
   {
     name: "scope_of_work",
-    patterns: [/\bscope\b/i, /\bdeliverables\b/i, /نطاق\s+العمل/]
+    patterns: [
+      /^\s*(?:\d+[\.\)]\s*)?(scope\s+of\s+work|statement\s+of\s+work|core\s+scope\s+items|نطاق\s+العمل)\s*$/gimu,
+      /^\s*(?:\d+[\.\)]\s*)?(program\s+phases?|phases?)\s*(?:\(.*\))?\s*$/gimu
+    ]
   },
   {
     name: "evaluation_criteria",
-    patterns: [/evaluation\s+criteria/i, /scoring/i, /معايير\s+التقييم/]
+    patterns: [
+      /^\s*(?:\d+[\.\)]\s*)?(evaluation\s+criteria|technical\s+evaluation\s+criteria|evaluation\s+matrix|معايير\s+التقييم)\s*$/gimu,
+      /^\s*(?:\d+[\.\)]\s*)?(technical\s+evaluation)\s*$/gimu
+    ]
   },
   {
     name: "important_dates",
-    patterns: [/timeline/i, /deadline/i, /dates?/i, /الجدول\s+الزمني/, /المواعيد/]
+    patterns: [
+      /^\s*(?:\d+[\.\)]\s*)?(important\s+dates?|timeline|milestones?|deadlines?|الجدول\s+الزمني|المواعيد)\s*$/gimu
+    ]
   },
   {
     name: "submission_requirements",
-    patterns: [/submission/i, /format/i, /how to submit/i, /متطلبات\s+التقديم/]
+    patterns: [
+      /^\s*(?:\d+[\.\)]\s*)?(submission\s+format|submission\s+requirements?|proposal\s+requirements?|how\s+to\s+submit|متطلبات\s+التقديم)\s*$/gimu,
+      /^\s*(?:\d+[\.\)]\s*)?(technical\s+proposals?\s+should\s+include|commercial\s+proposals?\s+should\s+include)\s*$/gimu
+    ]
   }
 ];
 
-export function detectSections(text: string): SectionSpan[] {
-  const sections: SectionSpan[] = [];
-  const normalized = text;
-
-  for (const entry of sectionPatterns) {
-    let bestIndex = -1;
-    for (const pattern of entry.patterns) {
-      const match = normalized.match(pattern);
-      if (match?.index !== undefined) {
-        if (bestIndex === -1 || match.index < bestIndex) {
-          bestIndex = match.index;
-        }
-      }
+function collectFirstHeadingOffset(text: string, patterns: RegExp[]): number | null {
+  let bestOffset: number | null = null;
+  for (const pattern of patterns) {
+    pattern.lastIndex = 0;
+    const match = pattern.exec(text);
+    if (!match || match.index === undefined) {
+      continue;
     }
-
-    if (bestIndex >= 0) {
-      sections.push({
-        name: entry.name,
-        startOffset: bestIndex,
-        endOffset: Math.min(bestIndex + 400, normalized.length)
-      });
+    if (bestOffset === null || match.index < bestOffset) {
+      bestOffset = match.index;
     }
   }
+  return bestOffset;
+}
 
-  return sections.sort((a, b) => a.startOffset - b.startOffset);
+export function detectSections(text: string): SectionSpan[] {
+  const located = sectionHeadingMatchers
+    .map((entry) => ({
+      name: entry.name,
+      startOffset: collectFirstHeadingOffset(text, entry.patterns)
+    }))
+    .filter((entry): entry is { name: string; startOffset: number } => entry.startOffset !== null)
+    .sort((a, b) => a.startOffset - b.startOffset);
+
+  if (located.length === 0) {
+    return [];
+  }
+
+  const sections: SectionSpan[] = [];
+  for (let index = 0; index < located.length; index += 1) {
+    const current = located[index]!;
+    const next = located[index + 1];
+    const startOffset = Math.max(0, current.startOffset);
+    const rawEnd = next ? next.startOffset : text.length;
+    const endOffset = Math.max(startOffset + 1, Math.min(text.length, rawEnd));
+
+    sections.push({
+      name: current.name,
+      startOffset,
+      endOffset
+    });
+  }
+
+  return sections;
 }
 
 export interface ExtractedTable {

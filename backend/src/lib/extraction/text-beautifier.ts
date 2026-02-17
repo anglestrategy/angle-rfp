@@ -1,7 +1,7 @@
 import { generateObject } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
-import { runWithClaudeSonnetModel } from "@/lib/ai/model-resolver";
+import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
 const BeautifiedTextSchema = z.object({
   formatted: z.string(),
@@ -486,15 +486,17 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
 
   // Default behavior: deterministic formatter only.
   // Enable model-driven beautification explicitly via env for experiments.
-  if (process.env.ENABLE_CLAUDE_BEAUTIFY !== "1") {
+  if (process.env.ENABLE_MODEL_BEAUTIFY !== "1" && process.env.ENABLE_CLAUDE_BEAUTIFY !== "1") {
     return deterministicBeautify(rawText, fieldName);
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = resolveGoogleApiKey();
   if (!apiKey) {
     return deterministicBeautify(rawText, fieldName);
   }
-  const anthropicProvider = createAnthropic({ apiKey });
+  const googleProvider = createGoogleGenerativeAI({ apiKey });
+  const abortController = new AbortController();
+  const timeoutId = setTimeout(() => abortController.abort(), 60_000);
 
   try {
     const prompt =
@@ -503,13 +505,13 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
         : fieldName === "Project Description"
           ? PROJECT_DESCRIPTION_BEAUTIFY_PROMPT
           : BEAUTIFY_PROMPT;
-    const result = await runWithClaudeSonnetModel((model) =>
+    const result = await runWithGeminiFlashModel((model) =>
       generateObject({
-        model: anthropicProvider(model),
+        model: googleProvider(model),
         schema: BeautifiedTextSchema,
         temperature: 0,
         maxOutputTokens: 4000,
-        timeout: { totalMs: 120_000 },
+        abortSignal: abortController.signal,
         prompt: `${prompt}\n\nField: ${fieldName}\n\n${rawText.slice(0, 8000)}`
       })
     );
@@ -532,6 +534,8 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Text beautification failed for ${fieldName}:`, message);
     return deterministicBeautify(rawText, fieldName);
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

@@ -56,8 +56,12 @@ struct AnalysisProgressView: View {
     @State private var activityItems: [ActivityItem] = []
     @State private var showingStageTransition = false
 
+    private var displayedProgress: Double {
+        max(progress, minimumProgress(for: currentStage))
+    }
+
     private var progressPercent: Int {
-        Int((max(0, min(progress, 1)) * 100).rounded())
+        Int((max(0, min(displayedProgress, 1)) * 100).rounded())
     }
 
     var body: some View {
@@ -151,8 +155,8 @@ struct AnalysisProgressView: View {
 
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(DesignSystem.Palette.Accent.primary)
-                    .frame(width: geo.size.width * progress)
-                    .animation(.easeOut(duration: 0.4), value: progress)
+                    .frame(width: geo.size.width * displayedProgress)
+                    .animation(.easeOut(duration: 0.4), value: displayedProgress)
             }
         }
         .frame(height: 4)
@@ -398,6 +402,27 @@ struct AnalysisProgressView: View {
                 timestamp: formatter.string(from: Date()),
                 isHighlight: isHighlight
             ))
+        }
+    }
+
+    private func minimumProgress(for stage: AnalysisStage) -> Double {
+        switch stage {
+        case .parsing:
+            return 0.1
+        case .extracting:
+            return 0.28
+        case .scopeAnalyzing:
+            return 0.48
+        case .researching:
+            return 0.64
+        case .scoring:
+            return 0.8
+        case .rendering:
+            return 0.9
+        case .exporting:
+            return 0.96
+        case .complete:
+            return 1.0
         }
     }
 }

@@ -144,6 +144,62 @@ struct DeliverableRequirementsV1: Codable {
     let strategicCreative: [DeliverableRequirementItemV1]
 }
 
+// MARK: - Quality Assessment Structs
+
+/// Section scores for extraction quality assessment
+struct ExtractionSectionScoresV1: Codable {
+    let extraction: Double
+    let scope: Double
+    let evaluation: Double
+}
+
+/// Quality assessment for extraction stage
+struct ExtractionQualityV1: Codable {
+    let status: String
+    let blocked: Bool
+    let blockReasons: [String]
+    let evidenceDensity: Double
+    let sectionScores: ExtractionSectionScoresV1
+}
+
+/// Conflict resolution entry
+struct ConflictV1: Codable {
+    let field: String
+    let candidates: [String]
+    let resolution: String
+}
+
+/// Section scores for scoring quality assessment (different fields than extraction)
+struct ScoringSectionScoresV1: Codable {
+    let extraction: Double
+    let scope: Double
+    let research: Double
+}
+
+/// Quality assessment for scoring stage
+struct ScoringQualityV1: Codable {
+    let status: String
+    let blocked: Bool
+    let blockReasons: [String]
+    let evidenceDensity: Double
+    let sectionScores: ScoringSectionScoresV1
+}
+
+/// Provider statistics for research metadata diagnostics
+struct ProviderStatsV1: Codable {
+    let provider: String
+    let attempts: Int
+    let successes: Int
+    let failures: Int
+    let retries: Int
+    let rateLimitedCount: Int
+    let finalStatus: String
+    let avgLatencyMs: Double
+    let p95LatencyMs: Double
+    let healthScore: Double
+    let lastError: String?
+}
+
 struct ExtractedRFPDataV1Payload: Codable {
     let schemaVersion: String
     let analysisId: String
@@ -166,6 +222,9 @@ struct ExtractedRFPDataV1Payload: Codable {
     let warnings: [String]
     let evidence: [ExtractedEvidenceV1]
     let beautifiedText: BeautifiedFieldsV1?
+    let qualityFlags: [String]
+    let quality: ExtractionQualityV1
+    let conflicts: [ConflictV1]?
 }
 
 struct ScopeMatchV1: Codable {
@@ -173,13 +232,15 @@ struct ScopeMatchV1: Codable {
     let service: String
     let `class`: String
     let confidence: Double
+    let classificationSource: String
+    let reasoning: String?
 }
 
 struct OutputQuantitiesV1: Codable {
-    let videoProduction: Int?
-    let motionGraphics: Int?
-    let visualDesign: Int?
-    let contentOnly: Int?
+    let videoProduction: Double?
+    let motionGraphics: Double?
+    let visualDesign: Double?
+    let contentOnly: Double?
 }
 
 struct ScopeAnalysisV1Payload: Codable {
@@ -192,6 +253,9 @@ struct ScopeAnalysisV1Payload: Codable {
     let outputQuantities: OutputQuantitiesV1
     let outputTypes: [String]
     let warnings: [String]
+    let taxonomyVersion: String
+    let unclassifiedItems: [String]
+    let uncertainItems: [String]
 }
 
 struct CompanyProfileV1: Codable {
@@ -222,6 +286,7 @@ struct ResearchMetadataV1: Codable {
     let arabicSources: Int
     let overallConfidence: Double
     let researchDate: String
+    let providerStats: [ProviderStatsV1]?
 }
 
 struct ResearchEvidenceV1: Codable {
@@ -253,7 +318,8 @@ struct FactorBreakdownV1: Codable {
     let score: Double
     let contribution: Double
     let evidence: [String]
-    let identified: Bool?  // false when data unavailable, factor excluded from weighted average
+    let identified: Bool
+    let status: String  // "scored" | "na" | "insufficient_evidence"
 }
 
 struct FinancialScoreV1Payload: Codable {
@@ -266,6 +332,7 @@ struct FinancialScoreV1Payload: Codable {
     let recommendationBand: String
     let factorBreakdown: [FactorBreakdownV1]
     let rationale: String
+    let quality: ScoringQualityV1
 }
 
 struct AnalysisSummaryV1: Codable {
@@ -288,7 +355,23 @@ struct AnalysisReportV1Payload: Codable {
 
 struct AnalyzeRfpRequestV1: Codable {
     let analysisId: String
-    let parsedDocument: ParsedDocumentV1
+    let parsedDocument: ParsedDocumentV1?
+}
+
+struct AnalyzeStartRequestV1: Codable {
+    let analysisId: String
+    let parsedDocument: ParsedDocumentV1?
+}
+
+struct AnalyzeJobStateV1: Codable {
+    let analysisId: String
+    let status: String
+    let stage: String
+    let progress: Double
+    let warnings: [String]
+    let errorMessage: String?
+    let startedAt: String
+    let updatedAt: String
 }
 
 struct AnalyzeScopeRequestV1: Codable {
