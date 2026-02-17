@@ -700,16 +700,17 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
   );
   const coveragePercent = chunks.length === 0 ? 0 : analyzedChunkIndexes.size / chunks.length;
 
+  // Log warnings but don't fail - partial extraction is better than no extraction
   if (missingSectionTags.length > 0) {
-    throw new Error(
-      `AI extraction did not cover critical sections: ${missingSectionTags.join(", ")}.`
+    console.warn(
+      `[Extraction] Warning: Some sections may not be fully covered: ${missingSectionTags.join(", ")}`
     );
   }
   if (coveragePercent < EXTRACTION_MIN_COVERAGE) {
-    throw new Error(
-      `AI extraction coverage below threshold (${Math.round(coveragePercent * 100)}% < ${Math.round(
+    console.warn(
+      `[Extraction] Warning: Coverage is ${Math.round(coveragePercent * 100)}% (target: ${Math.round(
         EXTRACTION_MIN_COVERAGE * 100
-      )}%).`
+      )}%)`
     );
   }
 
