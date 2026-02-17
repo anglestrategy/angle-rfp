@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateObject, generateText } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
 import { makeError } from "@/lib/api/errors";
@@ -135,8 +135,30 @@ const ResearchQueriesSchema = z.object({
 });
 
 /**
+ * Extract JSON from model response, handling markdown code blocks
+ */
+function extractJsonFromResponse(text: string): unknown {
+  // Try to extract JSON from markdown code block
+  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockMatch?.[1]) {
+    return JSON.parse(codeBlockMatch[1].trim());
+  }
+  // Try direct JSON parse
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return JSON.parse(trimmed);
+  }
+  // Try to find JSON object in the text
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
+    return JSON.parse(jsonMatch[0]);
+  }
+  throw new Error("No JSON found in response");
+}
+
+/**
  * Generate semantically relevant search queries based on RFP context using Gemini.
- * This produces better research results than static templates.
+ * Uses generateText with manual JSON parsing for better reliability.
  */
 async function generateSmartQueries(input: ResearchClientInput): Promise<{ english: string[]; arabic: string[] }> {
   const apiKey = resolveGoogleApiKey();
@@ -155,50 +177,52 @@ async function generateSmartQueries(input: ResearchClientInput): Promise<{ engli
     context.industry && `Industry: ${context.industry}`
   ].filter(Boolean).join("\n");
 
-  const prompt = `You are a research analyst generating search queries to research "${input.clientName}" for a business proposal.
+  const prompt = `Generate search queries to research "${input.clientName}" (Saudi Arabia) for a business proposal.
 
 ${input.clientNameArabic ? `Arabic name: ${input.clientNameArabic}` : ""}
-Country: Saudi Arabia
+${contextSummary ? `\nContext:\n${contextSummary}` : ""}
 
-${contextSummary ? `Context:\n${contextSummary}` : ""}
+Return ONLY a JSON object with this exact format:
+{"english":["query1","query2","query3","query4"],"arabic":["query1","query2"]}
 
-Generate 4-8 English queries and 2-6 Arabic queries to find:
-- Organization type (company, government, event)
-- Size, scale, significance
-- Marketing/advertising activity
-- Digital presence
-- Recent news
-
-Rules:
-- Put the exact name in quotes: "${input.clientName}"
-- Include context terms (e.g., "World Expo" if mentioned)
-- Arabic queries use: "${input.clientNameArabic || input.clientName}"`;
+Generate 4-6 English and 2-4 Arabic search queries to find company info, size, marketing activity, news.
+Use exact name in quotes. No explanation, just JSON.`;
 
   const abortController = new AbortController();
-  const timeoutId = setTimeout(() => abortController.abort(), 60_000);
+  const timeoutId = setTimeout(() => abortController.abort(), 30_000);
 
   try {
     const result = await runWithGeminiFlashModel((model) =>
-      generateObject({
+      generateText({
         model: googleProvider(model),
-        schema: ResearchQueriesSchema,
         temperature: 0,
-        maxOutputTokens: 1000,
+        maxTokens: 800,
         abortSignal: abortController.signal,
         prompt
       })
     );
+
+    const parsed = extractJsonFromResponse(result.text);
+    const validated = ResearchQueriesSchema.safeParse(parsed);
+
+    if (!validated.success) {
+      console.warn("Smart query schema validation failed:", validated.error.message);
+      return buildBasicQueries(input);
+    }
+
     const basic = buildBasicQueries(input);
     const english = Array.from(
-      new Set((result.object.english ?? []).map((q) => q.trim()).filter(Boolean))
+      new Set((validated.data.english ?? []).map((q) => q.trim()).filter(Boolean))
     ).slice(0, 8);
     const arabic = Array.from(
-      new Set((result.object.arabic ?? []).map((q) => q.trim()).filter(Boolean))
+      new Set((validated.data.arabic ?? []).map((q) => q.trim()).filter(Boolean))
     ).slice(0, 6);
 
+    console.log(`[Research] Smart queries generated: ${english.length} EN, ${arabic.length} AR`);
+
     return {
-      english: english.length >= 4 ? english : basic.english,
-      arabic: arabic.length >= 2 ? arabic : basic.arabic
+      english: english.length >= 3 ? english : basic.english,
+      arabic: arabic.length >= 1 ? arabic : basic.arabic
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
