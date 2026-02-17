@@ -189,7 +189,8 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
     reasoning?: string;
   }> = [];
 
-  const batches = chunkArray(scopeItems, 14);
+  const batchSize = Math.max(4, Math.min(12, Number(process.env.SCOPE_MATCH_BATCH_SIZE ?? 8)));
+  const batches = chunkArray(scopeItems, batchSize);
   const marketResearchPolicy = resolveMarketResearchSupport(taxonomySupportsMarketResearch(taxonomy));
   const marketResearchSupported = marketResearchPolicy.supported;
   let fallbackBatchCount = 0;

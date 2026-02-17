@@ -190,6 +190,10 @@ const WINDOW_CONCURRENCY = Math.max(
   1,
   Math.min(4, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_CONCURRENCY, 2))
 );
+const WINDOW_MAX_CHUNKS = Math.max(
+  1,
+  Math.min(8, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_MAX_CHUNKS, 3))
+);
 const WINDOW_MAX_RETRIES = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_RETRIES, 1)));
 const WINDOW_MAX_SPLIT_DEPTH = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_SPLIT_DEPTH, 1)));
 const CHUNK_SIZE_CHARS = positiveIntFromEnv(process.env.EXTRACTION_CHUNK_SIZE_CHARS, 12_000);
@@ -307,6 +311,9 @@ function buildChunkWindows(chunks: DocChunk[]): ChunkWindow[] {
     while (cursor < chunks.length) {
       const next = chunks[cursor];
       const nextCost = next.text.length + 120;
+      if (windowChunks.length >= WINDOW_MAX_CHUNKS) {
+        break;
+      }
       if (windowChunks.length > 0 && usedChars + nextCost > WINDOW_CONTEXT_CHARS) {
         break;
       }
@@ -377,16 +384,29 @@ function parseWindowFieldsFromText(raw: string): ClaudeWindowFields | null {
     return null;
   }
 
-  try {
-    const parsed = JSON.parse(json);
-    const validated = ClaudeWindowFieldsSchema.safeParse(parsed);
-    if (!validated.success) {
-      return null;
+  const attempts = [
+    json,
+    json.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'"),
+    json.replace(/,\s*([}\]])/g, "$1"),
+    json
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      const validated = ClaudeWindowFieldsSchema.safeParse(parsed);
+      if (validated.success) {
+        return validated.data;
+      }
+    } catch {
+      // Continue to next loose parse strategy.
     }
-    return validated.data;
-  } catch {
-    return null;
   }
+
+  return null;
 }
 
 export async function withHardTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {

@@ -240,11 +240,95 @@ function buildContextAwareQueries(input: ResearchClientInput): { english: string
 
 function extractFirstJsonObject(raw: string): string | null {
   const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) {
+  if (start < 0) {
     return null;
   }
-  return raw.slice(start, end + 1);
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return raw.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
+  const jsonText = extractFirstJsonObject(raw);
+  if (!jsonText) {
+    return null;
+  }
+
+  const attempts = [
+    jsonText,
+    jsonText.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'"),
+    jsonText.replace(/,\s*([}\]])/g, "$1"),
+    jsonText
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      if (parsed && typeof parsed === "object") {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Continue to next repair strategy.
+    }
+  }
+
+  return null;
+}
+
+function extractQuotedQueriesFallback(raw: string): { english: string[]; arabic: string[] } {
+  const quotedMatches = raw.match(/"([^"\n]{6,140})"/g) ?? [];
+  const cleaned = quotedMatches
+    .map((value) => value.replace(/^"|"$|\\+"/g, "").replace(/\s+/g, " ").trim())
+    .filter((value) => value.length >= 6);
+
+  const english: string[] = [];
+  const arabic: string[] = [];
+  for (const query of cleaned) {
+    if (/[\u0600-\u06FF]/.test(query)) {
+      arabic.push(query);
+    } else {
+      english.push(query);
+    }
+  }
+
+  return {
+    english: dedupeQueries(english, 8),
+    arabic: dedupeQueries(arabic, 5)
+  };
 }
 
 function isReadableContext(text: string): boolean {
@@ -264,21 +348,23 @@ function isReadableContext(text: string): boolean {
 }
 
 function parseSmartQueriesFromText(raw: string): { english: string[]; arabic: string[] } | null {
-  const jsonText = extractFirstJsonObject(raw);
-  if (!jsonText) {
-    return null;
+  const parsed = parseJsonObjectLoose(raw);
+  if (parsed) {
+    const validated = ResearchQueriesSchema.safeParse(parsed);
+    if (validated.success) {
+      return {
+        english: dedupeQueries(validated.data.english, 8),
+        arabic: dedupeQueries(validated.data.arabic, 5)
+      };
+    }
   }
 
-  try {
-    const parsed = JSON.parse(jsonText);
-    const validated = ResearchQueriesSchema.parse(parsed);
-    return {
-      english: dedupeQueries(validated.english, 8),
-      arabic: dedupeQueries(validated.arabic, 5)
-    };
-  } catch {
-    return null;
+  const quotedFallback = extractQuotedQueriesFallback(raw);
+  if (quotedFallback.english.length + quotedFallback.arabic.length >= 3) {
+    return quotedFallback;
   }
+
+  return null;
 }
 
 function mergeSmartQueries(
@@ -371,12 +457,12 @@ STRICT OUTPUT RULES:
         throw new Error("No output generated.");
       }
       const parsed = parseSmartQueriesFromText(raw);
-      if (parsed && parsed.english.length >= 3) {
+      if (parsed && (parsed.english.length >= 2 || parsed.english.length + parsed.arabic.length >= 3)) {
         console.log(`[Research] Smart queries generated: ${parsed.english.length} EN, ${parsed.arabic.length} AR`);
         return mergeSmartQueries(parsed, baselineQueries);
       }
       console.warn(`[Research] Smart query raw output (truncated): ${(raw || "<empty>").slice(0, 260)}`);
-      throw new Error("No output generated.");
+      throw new Error("Smart query JSON parse failed.");
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.warn(`[Research] Smart query attempt ${attempt + 1} failed: ${msg.slice(0, 100)}`);

@@ -6,6 +6,97 @@ import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-res
 
 const AI_MATCH_TIMEOUT_MS = 90_000;
 
+function extractFirstBalancedJson(raw: string): string | null {
+  const start = raw.indexOf("{");
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return raw.slice(start, index + 1);
+      }
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
+  const candidate = extractFirstBalancedJson(raw);
+  if (!candidate) {
+    return null;
+  }
+
+  const attempts = [
+    candidate,
+    candidate.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'"),
+    candidate.replace(/,\s*([}\]])/g, "$1"),
+    candidate
+      .replace(/[“”]/g, "\"")
+      .replace(/[‘’]/g, "'")
+      .replace(/,\s*([}\]])/g, "$1")
+  ];
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      if (parsed && typeof parsed === "object") {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Try next repair strategy.
+    }
+  }
+
+  return null;
+}
+
+function parseScopeMatchFromText(raw: string): z.infer<typeof ClaudeMatchResponseSchema> | null {
+  const parsed = parseJsonObjectLoose(raw);
+  if (!parsed) {
+    return null;
+  }
+
+  const validated = ClaudeMatchResponseSchema.safeParse(parsed);
+  if (!validated.success) {
+    return null;
+  }
+
+  return validated.data;
+}
+
+function shouldRetryScopeMatchWithTextMode(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /no output generated|validation|schema|json|unexpected end/i.test(message);
+}
+
 function toConfidence(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.max(0, Math.min(1, value));
@@ -119,19 +210,47 @@ Return JSON only:
   const timeoutId = setTimeout(() => abortController.abort(), AI_MATCH_TIMEOUT_MS);
 
   try {
-    const result = await runWithGeminiFlashModel((model) =>
-      generateText({
-        model: googleProvider(model),
-        output: Output.object({
-          schema: ClaudeMatchResponseSchema
-        }),
-        temperature: 0,
-        maxOutputTokens: 2200,
-        abortSignal: abortController.signal,
-        prompt
-      })
-    );
-    const validated = ClaudeMatchResponseSchema.parse(result.output);
+    let validated: z.infer<typeof ClaudeMatchResponseSchema>;
+    try {
+      const result = await runWithGeminiFlashModel((model) =>
+        generateText({
+          model: googleProvider(model),
+          output: Output.object({
+            schema: ClaudeMatchResponseSchema
+          }),
+          temperature: 0,
+          maxOutputTokens: 2200,
+          abortSignal: abortController.signal,
+          prompt
+        })
+      );
+      validated = ClaudeMatchResponseSchema.parse(result.output);
+    } catch (error) {
+      if (!shouldRetryScopeMatchWithTextMode(error)) {
+        throw error;
+      }
+
+      const textResult = await runWithGeminiFlashModel((model) =>
+        generateText({
+          model: googleProvider(model),
+          temperature: 0,
+          maxOutputTokens: 2400,
+          abortSignal: abortController.signal,
+          prompt:
+            `${prompt}\n\n` +
+            "STRICT OUTPUT RULES:\n" +
+            "- Return exactly one JSON object.\n" +
+            "- No markdown fences, no commentary.\n" +
+            "- Do not omit the matches array."
+        })
+      );
+      const parsed = parseScopeMatchFromText(textResult.text ?? "");
+      if (!parsed) {
+        throw new Error("AI scope matching text-mode fallback could not parse JSON payload.");
+      }
+      console.warn("[ScopeMatch] Recovered using text-mode JSON fallback.");
+      validated = parsed;
+    }
 
     return validated.matches.map(m => ({
       scopeItem: m.scopeItem,
