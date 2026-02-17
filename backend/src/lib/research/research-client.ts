@@ -238,8 +238,16 @@ function buildContextAwareQueries(input: ResearchClientInput): { english: string
   };
 }
 
+function stripMarkdownCodeFences(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
 function extractFirstJsonObject(raw: string): string | null {
-  const start = raw.indexOf("{");
+  const sanitized = stripMarkdownCodeFences(raw);
+  const start = sanitized.indexOf("{");
   if (start < 0) {
     return null;
   }
@@ -247,8 +255,8 @@ function extractFirstJsonObject(raw: string): string | null {
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let index = start; index < raw.length; index += 1) {
-    const char = raw[index];
+  for (let index = start; index < sanitized.length; index += 1) {
+    const char = sanitized[index];
     if (inString) {
       if (escaped) {
         escaped = false;
@@ -271,7 +279,7 @@ function extractFirstJsonObject(raw: string): string | null {
     if (char === "}") {
       depth -= 1;
       if (depth === 0) {
-        return raw.slice(start, index + 1);
+        return sanitized.slice(start, index + 1);
       }
     }
   }
@@ -307,6 +315,31 @@ function parseJsonObjectLoose(raw: string): Record<string, unknown> | null {
   }
 
   return null;
+}
+
+function extractQueryArrayByKey(raw: string, key: "english" | "arabic"): string[] {
+  const sanitized = stripMarkdownCodeFences(raw);
+  const keyRegex = new RegExp(`"${key}"\\s*:\\s*\\[([\\s\\S]*?)\\]`, "i");
+  const match = sanitized.match(keyRegex);
+  if (!match || !match[1]) {
+    return [];
+  }
+
+  const block = match[1];
+  const quoted = block.match(/"((?:\\.|[^"\\])+)"/g) ?? [];
+  return dedupeQueries(
+    quoted
+      .map((value) =>
+        value
+          .slice(1, -1)
+          .replace(/\\"/g, "\"")
+          .replace(/\\n/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+      )
+      .filter((value) => value.length >= 6),
+    key === "english" ? 8 : 5
+  );
 }
 
 function extractQuotedQueriesFallback(raw: string): { english: string[]; arabic: string[] } {
@@ -357,6 +390,15 @@ function parseSmartQueriesFromText(raw: string): { english: string[]; arabic: st
         arabic: dedupeQueries(validated.data.arabic, 5)
       };
     }
+  }
+
+  const englishFromArray = extractQueryArrayByKey(raw, "english");
+  const arabicFromArray = extractQueryArrayByKey(raw, "arabic");
+  if (englishFromArray.length + arabicFromArray.length >= 2) {
+    return {
+      english: englishFromArray,
+      arabic: arabicFromArray
+    };
   }
 
   const quotedFallback = extractQuotedQueriesFallback(raw);
@@ -435,7 +477,7 @@ JSON shape:
           generateText({
             model: googleProvider(model),
             temperature: 0,
-            maxOutputTokens: 900,
+            maxOutputTokens: 1600,
             abortSignal: abortController.signal,
             prompt: `${prompt}
 
@@ -457,7 +499,7 @@ STRICT OUTPUT RULES:
         throw new Error("No output generated.");
       }
       const parsed = parseSmartQueriesFromText(raw);
-      if (parsed && (parsed.english.length >= 2 || parsed.english.length + parsed.arabic.length >= 3)) {
+      if (parsed && (parsed.english.length >= 1 || parsed.arabic.length >= 1)) {
         console.log(`[Research] Smart queries generated: ${parsed.english.length} EN, ${parsed.arabic.length} AR`);
         return mergeSmartQueries(parsed, baselineQueries);
       }

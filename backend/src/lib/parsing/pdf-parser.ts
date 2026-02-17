@@ -72,6 +72,7 @@ async function parsePdfWithLibrary(fileBytes: Buffer): Promise<ParsedWithDiagnos
     const message = args.map((value) => String(value)).join(" ");
     if (/warning:\s*tt:|tt:\s*undefined function|invalid function id/i.test(message)) {
       parserWarnings.push(message);
+      return;
     }
     originalWarn(...args);
   };

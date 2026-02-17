@@ -192,7 +192,7 @@ const WINDOW_CONCURRENCY = Math.max(
 );
 const WINDOW_MAX_CHUNKS = Math.max(
   1,
-  Math.min(8, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_MAX_CHUNKS, 3))
+  Math.min(8, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_MAX_CHUNKS, 2))
 );
 const WINDOW_MAX_RETRIES = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_RETRIES, 1)));
 const WINDOW_MAX_SPLIT_DEPTH = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_SPLIT_DEPTH, 1)));
@@ -369,17 +369,57 @@ function mergeTextBlocks(values: string[], maxChars: number): string {
   return merged;
 }
 
-function extractFirstJsonObject(raw: string): string | null {
-  const start = raw.indexOf("{");
-  const end = raw.lastIndexOf("}");
-  if (start < 0 || end <= start) {
+function stripMarkdownCodeFences(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function extractFirstBalancedJsonObject(raw: string): string | null {
+  const sanitized = stripMarkdownCodeFences(raw);
+  const start = sanitized.indexOf("{");
+  if (start < 0) {
     return null;
   }
-  return raw.slice(start, end + 1);
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < sanitized.length; index += 1) {
+    const char = sanitized[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return sanitized.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
 }
 
 function parseWindowFieldsFromText(raw: string): ClaudeWindowFields | null {
-  const json = extractFirstJsonObject(raw);
+  const json = extractFirstBalancedJsonObject(raw);
   if (!json) {
     return null;
   }

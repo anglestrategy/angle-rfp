@@ -6,8 +6,16 @@ import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-res
 
 const AI_MATCH_TIMEOUT_MS = 90_000;
 
+function stripMarkdownCodeFences(raw: string): string {
+  return raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
 function extractFirstBalancedJson(raw: string): string | null {
-  const start = raw.indexOf("{");
+  const sanitized = stripMarkdownCodeFences(raw);
+  const start = sanitized.indexOf("{");
   if (start < 0) {
     return null;
   }
@@ -15,8 +23,8 @@ function extractFirstBalancedJson(raw: string): string | null {
   let depth = 0;
   let inString = false;
   let escaped = false;
-  for (let index = start; index < raw.length; index += 1) {
-    const char = raw[index];
+  for (let index = start; index < sanitized.length; index += 1) {
+    const char = sanitized[index];
     if (inString) {
       if (escaped) {
         escaped = false;
@@ -39,7 +47,7 @@ function extractFirstBalancedJson(raw: string): string | null {
     if (char === "}") {
       depth -= 1;
       if (depth === 0) {
-        return raw.slice(start, index + 1);
+        return sanitized.slice(start, index + 1);
       }
       continue;
     }
