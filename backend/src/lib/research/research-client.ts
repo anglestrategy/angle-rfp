@@ -196,7 +196,7 @@ Use exact name in quotes. No explanation, just JSON.`;
       generateText({
         model: googleProvider(model),
         temperature: 0,
-        maxTokens: 800,
+        maxOutputTokens: 800,
         abortSignal: abortController.signal,
         prompt
       })
