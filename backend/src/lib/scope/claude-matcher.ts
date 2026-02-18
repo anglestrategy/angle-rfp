@@ -337,7 +337,7 @@ Return JSON only:
             schema: ClaudeMatchResponseSchema
           }),
           temperature: 0,
-          maxOutputTokens: 2200,
+          maxOutputTokens: 4096,
           abortSignal: abortController.signal,
           prompt
         })
@@ -352,7 +352,7 @@ Return JSON only:
         generateText({
           model: googleProvider(model),
           temperature: 0,
-          maxOutputTokens: 2400,
+          maxOutputTokens: 4096,
           abortSignal: abortController.signal,
           prompt:
             `${prompt}\n\n` +
@@ -368,7 +368,7 @@ Return JSON only:
           generateText({
             model: googleProvider(model),
             temperature: 0,
-            maxOutputTokens: 2200,
+            maxOutputTokens: 4096,
             abortSignal: abortController.signal,
             prompt:
               `Classify each scope item with this strict line format only:\n` +

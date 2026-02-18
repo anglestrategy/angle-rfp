@@ -168,7 +168,7 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
 
   const pass1 = await runPass1Extraction(input);
   const pass2 = runPass2Verification(input, pass1);
-  const pass3 = runPass3RedFlags(input, pass1);
+  const pass3 = await runPass3RedFlags(input, pass1);
   const pass4 = runPass4Completeness(input, pass1);
   const pass5 = runPass5Conflicts(input, pass1);
 
