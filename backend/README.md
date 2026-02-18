@@ -29,6 +29,10 @@ This folder contains the Next.js backend for angle/RFP.
 - `AGENCY_SUPPORTS_MARKET_RESEARCH`
 - `ENABLE_MODEL_BEAUTIFY` (`0` recommended; `1` enables extra model beautification pass)
 - `RFP_ALLOW_REGEX_FALLBACK` (`0` recommended in production high-assurance mode)
+- `RFP_AI_WRAPPER_REFINEMENT` (`1` recommended; applies a final AI canonicalization pass to dashboard fields)
+- `EXTRACTION_AI_WRAPPER_TIMEOUT_MS`
+- `EXTRACTION_AI_WRAPPER_HEAD_CHARS`
+- `EXTRACTION_AI_WRAPPER_TAIL_CHARS`
 
 ### Optional model overrides
 
@@ -62,6 +66,12 @@ If one of those values is provided, the backend logs a warning and falls back to
 - If Azure OCR is not configured, Google Vision OCR can run with `GOOGLE_VISION_API_KEY` or `GOOGLE_APPLICATION_CREDENTIALS`.
 - If both Google auth modes are present, default preference is API key mode (`GOOGLE_VISION_AUTH_MODE=auto`).
 - If Unstructured is unavailable, backend falls back to local parser and emits warnings.
+
+### Extraction behavior
+
+- Extraction is AI-first and windowed across the document.
+- A final AI wrapper refinement pass can canonicalize the dashboard mapping (summary/scope/evaluation/deliverables/dates/submission) after pass1.
+- Deterministic heuristics remain only as reliability fallback when AI is unavailable or malformed.
 
 ### Beautification behavior
 

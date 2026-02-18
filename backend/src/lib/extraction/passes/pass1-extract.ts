@@ -1,9 +1,14 @@
 import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
+import { generateText, Output } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { z } from "zod";
 import {
   extractWithClaude,
   type ClaudeExtractedFields,
   type ClaudeExtractionResult
 } from "@/lib/extraction/claude-extractor";
+import { parseJsonFromModelText } from "@/lib/ai/json-response";
+import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
 export interface DeliverableItem {
   item: string;
@@ -87,6 +92,406 @@ const MAX_SCOPE_ITEMS_FOR_ANALYSIS = positiveIntFromEnv(
   process.env.EXTRACTION_MAX_SCOPE_ITEMS,
   80
 );
+const AI_WRAPPER_REFINEMENT_TIMEOUT_MS = positiveIntFromEnv(
+  process.env.EXTRACTION_AI_WRAPPER_TIMEOUT_MS,
+  120_000
+);
+const AI_WRAPPER_REFINEMENT_HEAD_CHARS = positiveIntFromEnv(
+  process.env.EXTRACTION_AI_WRAPPER_HEAD_CHARS,
+  45_000
+);
+const AI_WRAPPER_REFINEMENT_TAIL_CHARS = positiveIntFromEnv(
+  process.env.EXTRACTION_AI_WRAPPER_TAIL_CHARS,
+  14_000
+);
+const AI_WRAPPER_REFINEMENT_ENABLED_BY_DEFAULT = process.env.NODE_ENV !== "test";
+
+const WrapperDeliverableRequirementItemSchema = z.object({
+  title: z.string().max(180).optional().default(""),
+  description: z.string().max(320).optional().default(""),
+  source: z.enum(["verbatim", "inferred"]).optional().default("inferred")
+});
+
+const WrapperRefinementSchema = z.object({
+  clientName: z.string().max(220).optional().default(""),
+  projectName: z.string().max(260).optional().default(""),
+  projectDescription: z.string().max(1500).optional().default(""),
+  scopeOfWork: z.array(z.string().max(240)).max(60).optional().default([]),
+  evaluationCriteria: z
+    .array(
+      z.object({
+        title: z.string().max(180).optional().default(""),
+        weight: z.string().max(60).nullable().optional().default(null),
+        items: z.array(z.string().max(220)).max(10).optional().default([])
+      })
+    )
+    .max(20)
+    .optional()
+    .default([]),
+  requiredDeliverables: z.array(z.string().max(180)).max(20).optional().default([]),
+  deliverableRequirements: z
+    .object({
+      technical: z.array(WrapperDeliverableRequirementItemSchema).max(20).optional().default([]),
+      commercial: z.array(WrapperDeliverableRequirementItemSchema).max(20).optional().default([]),
+      strategicCreative: z.array(WrapperDeliverableRequirementItemSchema).max(20).optional().default([])
+    })
+    .optional()
+    .default({
+      technical: [],
+      commercial: [],
+      strategicCreative: []
+    }),
+  importantDates: z
+    .array(
+      z.object({
+        title: z.string().max(220).optional().default(""),
+        date: z.string().max(32).optional().default(""),
+        type: z.enum(["submission_deadline", "qa_deadline", "presentation", "other"]).optional().default("other"),
+        isCritical: z.boolean().optional().default(false)
+      })
+    )
+    .max(20)
+    .optional()
+    .default([]),
+  submissionRequirements: z
+    .object({
+      method: z.string().max(220).optional().default(""),
+      email: z.string().max(220).nullable().optional().default(null),
+      physicalAddress: z.string().max(320).nullable().optional().default(null),
+      format: z.string().max(220).optional().default(""),
+      copies: z.union([z.number(), z.string(), z.null()]).optional().default(null),
+      otherRequirements: z.array(z.string().max(220)).max(20).optional().default([])
+    })
+    .optional()
+    .default({
+      method: "",
+      email: null,
+      physicalAddress: null,
+      format: "",
+      copies: null,
+      otherRequirements: []
+    })
+});
+
+type WrapperRefinementResult = z.infer<typeof WrapperRefinementSchema>;
+
+const AI_WRAPPER_REFINEMENT_PROMPT = `You are the final AI extraction wrapper for an RFP dashboard.
+
+Your job:
+1) Read source context snippets and baseline extraction JSON.
+2) Produce one corrected, executive-quality JSON object for dashboard fields.
+3) Fix mis-categorization and weak summaries.
+
+Critical mapping rules:
+- requiredDeliverables = project outputs the agency will produce for the client.
+- deliverableRequirements = proposal/submission document requirements.
+- Never put CVs/certificates/vendor profile/pricing sheets in requiredDeliverables.
+- projectDescription must be an executive summary (2-4 sentences), not a copied scope bullet.
+- If submission is electronic-only, physicalAddress must be null unless a physical submission is explicitly required.
+- If a value is unknown, keep it empty/null. No hallucinations.
+
+Formatting rules:
+- Return ONLY one raw JSON object.
+- No markdown fences.
+- No text before/after JSON.
+`;
+
+function shouldUseAiWrapperRefinement(): boolean {
+  if (process.env.RFP_AI_WRAPPER_REFINEMENT === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_WRAPPER_REFINEMENT === "0") {
+    return false;
+  }
+  return AI_WRAPPER_REFINEMENT_ENABLED_BY_DEFAULT;
+}
+
+function toIntOrNull(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.floor(value));
+  }
+  if (typeof value === "string") {
+    const digits = value.match(/\d+/)?.[0];
+    if (digits) {
+      const parsed = Number.parseInt(digits, 10);
+      if (Number.isFinite(parsed)) {
+        return Math.max(0, parsed);
+      }
+    }
+  }
+  return null;
+}
+
+function limitText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(1, maxChars - 1)).trim()}…`;
+}
+
+async function runAiWrapperRefinement(
+  parsedDocument: AnalyzeRfpInput["parsedDocument"],
+  baseline: Pass1Output
+): Promise<Pass1Output | null> {
+  if (!shouldUseAiWrapperRefinement()) {
+    return null;
+  }
+
+  const apiKey = resolveGoogleApiKey();
+  if (!apiKey) {
+    return null;
+  }
+
+  const rawText = parsedDocument.rawText ?? "";
+  const head = rawText.slice(0, AI_WRAPPER_REFINEMENT_HEAD_CHARS);
+  const tail = rawText.length > AI_WRAPPER_REFINEMENT_HEAD_CHARS
+    ? rawText.slice(Math.max(0, rawText.length - AI_WRAPPER_REFINEMENT_TAIL_CHARS))
+    : "";
+
+  const sourceContext = {
+    primaryLanguage: parsedDocument.primaryLanguage,
+    summarySection: limitText(
+      extractNarrativeSummaryBlock(rawText) || fallbackExecutiveSummarySeed(rawText),
+      4_000
+    ),
+    scopeSection: limitText(buildScopeFromSource(parsedDocument), 10_000),
+    evaluationSection: limitText(buildEvaluationCriteriaFromSource(parsedDocument).formatted, 9_000),
+    deliverablesSection: limitText(buildDeliverablesSourceText(parsedDocument) || "", 10_000),
+    datesSection: limitText(buildImportantDatesSourceText(parsedDocument) || "", 8_000),
+    submissionSection: limitText(
+      bySectionName(rawText, parsedDocument.sections, ["submission_requirements", "proposal_submissions"]) ??
+        extractExactBlock(rawText, /submission\s+format|submission\s+requirements?|proposal\s+requirements?/i, 2_400) ??
+        "",
+      4_000
+    ),
+    rawTextHead: head,
+    rawTextTail: tail
+  };
+
+  const baselineSnapshot = {
+    clientName: baseline.clientName,
+    projectName: baseline.projectName,
+    projectDescription: baseline.projectDescription,
+    scopeOfWork: baseline.scopeOfWork,
+    evaluationCriteria: baseline.evaluationCriteria,
+    evaluationCriteriaStructured: baseline.evaluationCriteriaStructured,
+    requiredDeliverables: baseline.requiredDeliverables,
+    deliverableRequirements: baseline.deliverableRequirements,
+    importantDates: baseline.importantDates,
+    submissionRequirements: baseline.submissionRequirements,
+    warnings: baseline.warnings
+  };
+
+  const prompt = `${AI_WRAPPER_REFINEMENT_PROMPT}
+
+SOURCE_CONTEXT_JSON:
+${JSON.stringify(sourceContext)}
+
+BASELINE_EXTRACTION_JSON:
+${JSON.stringify(baselineSnapshot)}
+`;
+
+  const provider = createGoogleGenerativeAI({ apiKey });
+  let refined: WrapperRefinementResult | null = null;
+
+  try {
+    const structured = await runWithGeminiFlashModel((model) =>
+      generateText({
+        model: provider(model),
+        temperature: 0,
+        maxOutputTokens: 8_192,
+        abortSignal: AbortSignal.timeout(AI_WRAPPER_REFINEMENT_TIMEOUT_MS),
+        experimental_output: Output.object({
+          schema: WrapperRefinementSchema
+        }),
+        prompt
+      })
+    );
+    refined = structured.experimental_output ?? null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Pass1] AI wrapper refinement structured mode failed: ${limitText(message, 180)}`);
+  }
+
+  if (!refined) {
+    try {
+      const textMode = await runWithGeminiFlashModel((model) =>
+        generateText({
+          model: provider(model),
+          temperature: 0,
+          maxOutputTokens: 8_192,
+          abortSignal: AbortSignal.timeout(AI_WRAPPER_REFINEMENT_TIMEOUT_MS),
+          prompt
+        })
+      );
+      const parsed = parseJsonFromModelText<unknown>(textMode.text ?? "", {
+        context: "pass1-ai-wrapper-refinement",
+        expectedType: "object"
+      });
+      const validated = WrapperRefinementSchema.safeParse(parsed);
+      if (validated.success) {
+        refined = validated.data;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[Pass1] AI wrapper refinement text mode failed: ${limitText(message, 180)}`);
+    }
+  }
+
+  if (!refined) {
+    return null;
+  }
+
+  const refinedProjectDescription = normalizeExecutiveSummary(
+    refined.projectDescription || baseline.projectDescription
+  );
+  const refinedScopeSeed = dedupeStrings(
+    refined.scopeOfWork
+      .map((line) => normalizeRequirementLine(line))
+      .filter(Boolean)
+      .filter((line) => isProjectWorkDeliverableLine(line) || line.length > 20)
+  )
+    .slice(0, MAX_SCOPE_ITEMS_FOR_ANALYSIS)
+    .map((line) => `• ${line}`)
+    .join("\n");
+  const refinedScopeOfWork = countScopeItems(refinedScopeSeed) >= 2
+    ? sanitizeScopeForAnalysis(refinedScopeSeed)
+    : baseline.scopeOfWork;
+
+  const refinedCriteriaStructured = postProcessEvaluationGroups(
+    refined.evaluationCriteria
+      .map((group) => ({
+        title: normalizeRequirementLine(group.title),
+        weight: group.weight ? normalizeRequirementLine(group.weight) : null,
+        items: dedupeStrings(group.items.map((item) => normalizeRequirementLine(item)).filter(Boolean)).slice(0, 10),
+        evidenceRefs: [] as string[]
+      }))
+      .filter((group) => group.title.length > 0 && group.items.length > 0)
+  );
+  const refinedEvaluationCriteria = refinedCriteriaStructured.length > 0
+    ? formatEvaluationCriteriaStructured(refinedCriteriaStructured)
+    : baseline.evaluationCriteria;
+
+  const refinedRequiredDeliverables = capRequiredDeliverablesForOutput(
+    dedupeDeliverables(
+      refined.requiredDeliverables
+        .map((item) => ({
+          item: truncateAtWordBoundary(normalizeRequirementLine(item), 160),
+          source: "inferred" as const
+        }))
+        .filter((item) => item.item.length > 0)
+        .filter((item) => isProjectWorkDeliverableLine(item.item))
+    )
+  );
+  const requiredDeliverables = refinedRequiredDeliverables.length > 0
+    ? refinedRequiredDeliverables
+    : baseline.requiredDeliverables;
+
+  const refinedDeliverableRequirements = compactDeliverableRequirementsForOutput(
+    dedupeDeliverableRequirementsGlobal({
+      technical: refined.deliverableRequirements.technical
+        .map((item) => ({
+          title: normalizeRequirementLine(item.title),
+          description: normalizeRequirementLine(item.description),
+          source: item.source,
+          evidenceRef: undefined
+        }))
+        .filter((item) => item.title || item.description),
+      commercial: refined.deliverableRequirements.commercial
+        .map((item) => ({
+          title: normalizeRequirementLine(item.title),
+          description: normalizeRequirementLine(item.description),
+          source: item.source,
+          evidenceRef: undefined
+        }))
+        .filter((item) => item.title || item.description),
+      strategicCreative: refined.deliverableRequirements.strategicCreative
+        .map((item) => ({
+          title: normalizeRequirementLine(item.title),
+          description: normalizeRequirementLine(item.description),
+          source: item.source,
+          evidenceRef: undefined
+        }))
+        .filter((item) => item.title || item.description)
+    })
+  );
+  const deliverableRequirements =
+    refinedDeliverableRequirements.technical.length > 0 ||
+    refinedDeliverableRequirements.commercial.length > 0 ||
+    refinedDeliverableRequirements.strategicCreative.length > 0
+      ? refinedDeliverableRequirements
+      : baseline.deliverableRequirements;
+
+  const refinedImportantDates = dedupeImportantDates(
+    refined.importantDates
+      .map((item) => ({
+        title: normalizeRequirementLine(item.title),
+        date: normalizeRequirementLine(item.date),
+        type: item.type,
+        isCritical: item.isCritical || item.type === "submission_deadline" || item.type === "presentation"
+      }))
+      .filter((item) => item.title.length >= 4 && item.date.length >= 4)
+  );
+  const importantDates = refinedImportantDates.length > 0
+    ? refinedImportantDates
+    : baseline.importantDates;
+
+  const refinedSubmissionRequirements = normalizeSubmissionRequirementsOutput({
+    method: normalizeRequirementLine(refined.submissionRequirements.method || baseline.submissionRequirements.method),
+    email: refined.submissionRequirements.email || baseline.submissionRequirements.email,
+    physicalAddress: refined.submissionRequirements.physicalAddress ?? baseline.submissionRequirements.physicalAddress,
+    format: normalizeRequirementLine(refined.submissionRequirements.format || baseline.submissionRequirements.format),
+    copies: toIntOrNull(refined.submissionRequirements.copies) ?? baseline.submissionRequirements.copies,
+    otherRequirements: dedupeStrings(
+      (refined.submissionRequirements.otherRequirements ?? []).map((item) => normalizeRequirementLine(item))
+    )
+  });
+
+  const clientName = normalizeRequirementLine(refined.clientName || baseline.clientName);
+  const projectName = normalizeRequirementLine(refined.projectName || baseline.projectName);
+  const output: Pass1Output = {
+    ...baseline,
+    clientName: clientName || baseline.clientName,
+    clientNameArabic: /[\u0600-\u06FF]/.test(clientName || baseline.clientName)
+      ? (clientName || baseline.clientName)
+      : baseline.clientNameArabic,
+    projectName: projectName || baseline.projectName,
+    projectNameOriginal: /[\u0600-\u06FF]/.test(projectName || baseline.projectName)
+      ? (projectName || baseline.projectName)
+      : baseline.projectNameOriginal,
+    projectDescription: refinedProjectDescription || baseline.projectDescription,
+    scopeOfWork: refinedScopeOfWork,
+    evaluationCriteria: refinedEvaluationCriteria,
+    evaluationCriteriaStructured:
+      refinedCriteriaStructured.length > 0 ? refinedCriteriaStructured : baseline.evaluationCriteriaStructured,
+    requiredDeliverables,
+    deliverableRequirements,
+    importantDates,
+    submissionRequirements: refinedSubmissionRequirements
+  };
+
+  output.warnings = dedupeStrings([
+    ...baseline.warnings,
+    "AI wrapper refinement applied to finalize dashboard field mapping."
+  ]);
+  output.evidence = buildPass1Evidence({
+    clientName: output.clientName,
+    projectName: output.projectName,
+    projectDescription: output.projectDescription,
+    scopeOfWork: output.scopeOfWork,
+    evaluationCriteria: output.evaluationCriteria,
+    requiredDeliverables: output.requiredDeliverables,
+    deliverableRequirements: output.deliverableRequirements,
+    importantDates: output.importantDates,
+    submissionRequirements: output.submissionRequirements
+  });
+  output.confidenceScores = {
+    ...baseline.confidenceScores,
+    overall: Math.max(baseline.confidenceScores.overall, 0.9)
+  };
+
+  return output;
+}
 
 function bySectionName(
   text: string,
@@ -3847,10 +4252,11 @@ export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1O
   // Try AI extraction first
   try {
     const extractionResult = await extractWithClaude(input.parsedDocument.rawText);
-    if (shouldUseAiWrapperMode()) {
-      return mapClaudeToPass1OutputAiFirst(extractionResult, input.parsedDocument);
-    }
-    return mapClaudeToPass1Output(extractionResult, input.parsedDocument);
+    const mapped = shouldUseAiWrapperMode()
+      ? mapClaudeToPass1OutputAiFirst(extractionResult, input.parsedDocument)
+      : mapClaudeToPass1Output(extractionResult, input.parsedDocument);
+    const refined = await runAiWrapperRefinement(input.parsedDocument, mapped);
+    return refined ?? mapped;
   } catch (error) {
     console.error(
       "AI extraction failed, using fallback:",
@@ -3863,6 +4269,8 @@ export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1O
         "AI extraction failed in high-assurance mode; deterministic fallback is disabled."
       );
     }
-    return runPass1ExtractionFallback(input);
+    const fallback = runPass1ExtractionFallback(input);
+    const refined = await runAiWrapperRefinement(input.parsedDocument, fallback);
+    return refined ?? fallback;
   }
 }
