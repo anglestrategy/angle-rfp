@@ -1445,6 +1445,104 @@ function truncateAtWordBoundary(text: string, maxChars: number): string {
   return `${safeCut.trim().replace(/[,:;\-]+$/g, "").trim()}…`;
 }
 
+function compactEvidenceText(value: string, maxChars = 200): string {
+  return truncateAtWordBoundary(
+    value.replace(/\s+/g, " ").trim(),
+    maxChars
+  );
+}
+
+function hasReliableDateSignal(item: { title: string; date: string }): boolean {
+  return item.date.trim().length >= 6 && item.date !== "2099-12-31";
+}
+
+function buildPass1Evidence(input: {
+  clientName: string;
+  projectName: string;
+  projectDescription: string;
+  scopeOfWork: string;
+  evaluationCriteria: string;
+  requiredDeliverables: DeliverableItem[];
+  deliverableRequirements: DeliverableRequirements;
+  importantDates: Array<{ title: string; date: string }>;
+  submissionRequirements: Pass1Output["submissionRequirements"];
+}): Array<{ field: string; page: number; excerpt: string }> {
+  const entries: Array<{ field: string; excerpt: string }> = [];
+  const pushEntry = (field: string, excerpt: string): void => {
+    const compact = compactEvidenceText(excerpt, 220);
+    if (!compact) {
+      return;
+    }
+    entries.push({ field, excerpt: compact });
+  };
+
+  if (input.clientName && input.clientName !== "Unknown Client") {
+    pushEntry("clientName", input.clientName);
+  }
+  if (input.projectName && input.projectName !== "Untitled Project") {
+    pushEntry("projectName", input.projectName);
+  }
+  pushEntry("projectDescription", input.projectDescription);
+  pushEntry("scopeOfWork", input.scopeOfWork);
+  pushEntry("evaluationCriteria", input.evaluationCriteria);
+
+  const deliverableEvidence = [
+    ...input.requiredDeliverables.slice(0, 4).map((item) => item.item),
+    ...[...input.deliverableRequirements.technical, ...input.deliverableRequirements.commercial, ...input.deliverableRequirements.strategicCreative]
+      .slice(0, 3)
+      .map((item) => item.evidenceRef || item.description || item.title)
+  ]
+    .map((value) => value.replace(/\s+/g, " ").trim())
+    .filter((value) => value.length >= 6);
+  if (deliverableEvidence.length > 0) {
+    pushEntry("requiredDeliverables", deliverableEvidence.join(" | "));
+  }
+
+  const dateEvidence = input.importantDates
+    .filter((item) => hasReliableDateSignal(item))
+    .slice(0, 4)
+    .map((item) => `${item.title}: ${item.date}`);
+  if (dateEvidence.length > 0) {
+    pushEntry("importantDates", dateEvidence.join(" | "));
+  }
+
+  const submissionEvidenceParts: string[] = [];
+  if (input.submissionRequirements.method && input.submissionRequirements.method !== "Unknown") {
+    submissionEvidenceParts.push(`Method ${input.submissionRequirements.method}`);
+  }
+  if (input.submissionRequirements.format && input.submissionRequirements.format !== "Unspecified") {
+    submissionEvidenceParts.push(`Format ${input.submissionRequirements.format}`);
+  }
+  if (input.submissionRequirements.email) {
+    submissionEvidenceParts.push(`Email ${input.submissionRequirements.email}`);
+  }
+  if (input.submissionRequirements.physicalAddress) {
+    submissionEvidenceParts.push(`Address ${input.submissionRequirements.physicalAddress}`);
+  }
+  if (typeof input.submissionRequirements.copies === "number") {
+    submissionEvidenceParts.push(`Copies ${input.submissionRequirements.copies}`);
+  }
+  if (submissionEvidenceParts.length > 0) {
+    pushEntry("submissionRequirements", submissionEvidenceParts.join(" | "));
+  }
+
+  const deduped = new Map<string, { field: string; page: number; excerpt: string }>();
+  for (const entry of entries) {
+    if (!entry.excerpt) {
+      continue;
+    }
+    const key = `${entry.field}|${normalizeDedupeKey(entry.excerpt)}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, {
+        field: entry.field,
+        page: 1,
+        excerpt: entry.excerpt
+      });
+    }
+  }
+  return Array.from(deduped.values());
+}
+
 function normalizeStructuredText(input: string): string {
   const normalizedInput = input.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n");
   const lines = normalizedInput.split(/\r?\n/);
@@ -2029,7 +2127,7 @@ function buildScopeFromDeliverableSignals(
 }
 
 function normalizeExecutiveSummary(text: string): string {
-  const clean = text
+  let clean = text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/^#{1,6}\s*/gm, "")
     .replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/gmu, "")
@@ -2040,6 +2138,14 @@ function normalizeExecutiveSummary(text: string): string {
 
   if (!clean) {
     return clean;
+  }
+
+  const openParenCount = (clean.match(/\(/g) ?? []).length;
+  const closeParenCount = (clean.match(/\)/g) ?? []).length;
+  let extraClosingParens = Math.max(0, closeParenCount - openParenCount);
+  while (extraClosingParens > 0 && /\)\s*$/.test(clean)) {
+    clean = clean.replace(/\)\s*$/, "").trim();
+    extraClosingParens -= 1;
   }
 
   // Keep concise but complete: prioritize sentence boundaries and avoid mid-word clipping.
@@ -3093,24 +3199,6 @@ function mapClaudeToPass1OutputAiFirst(
     otherRequirements: [] as string[]
   };
 
-  const evidence: Array<{ field: string; page: number; excerpt: string }> = [
-    {
-      field: "projectDescription",
-      page: 1,
-      excerpt: selectedExecutiveSummary.slice(0, 200)
-    },
-    {
-      field: "scopeOfWork",
-      page: 1,
-      excerpt: scopeOfWork.slice(0, 200)
-    },
-    {
-      field: "evaluationCriteria",
-      page: 1,
-      excerpt: evaluationCriteria.slice(0, 200)
-    }
-  ].filter((item) => item.excerpt.trim().length > 0);
-
   const coverageScore = Math.max(0.4, Math.min(1, coverage.coveragePercent));
   const scopeScore = Math.max(0.45, Math.min(0.95, scopeOfWork.length >= 60 ? 0.9 : 0.6));
   const evaluationScore = Math.max(0.45, Math.min(0.95, evaluationCriteria.length >= 60 ? 0.88 : 0.58));
@@ -3137,13 +3225,25 @@ function mapClaudeToPass1OutputAiFirst(
     claude.clientName || findLineValue(text, ["Client", "Client Name", "Issuer", "العميل"]) || "Unknown Client";
   const finalProjectName =
     claude.projectName || findLineValue(text, ["Project", "Project Name", "RFP", "اسم المشروع"]) || "Untitled Project";
+  const projectDescription = normalizeExecutiveSummary(selectedExecutiveSummary);
+  const evidence = buildPass1Evidence({
+    clientName: finalClientName,
+    projectName: finalProjectName,
+    projectDescription,
+    scopeOfWork,
+    evaluationCriteria,
+    requiredDeliverables,
+    deliverableRequirements,
+    importantDates,
+    submissionRequirements
+  });
 
   return {
     clientName: finalClientName,
     clientNameArabic: /[\u0600-\u06FF]/.test(finalClientName) ? finalClientName : null,
     projectName: finalProjectName,
     projectNameOriginal: /[\u0600-\u06FF]/.test(finalProjectName) ? finalProjectName : null,
-    projectDescription: normalizeExecutiveSummary(selectedExecutiveSummary),
+    projectDescription,
     scopeOfWork,
     evaluationCriteria,
     evaluationCriteriaStructured,
@@ -3343,19 +3443,6 @@ function mapClaudeToPass1Output(
     });
   }
 
-  const evidence: Array<{ field: string; page: number; excerpt: string }> = [
-    {
-      field: "scopeOfWork",
-      page: 1,
-      excerpt: (claude.scopeOfWork || "").slice(0, 200)
-    },
-    {
-      field: "evaluationCriteria",
-      page: 1,
-      excerpt: (claude.evaluationCriteria || "").slice(0, 200)
-    }
-  ];
-
   // High confidence since Claude extraction is intelligent
   const confidenceScores: Record<string, number> & { overall: number } = {
     clientName: claude.clientName ? 0.95 : 0.5,
@@ -3372,27 +3459,42 @@ function mapClaudeToPass1Output(
     sourceExecutiveSummary,
     fallbackExecutiveSummary
   );
+  const clientName = claude.clientName || "Unknown Client";
+  const projectName = claude.projectName || "Untitled Project";
+  const submissionRequirements = {
+    method: claude.submissionRequirements?.method || "Unknown",
+    email: claude.submissionRequirements?.email ?? null,
+    physicalAddress: claude.submissionRequirements?.physicalAddress ?? null,
+    format: claude.submissionRequirements?.format || "Unspecified",
+    copies: claude.submissionRequirements?.copies ?? null,
+    otherRequirements: [] as string[] // Don't put deliverables here - they belong in requiredDeliverables
+  };
+  const projectDescription = normalizeExecutiveSummary(selectedExecutiveSummary);
+  const evidence = buildPass1Evidence({
+    clientName,
+    projectName,
+    projectDescription,
+    scopeOfWork: selectedScope,
+    evaluationCriteria: mergedEvaluation,
+    requiredDeliverables: canonicalRequiredDeliverables,
+    deliverableRequirements: mergedDeliverableRequirements,
+    importantDates,
+    submissionRequirements
+  });
 
   return {
-    clientName: claude.clientName || "Unknown Client",
-    clientNameArabic: /[\u0600-\u06FF]/.test(claude.clientName) ? claude.clientName : null,
-    projectName: claude.projectName || "Untitled Project",
-    projectNameOriginal: /[\u0600-\u06FF]/.test(claude.projectName) ? claude.projectName : null,
-    projectDescription: selectedExecutiveSummary,
+    clientName,
+    clientNameArabic: /[\u0600-\u06FF]/.test(clientName) ? clientName : null,
+    projectName,
+    projectNameOriginal: /[\u0600-\u06FF]/.test(projectName) ? projectName : null,
+    projectDescription,
     scopeOfWork: selectedScope,
     evaluationCriteria: mergedEvaluation,
     evaluationCriteriaStructured,
     requiredDeliverables: canonicalRequiredDeliverables,
     deliverableRequirements: mergedDeliverableRequirements,
     importantDates,
-    submissionRequirements: {
-      method: claude.submissionRequirements?.method || "Unknown",
-      email: claude.submissionRequirements?.email ?? null,
-      physicalAddress: claude.submissionRequirements?.physicalAddress ?? null,
-      format: claude.submissionRequirements?.format || "Unspecified",
-      copies: claude.submissionRequirements?.copies ?? null,
-      otherRequirements: [] // Don't put deliverables here - they belong in requiredDeliverables
-    },
+    submissionRequirements,
     warnings,
     evidence,
     confidenceScores
@@ -3480,19 +3582,18 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     buildExecutiveSummaryFromSource(input.parsedDocument),
     fallbackExecutiveSummarySeed(text)
   );
-
-  const evidence: Array<{ field: string; page: number; excerpt: string }> = [
-    {
-      field: "scopeOfWork",
-      page: 1,
-      excerpt: scopeOfWork.slice(0, 200)
-    },
-    {
-      field: "evaluationCriteria",
-      page: 1,
-      excerpt: evaluationCriteria.slice(0, 200)
-    }
-  ];
+  const normalizedProjectDescription = normalizeExecutiveSummary(projectDescription);
+  const evidence = buildPass1Evidence({
+    clientName,
+    projectName,
+    projectDescription: normalizedProjectDescription,
+    scopeOfWork,
+    evaluationCriteria,
+    requiredDeliverables: canonicalRequiredDeliverables,
+    deliverableRequirements,
+    importantDates,
+    submissionRequirements
+  });
 
   const confidenceScores: Record<string, number> & { overall: number } = {
     clientName: clientName === "Unknown Client" ? 0.5 : 0.9,
@@ -3508,7 +3609,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     clientNameArabic: /[\u0600-\u06FF]/.test(clientName) ? clientName : null,
     projectName,
     projectNameOriginal: /[\u0600-\u06FF]/.test(projectName) ? projectName : null,
-    projectDescription: normalizeExecutiveSummary(projectDescription),
+    projectDescription: normalizedProjectDescription,
     scopeOfWork,
     evaluationCriteria: sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
     evaluationCriteriaStructured,

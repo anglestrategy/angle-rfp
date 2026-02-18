@@ -51,11 +51,17 @@ export function runPass4Completeness(
     });
   }
 
-  const completenessScore = Math.max(0, Math.min(1, 1 - missingInformation.length * 0.12));
-  const warnings =
-    missingInformation.length > 0
-      ? [`${missingInformation.length} critical information gap(s) detected.`]
-      : [];
+  const criticalFields = new Set(["important_dates", "submission_method", "submission_format"]);
+  const criticalGapCount = missingInformation.filter((item) => criticalFields.has(item.field)).length;
+  const advisoryGapCount = Math.max(0, missingInformation.length - criticalGapCount);
+  const weightedPenalty = criticalGapCount * 0.18 + advisoryGapCount * 0.06;
+  const completenessScore = Math.max(0, Math.min(1, 1 - weightedPenalty));
+
+  const warnings = missingInformation.length > 0
+    ? [
+        `${missingInformation.length} information gap(s) detected (${criticalGapCount} critical, ${advisoryGapCount} advisory).`
+      ]
+    : [];
 
   return {
     completenessScore,

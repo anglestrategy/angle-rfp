@@ -1,7 +1,14 @@
 type QualityStatus = "pass" | "review_required" | "blocked";
 
 interface ExtractedRfpLike {
+  clientName?: string;
+  projectName?: string;
   qualityFlags?: string[];
+  quality?: {
+    status?: QualityStatus;
+    blocked?: boolean;
+    blockReasons?: string[];
+  };
   missingInformation?: Array<{ field?: string }>;
   evidence?: Array<{ field?: string }>;
   requiredDeliverables?: Array<unknown>;
@@ -11,7 +18,15 @@ interface ExtractedRfpLike {
     strategicCreative?: Array<{ source?: string; evidenceRef?: string }>;
   };
   evaluationCriteria?: string;
-  importantDates?: Array<unknown>;
+  importantDates?: Array<{ date?: string }>;
+  submissionRequirements?: {
+    method?: string;
+    email?: string | null;
+    physicalAddress?: string | null;
+    format?: string;
+    copies?: number | null;
+    otherRequirements?: string[];
+  };
 }
 
 interface ScopeAnalysisLike {
@@ -53,8 +68,62 @@ function clamp(value: number, min = 0, max = 1): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function hasCriticalFieldName(field: string): boolean {
-  return /client|project|scope|evaluation|deliverable|deadline|submission/i.test(field);
+function normalizeQualityFieldName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function isHardCriticalMissingField(field: string): boolean {
+  const normalized = normalizeQualityFieldName(field);
+  if (!normalized) {
+    return false;
+  }
+  return [
+    "clientname",
+    "projectname",
+    "scopeofwork",
+    "evaluationcriteria",
+    "requireddeliverables",
+    "importantdates"
+  ].some((token) => normalized.includes(token));
+}
+
+function isOperationalCriticalMissingField(field: string): boolean {
+  const normalized = normalizeQualityFieldName(field);
+  if (!normalized) {
+    return false;
+  }
+  return normalized.includes("submissionmethod") || normalized.includes("submissionformat");
+}
+
+function hasReliableDates(extracted: ExtractedRfpLike): boolean {
+  return (extracted.importantDates ?? []).some((item) => {
+    const rawDate = (item.date ?? "").trim();
+    return rawDate.length >= 6 && rawDate !== "2099-12-31";
+  });
+}
+
+function hasSubmissionSignal(extracted: ExtractedRfpLike): boolean {
+  const submission = extracted.submissionRequirements;
+  if (!submission) {
+    return false;
+  }
+
+  if (submission.method && submission.method !== "Unknown") {
+    return true;
+  }
+  if (submission.format && submission.format !== "Unspecified") {
+    return true;
+  }
+  if (submission.email && submission.email.trim().length > 0) {
+    return true;
+  }
+  if (submission.physicalAddress && submission.physicalAddress.trim().length > 0) {
+    return true;
+  }
+  if (typeof submission.copies === "number") {
+    return true;
+  }
+  return false;
 }
 
 function evidenceDensityScore(extracted: ExtractedRfpLike): number {
@@ -73,6 +142,25 @@ function evidenceDensityScore(extracted: ExtractedRfpLike): number {
       .map((item) => (item.field ?? "").toLowerCase().replace(/\s+/g, ""))
       .filter(Boolean)
   );
+
+  if (extracted.clientName && extracted.clientName !== "Unknown Client") {
+    evidenced.add("clientname");
+  }
+  if (extracted.projectName && extracted.projectName !== "Untitled Project") {
+    evidenced.add("projectname");
+  }
+  if ((extracted.evaluationCriteria ?? "").trim().length >= 30) {
+    evidenced.add("evaluationcriteria");
+  }
+  if ((extracted.requiredDeliverables?.length ?? 0) > 0) {
+    evidenced.add("requireddeliverables");
+  }
+  if (hasReliableDates(extracted)) {
+    evidenced.add("importantdates");
+  }
+  if (hasSubmissionSignal(extracted)) {
+    evidenced.add("submissionrequirements");
+  }
 
   if (evidenced.size === 0) {
     return 0;
@@ -157,6 +245,7 @@ function scopeConfidenceScore(scope: ScopeAnalysisLike): number {
 
 export function evaluateQualityGate(input: EvaluateQualityGateInput): QualityAssessment {
   const blockReasons: string[] = [];
+  const reviewReasons: string[] = [];
   const qualityFlags = new Set((input.extractedRfp.qualityFlags ?? []).map((item) => item.toLowerCase()));
 
   const evidenceDensity = evidenceDensityScore(input.extractedRfp);
@@ -187,56 +276,81 @@ export function evaluateQualityGate(input: EvaluateQualityGateInput): QualityAss
       (failedProviders >= 3 ? 0.15 : 0)
   );
 
+  if (input.extractedRfp.quality?.status === "blocked") {
+    const extractedBlockReasons = input.extractedRfp.quality.blockReasons?.filter(Boolean) ?? [];
+    if (extractedBlockReasons.length > 0) {
+      blockReasons.push(...extractedBlockReasons.slice(0, 3));
+    } else {
+      blockReasons.push("Extraction quality was marked as blocked and requires manual review.");
+    }
+  }
+
   if (qualityFlags.has("critical_info_missing")) {
     blockReasons.push("Critical RFP fields are missing or incomplete.");
   }
 
-  const criticalMissing = (input.extractedRfp.missingInformation ?? []).some((item) =>
-    hasCriticalFieldName(item.field ?? "")
-  );
-  if (criticalMissing) {
+  const hardCriticalMissingCount = (input.extractedRfp.missingInformation ?? []).filter((item) =>
+    isHardCriticalMissingField(item.field ?? "")
+  ).length;
+  const operationalCriticalMissingCount = (input.extractedRfp.missingInformation ?? []).filter((item) =>
+    isOperationalCriticalMissingField(item.field ?? "")
+  ).length;
+  if (hardCriticalMissingCount >= 2 || (hardCriticalMissingCount >= 1 && operationalCriticalMissingCount >= 1)) {
     blockReasons.push("Critical clarification gaps remain unresolved.");
+  } else if (hardCriticalMissingCount >= 1 || operationalCriticalMissingCount >= 1) {
+    reviewReasons.push("A critical clarification gap remains unresolved.");
   }
 
   if (qualityFlags.has("incomplete_document_coverage")) {
     blockReasons.push("Document coverage is incomplete; critical sections were not fully analyzed.");
   }
 
-  if (evidenceDensity < 0.35) {
-    blockReasons.push("Evidence density is below minimum threshold for high-confidence recommendation.");
+  if (evidenceDensity < 0.2) {
+    blockReasons.push("Evidence density is critically low for an automated recommendation.");
+  } else if (evidenceDensity < 0.35) {
+    reviewReasons.push("Evidence density is below preferred threshold for high-confidence recommendation.");
   }
 
-  if (deliverableScore < 0.5) {
-    blockReasons.push("Deliverables extraction confidence is low (grouping/evidence insufficient).");
+  if (deliverableScore < 0.35) {
+    blockReasons.push("Deliverables extraction confidence is critically low.");
+  } else if (deliverableScore < 0.5) {
+    reviewReasons.push("Deliverables extraction confidence is low (grouping/evidence insufficient).");
   }
 
-  if (criteriaScore < 0.5) {
-    blockReasons.push("Evaluation criteria grouping confidence is low.");
+  if (criteriaScore < 0.35) {
+    blockReasons.push("Evaluation criteria grouping confidence is critically low.");
+  } else if (criteriaScore < 0.5) {
+    reviewReasons.push("Evaluation criteria grouping confidence is low.");
   }
   if (qualityFlags.has("criteria_table_missing")) {
-    blockReasons.push("Evaluation criteria table structure could not be confidently recovered.");
+    reviewReasons.push("Evaluation criteria table structure could not be confidently recovered.");
   }
 
-  if ((input.extractedRfp.importantDates?.length ?? 0) === 0) {
+  if (!hasReliableDates(input.extractedRfp)) {
     blockReasons.push("Important dates were not extracted with sufficient certainty.");
   }
   if (qualityFlags.has("dates_low_confidence")) {
-    blockReasons.push("Important dates were extracted with low confidence.");
+    reviewReasons.push("Important dates were extracted with low confidence.");
   }
 
-  if (scopeScore < 0.5) {
+  if (scopeScore < 0.4) {
     blockReasons.push("Scope confident coverage is too low to support automated recommendation.");
+  } else if (scopeScore < 0.5) {
+    reviewReasons.push("Scope confidence is below preferred threshold.");
   }
   if (qualityFlags.has("scope_contamination_filtered")) {
-    blockReasons.push("Scope text required contamination filtering; manual scope review recommended.");
+    reviewReasons.push("Scope text required contamination filtering; manual scope review is recommended.");
   }
 
-  if (researchScore < 0.25) {
-    blockReasons.push("Research confidence is below minimum threshold.");
+  if (researchScore < 0.15) {
+    blockReasons.push("Research confidence is critically low.");
+  } else if (researchScore < 0.25) {
+    reviewReasons.push("Research confidence is below preferred threshold.");
   }
 
   const blocked = blockReasons.length > 0;
   const reviewSignals =
+    reviewReasons.length > 0 ||
     extractionScore < 0.75 ||
     scopeScore < 0.7 ||
     criteriaScore < 0.7 ||

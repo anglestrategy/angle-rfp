@@ -196,8 +196,8 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 20) {
                 // AI recommendation
                 if let recommendation = data.financialPotential?.recommendation, !recommendation.isEmpty {
-                    Text("\"\(recommendation)\"")
-                        .font(.custom("Urbanist", size: 15).italic())
+                    Text(recommendation)
+                        .font(.custom("Urbanist", size: 15))
                         .foregroundColor(DesignSystem.Palette.Text.secondary)
                         .padding(16)
                         .frame(maxWidth: .infinity, alignment: .leading)

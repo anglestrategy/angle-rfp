@@ -70,8 +70,8 @@ private struct FactorCard: View {
 
                 Spacer()
 
-                // Score badge - show "-" for unidentified factors
-                Text(factor.identified ? "\(Int(factor.score))%" : "-")
+                // Score badge - show N/A when factor has insufficient evidence
+                Text(factor.identified ? "\(Int(factor.score))%" : "N/A")
                     .font(.custom("IBM Plex Mono", size: 14).weight(.bold))
                     .foregroundColor(scoreColor)
             }

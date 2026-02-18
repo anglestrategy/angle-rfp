@@ -984,7 +984,7 @@ final class BackendAnalysisClient {
                     identified: item.identified
                 )
             },
-            formulaExplanation: "Deterministic 11-factor weighted model with red-flag and completeness penalties."
+            formulaExplanation: "AI-assisted 11-factor weighted model with quality-gate, red-flag, and completeness calibration."
         )
 
         // Map beautified text from backend if available

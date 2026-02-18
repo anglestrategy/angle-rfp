@@ -173,6 +173,24 @@ function dedupeItems(items: string[]): string[] {
   return output;
 }
 
+function synthesizeKeyObjective(seedText: string): string {
+  const normalized = normalizeBulletItem(seedText)
+    .replace(/\([^)]*$/g, "")
+    .replace(/[;,:-]+\s*$/g, "")
+    .trim();
+
+  if (!normalized) {
+    return "Define a clear execution objective aligned with scope, deliverables, and timeline.";
+  }
+
+  const firstSentence = normalized.split(/(?<=[.!?؟])\s+/).find((line) => line.trim().length > 20) ?? normalized;
+  const concise = truncateAtWordBoundary(firstSentence, 220).trim();
+  if (!concise) {
+    return "Define a clear execution objective aligned with scope, deliverables, and timeline.";
+  }
+  return /[.!?؟…]$/.test(concise) ? concise : `${concise}.`;
+}
+
 function deterministicBeautify(rawText: string, fieldName: string): BeautifiedText {
   const normalized = rawText
     .replace(/```/g, "")
@@ -274,6 +292,16 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
     sections.push({
       type: "paragraph",
       content: truncateAtWordBoundary(keyObjectiveSection.content, 240),
+      items: undefined
+    });
+  } else {
+    sections.push({
+      type: "paragraph",
+      content: synthesizeKeyObjective(
+        [keyObjectiveParagraph, keyObjectiveSection.content, firstParagraph, result.formatted]
+          .filter(Boolean)
+          .join(" ")
+      ),
       items: undefined
     });
   }

@@ -656,6 +656,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
   );
 
   const successfulResults: ClaudeExtractedFields[] = [];
+  const successfulWindowIndexes = new Set<number>();
   const analyzedChunkIndexes = new Set<number>();
   const failedWindows: Array<{ index: number; message: string }> = [];
   const activeControllers = new Set<AbortController>();
@@ -757,6 +758,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
       try {
         const normalized = await executeWindowAttempt(window, context);
         successfulResults.push(normalized);
+        successfulWindowIndexes.add(window.index);
         for (const chunk of window.chunks) {
           analyzedChunkIndexes.add(chunk.index);
         }
@@ -879,7 +881,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
 
   const duration = Date.now() - startTime;
   console.log(
-    `[Extraction] Completed in ${duration}ms, windows_ok=${successfulResults.length}/${windows.length}, coverage=${Math.round(
+    `[Extraction] Completed in ${duration}ms, windows_ok=${successfulWindowIndexes.size}/${windows.length}, coverage=${Math.round(
       coveragePercent * 100
     )}%`
   );
