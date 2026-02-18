@@ -151,3 +151,8 @@ backend/tsconfig.tsbuildinfo
 
 # Release artifacts
 dist/
+
+# Node.js
+node_modules/
+.next/
+npm-debug.log*
