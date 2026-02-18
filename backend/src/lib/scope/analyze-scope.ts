@@ -57,6 +57,16 @@ function shouldUseScopeAiWrapperMode(): boolean {
   return true;
 }
 
+function isAiEndToEndModeEnabled(): boolean {
+  if (process.env.RFP_AI_END_TO_END === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_END_TO_END === "0") {
+    return false;
+  }
+  return process.env.NODE_ENV !== "test";
+}
+
 function chunkArray<T>(items: T[], size: number): T[][] {
   if (size <= 0) {
     return [items];
@@ -326,6 +336,17 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
             )
           );
       } catch (error) {
+        if (isAiEndToEndModeEnabled()) {
+          throw makeError(
+            422,
+            "upstream_unavailable",
+            `AI end-to-end mode requires AI scope matching, but batch ${batchIndex + 1}/${batches.length} failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+            "analyze-scope",
+            { retryable: true }
+          );
+        }
         console.error(`AI scope matching failed for batch ${batchIndex + 1}/${batches.length}, using token fallback:`, error);
         fallbackBatchCount += 1;
         batchResults[batchIndex] = matchScopeItems(batch, taxonomy).map((match) => ({
@@ -354,6 +375,15 @@ export async function analyzeScopeInput(input: AnalyzeScopeInput): Promise<Scope
 
   if (fallbackBatchCount > 0 && fallbackBatchCount === batches.length) {
     warnings.push("Scope matching used deterministic fallback for this document.");
+  }
+  if (isAiEndToEndModeEnabled() && fallbackBatchCount > 0) {
+    throw makeError(
+      422,
+      "upstream_unavailable",
+      "AI end-to-end mode requires AI scope matching for all batches, but deterministic fallback was used.",
+      "analyze-scope",
+      { retryable: true }
+    );
   }
 
   if (marketResearchPolicy.source === "env_override" && !marketResearchSupported) {

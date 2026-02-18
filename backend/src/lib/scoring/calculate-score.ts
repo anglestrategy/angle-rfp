@@ -2,6 +2,7 @@ import { makeError } from "@/lib/api/errors";
 import { buildFactorBreakdown, type FactorBreakdownItem } from "@/lib/scoring/factors";
 import { computeCompletenessPenalty, computeRedFlagPenalty } from "@/lib/scoring/penalties";
 import { evaluateQualityGate, type QualityAssessment } from "@/lib/quality/quality-gates";
+import { runAiScoreRefinement } from "@/lib/scoring/ai-score-refiner";
 
 interface ExtractedRfpLike {
   schemaVersion?: string;
@@ -83,6 +84,37 @@ function roundToTwo(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function isAiEndToEndModeEnabled(): boolean {
+  if (process.env.RFP_AI_END_TO_END === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_END_TO_END === "0") {
+    return false;
+  }
+  return process.env.NODE_ENV !== "test";
+}
+
+function shouldUseAiScoreRefinement(): boolean {
+  if (process.env.RFP_AI_SCORE_REFINEMENT === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_SCORE_REFINEMENT === "0") {
+    return false;
+  }
+  return process.env.NODE_ENV !== "test";
+}
+
+function computeBaseScoreFromFactors(factors: FactorBreakdownItem[]): number {
+  const identifiedFactors = factors.filter((factor) => factor.identified);
+  const totalIdentifiedWeight = identifiedFactors.reduce((sum, factor) => sum + factor.weight, 0);
+  if (totalIdentifiedWeight <= 0) {
+    return roundToTwo(factors.reduce((sum, factor) => sum + factor.contribution, 0));
+  }
+
+  const rawContribution = identifiedFactors.reduce((sum, factor) => sum + factor.contribution, 0);
+  return roundToTwo(rawContribution / totalIdentifiedWeight);
+}
+
 export function recommendationBandForScore(finalScore: number): FinancialScoreV1["recommendationBand"] {
   if (finalScore >= 85) {
     return "EXCELLENT";
@@ -145,9 +177,43 @@ export async function calculateScoreInput(input: CalculateScoreInput): Promise<C
     clientResearch: input.clientResearch
   });
 
+  let factors = factorResult.factors;
+  const warnings = [...factorResult.warnings];
+  let aiRecommendationBand: FinancialScoreV1["recommendationBand"] | null = null;
+  let aiRationale: string | null = null;
+  if (shouldUseAiScoreRefinement()) {
+    try {
+      const aiRefined = await runAiScoreRefinement({
+        analysisId: input.analysisId,
+        extractedRfp: input.extractedRfp as unknown as Record<string, unknown>,
+        scopeAnalysis: input.scopeAnalysis as unknown as Record<string, unknown>,
+        clientResearch: input.clientResearch as unknown as Record<string, unknown>,
+        baselineFactors: factorResult.factors,
+        deterministicWarnings: factorResult.warnings
+      });
+      factors = aiRefined.factors;
+      aiRecommendationBand = aiRefined.recommendationBand;
+      aiRationale = aiRefined.rationale;
+      warnings.push(...aiRefined.warnings);
+      warnings.push("AI-first scoring refinement applied.");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isAiEndToEndModeEnabled()) {
+        throw makeError(
+          422,
+          "upstream_unavailable",
+          `AI-first scoring is required but unavailable: ${message}`,
+          "calculate-score",
+          { retryable: true }
+        );
+      }
+      warnings.push(`AI score refinement unavailable; deterministic scoring used: ${message}`);
+    }
+  }
+
   const redFlagPenalty = computeRedFlagPenalty(input.extractedRfp.redFlags);
   const completenessPenalty = computeCompletenessPenalty(input.extractedRfp.completenessScore);
-  const baseScore = roundToTwo(clamp(factorResult.baseScore, 0, 100));
+  const baseScore = roundToTwo(clamp(computeBaseScoreFromFactors(factors), 0, 100));
   const preGateFinalScore = roundToTwo(clamp(baseScore - redFlagPenalty - completenessPenalty, 0, 100));
   const quality = evaluateQualityGate({
     extractedRfp: input.extractedRfp,
@@ -156,9 +222,7 @@ export async function calculateScoreInput(input: CalculateScoreInput): Promise<C
   });
 
   let finalScore = preGateFinalScore;
-  let recommendationBand = recommendationBandForScore(finalScore);
-
-  const warnings = [...factorResult.warnings];
+  let recommendationBand = aiRecommendationBand ?? recommendationBandForScore(finalScore);
   if (input.extractedRfp.completenessScore === undefined) {
     warnings.push("completenessScore missing; maximum completeness penalty applied.");
   }
@@ -173,7 +237,7 @@ export async function calculateScoreInput(input: CalculateScoreInput): Promise<C
 
   const rationale = quality.blocked
     ? `Automatic recommendation blocked pending manual review. ${quality.blockReasons.join(" ")}`
-    : rationaleForBand(recommendationBand, factorResult.factors, warnings);
+    : aiRationale ?? rationaleForBand(recommendationBand, factors, warnings);
 
   const score: FinancialScoreV1 = {
     schemaVersion: "1.0.0",
@@ -183,7 +247,7 @@ export async function calculateScoreInput(input: CalculateScoreInput): Promise<C
     completenessPenalty,
     finalScore,
     recommendationBand,
-    factorBreakdown: factorResult.factors,
+    factorBreakdown: factors,
     rationale,
     quality
   };

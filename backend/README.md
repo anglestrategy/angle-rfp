@@ -30,6 +30,8 @@ This folder contains the Next.js backend for angle/RFP.
 - `ENABLE_MODEL_BEAUTIFY` (`0` recommended; `1` enables extra model beautification pass)
 - `RFP_ALLOW_REGEX_FALLBACK` (`0` recommended in production high-assurance mode)
 - `RFP_AI_WRAPPER_REFINEMENT` (`1` recommended; applies a final AI canonicalization pass to dashboard fields)
+- `RFP_AI_END_TO_END` (`1` recommended; disables silent heuristic fallbacks and requires AI pipeline availability)
+- `RFP_AI_SCORE_REFINEMENT` (`1` recommended; lets AI calibrate factor scores/recommendation band using full context)
 - `EXTRACTION_AI_WRAPPER_TIMEOUT_MS`
 - `EXTRACTION_AI_WRAPPER_HEAD_CHARS`
 - `EXTRACTION_AI_WRAPPER_TAIL_CHARS`
@@ -71,7 +73,8 @@ If one of those values is provided, the backend logs a warning and falls back to
 
 - Extraction is AI-first and windowed across the document.
 - A final AI wrapper refinement pass can canonicalize the dashboard mapping (summary/scope/evaluation/deliverables/dates/submission) after pass1.
-- Deterministic heuristics remain only as reliability fallback when AI is unavailable or malformed.
+- With `RFP_AI_END_TO_END=1`, backend fails fast when AI stages are unavailable instead of silently degrading to heuristics.
+- With `RFP_AI_SCORE_REFINEMENT=1`, scoring factors/recommendation are AI-calibrated from full extraction + scope + research context.
 
 ### Beautification behavior
 

@@ -7,6 +7,16 @@ import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-res
 
 const RED_FLAG_TIMEOUT_MS = 60_000;
 
+function isAiEndToEndModeEnabled(): boolean {
+  if (process.env.RFP_AI_END_TO_END === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_END_TO_END === "0") {
+    return false;
+  }
+  return process.env.NODE_ENV !== "test";
+}
+
 const RedFlagSchema = z.object({
   type: z.enum(["contractual", "feasibility", "process"]),
   severity: z.enum(["HIGH", "MEDIUM", "LOW"]),
@@ -453,6 +463,11 @@ async function runAiRedFlagAnalysis(rawText: string, scopeOfWork: string): Promi
 }>> {
   const apiKey = resolveGoogleApiKey();
   if (!apiKey) {
+    if (isAiEndToEndModeEnabled()) {
+      throw new Error(
+        "AI end-to-end mode requires red-flag AI analysis, but no Gemini API key is configured."
+      );
+    }
     return [];
   }
 
@@ -573,6 +588,8 @@ ${scopeOfWork.slice(0, 4_000)}
   const parsed = parseRedFlagsFromModelText(textMode.text ?? "");
   if (parsed.length > 0) {
     console.log("[Pass3] AI red flag analysis recovered via text-mode repair parser.");
+  } else if (isAiEndToEndModeEnabled()) {
+    throw new Error("AI red flag analysis returned empty/unparseable content in end-to-end AI mode.");
   }
   return parsed;
 }
@@ -622,6 +639,9 @@ export async function runPass3RedFlags(input: AnalyzeRfpInput, extracted: { scop
     aiFlags = await runAiRedFlagAnalysis(input.parsedDocument.rawText, extracted.scopeOfWork);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (isAiEndToEndModeEnabled()) {
+      throw error;
+    }
     console.error("[Pass3] AI red flag analysis failed, using deterministic fallback:", message);
     warnings.push("AI red flag analysis unavailable; using deterministic detection only.");
     aiUnavailable = true;

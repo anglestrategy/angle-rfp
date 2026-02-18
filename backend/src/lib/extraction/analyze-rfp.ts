@@ -129,7 +129,20 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function isAiEndToEndModeEnabled(): boolean {
+  if (process.env.RFP_AI_END_TO_END === "1") {
+    return true;
+  }
+  if (process.env.RFP_AI_END_TO_END === "0") {
+    return false;
+  }
+  return process.env.NODE_ENV !== "test";
+}
+
 function shouldUseAiAdjudication(): boolean {
+  if (isAiEndToEndModeEnabled()) {
+    return true;
+  }
   if (process.env.RFP_AI_ADJUDICATION === "1") {
     return true;
   }
@@ -191,6 +204,15 @@ export async function analyzeRfpInput(input: AnalyzeRfpInput): Promise<Extracted
       });
     } catch (error) {
       aiAdjudicationError = error instanceof Error ? error.message : "Unknown AI adjudication error";
+      if (isAiEndToEndModeEnabled()) {
+        throw makeError(
+          422,
+          "upstream_unavailable",
+          `AI end-to-end mode requires adjudication, but adjudication failed: ${aiAdjudicationError}`,
+          "analyze-rfp",
+          { retryable: true }
+        );
+      }
       console.error("AI adjudication failed. Falling back to deterministic QA passes:", error);
     }
   }
