@@ -34,3 +34,8 @@ A macOS app + Next.js backend for analyzing bilingual (Arabic/English) RFPs and 
 
 ## Recent Changes
 - Configured for Replit environment: port 5000, host 0.0.0.0, allowed all dev origins
+- Rewrote extraction prompt (EXTRACTION_PROMPT) with detailed Gemini-optimized field-by-field instructions, bilingual handling, and quality standards
+- Increased AI context windows: WINDOW_MAX_CHUNKS 2→5, CHUNK_SIZE_CHARS 12k→24k, WINDOW_CONTEXT_CHARS 180k→400k, overlap doubled
+- Replaced 4-regex red flag detection with comprehensive AI-powered analysis (16 deterministic patterns + Gemini-based reasoning with deduplication)
+- Rewrote AI adjudicator prompt with detailed field-by-field validation rubric, scoring guidance, and evidence-citation requirements; increased source context limits
+- Improved scope matching prompt with semantic matching guidelines, strategy research recognition, and increased maxOutputTokens (2200→4096)
