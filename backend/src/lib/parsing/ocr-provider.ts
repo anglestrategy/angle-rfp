@@ -40,6 +40,29 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
+function summarizeVisionApiError(status: number, details: string): string {
+  const compactDetails = details.replace(/\s+/g, " ").trim();
+  const lowered = compactDetails.toLowerCase();
+
+  if (status === 403 && /vision api has not been used|it is disabled|enable.*vision\.googleapis\.com/.test(lowered)) {
+    return "Google Vision API is disabled for the configured project. Enable vision.googleapis.com and retry.";
+  }
+
+  if (status === 401) {
+    return "Google Vision API key is invalid or unauthorized for this project.";
+  }
+
+  if (status === 429) {
+    return "Google Vision API rate limit exceeded.";
+  }
+
+  if (compactDetails.length === 0) {
+    return `Google Vision REST request failed (${status}).`;
+  }
+
+  return `Google Vision REST request failed (${status}): ${compactDetails.slice(0, 180)}`;
+}
+
 function hasGoogleVisionCredentials(): boolean {
   return Boolean(
     process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ||
@@ -328,7 +351,7 @@ class GoogleVisionOcrProvider implements OcrProvider {
 
     if (!response.ok) {
       const details = await response.text().catch(() => "");
-      throw new Error(`Google Vision REST request failed (${response.status})${details ? `: ${details.slice(0, 300)}` : ""}`);
+      throw new Error(summarizeVisionApiError(response.status, details));
     }
 
     return (await response.json()) as Record<string, unknown>;

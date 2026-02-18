@@ -3067,9 +3067,19 @@ function scoreDeliverableRequirementsQuality(value: DeliverableRequirements): nu
 function extractSubmission(text: string): Pass1Output["submissionRequirements"] {
   // Use word boundaries to avoid matching partial strings
   const emailMatch = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)?.[0] ?? null;
+  const electronicOnly =
+    /electronically\s+only|electronic\s+only|email\s+only|portal\s+only|submitted\s+electronically\s+only|إلكتروني(?:اً)?\s+فقط|الكتروني(?:اً)?\s+فقط/i.test(
+      text
+    );
 
   let method = "Unknown";
-  if (/email/i.test(text) && /physical|hard copy|sealed|address/i.test(text)) {
+  if (electronicOnly && /email/i.test(text)) {
+    method = "Email (electronic only)";
+  } else if (electronicOnly && /portal|website|platform/i.test(text)) {
+    method = "Online portal (electronic only)";
+  } else if (electronicOnly || /electronically|electronic submission/i.test(text)) {
+    method = "Electronic submission";
+  } else if (/email/i.test(text) && /physical|hard copy|sealed|address/i.test(text)) {
     method = "Email + Physical copies";
   } else if (/email/i.test(text)) {
     method = "Email";
@@ -3083,7 +3093,9 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
   return {
     method,
     email: emailMatch,
-    physicalAddress: /riyadh|jeddah|dammam|address/i.test(text) ? "See RFP address section" : null,
+    physicalAddress: !electronicOnly && /riyadh|jeddah|dammam|address/i.test(text)
+      ? "See RFP address section"
+      : null,
     format,
     copies: copiesMatch?.[1] ? Number(copiesMatch[1]) : null,
     otherRequirements: [] // Don't put deliverables here

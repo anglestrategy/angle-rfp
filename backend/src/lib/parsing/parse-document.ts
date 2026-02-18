@@ -245,7 +245,7 @@ function defaultParseStepTimeouts(profile: AnalysisProfile): {
     return {
       localPdfMs: 15_000,
       ocrMs: 20_000,
-      unstructuredMs: 15_000
+      unstructuredMs: 20_000
     };
   }
 
@@ -253,14 +253,14 @@ function defaultParseStepTimeouts(profile: AnalysisProfile): {
     return {
       localPdfMs: 18_000,
       ocrMs: 25_000,
-      unstructuredMs: 20_000
+      unstructuredMs: 28_000
     };
   }
 
   return {
     localPdfMs: 20_000,
     ocrMs: 30_000,
-    unstructuredMs: 25_000
+    unstructuredMs: 40_000
   };
 }
 

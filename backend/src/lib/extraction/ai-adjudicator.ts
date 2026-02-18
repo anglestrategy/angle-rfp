@@ -65,27 +65,27 @@ const AiAdjudicationSchema = z.object({
   missingInformation: z
     .array(
       z.object({
-        field: z.string().min(1).max(80),
-        suggestedQuestion: z.string().min(1).max(220)
+        field: z.string().min(1).max(120),
+        suggestedQuestion: z.string().min(1).max(320)
       })
     )
-    .max(12)
+    .max(16)
     .default([]),
   conflicts: z
     .array(
       z.object({
-        field: z.string().min(1).max(80),
-        candidates: z.array(z.string().min(1).max(180)).min(2).max(8),
-        resolution: z.string().min(1).max(220)
+        field: z.string().min(1).max(120),
+        candidates: z.array(z.string().min(1).max(400)).min(1).max(20),
+        resolution: z.string().min(1).max(500)
       })
     )
-    .max(8)
+    .max(12)
     .default([]),
-  warnings: z.array(z.string().min(3).max(220)).max(14).default([]),
+  warnings: z.array(z.string().min(3).max(700)).max(20).default([]),
   qualityFlags: z.array(z.string().min(2).max(64)).max(14).default([]),
   quality: z.object({
     status: z.enum(["pass", "review_required", "blocked"]),
-    blockReasons: z.array(z.string().min(3).max(220)).max(10).default([]),
+    blockReasons: z.array(z.string().min(3).max(500)).max(12).default([]),
     evidenceDensity: z.number().min(0).max(1),
     sectionScores: QualitySectionScoresSchema
   })
@@ -171,6 +171,13 @@ function normalizeFlag(value: string): string {
   return normalized || "review_required";
 }
 
+function clipText(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value.trim();
+  }
+  return `${value.slice(0, Math.max(1, maxChars - 1)).trim()}…`;
+}
+
 function compactWhitespace(value: string): string {
   return value.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -239,16 +246,60 @@ function buildExtractedSnapshot(extracted: Pass1Output): Record<string, unknown>
   };
 }
 
+function sanitizeDeterministicHints(input: AiAdjudicationInput["deterministicHints"]): AiAdjudicationInput["deterministicHints"] {
+  return {
+    verificationScore: clamp01(input.verificationScore),
+    completenessScore: clamp01(input.completenessScore),
+    warnings: dedupeStrings(input.warnings).map((warning) => clipText(warning, 200)).slice(0, 16),
+    redFlags: input.redFlags.slice(0, 8).map((flag) => ({
+      type: flag.type,
+      severity: flag.severity,
+      title: clipText(flag.title, 120),
+      description: clipText(flag.description, 260),
+      sourceText: clipText(flag.sourceText, 220),
+      recommendation: clipText(flag.recommendation, 220)
+    })),
+    missingInformation: input.missingInformation.slice(0, 12).map((item) => ({
+      field: clipText(item.field, 80),
+      suggestedQuestion: clipText(item.suggestedQuestion, 220)
+    })),
+    conflicts: input.conflicts.slice(0, 10).map((conflict) => ({
+      field: clipText(conflict.field, 80),
+      candidates: dedupeStrings(conflict.candidates).map((candidate) => clipText(candidate, 180)).slice(0, 8),
+      resolution: clipText(conflict.resolution, 220)
+    }))
+  };
+}
+
 function normalizeResult(result: AiAdjudicationResult): AiAdjudicationResult {
   const normalizedFlags = dedupeStrings(result.qualityFlags.map(normalizeFlag)).slice(0, 14);
-  const normalizedWarnings = dedupeStrings(result.warnings).slice(0, 14);
-  const normalizedBlockReasons = dedupeStrings(result.quality.blockReasons).slice(0, 10);
+  const normalizedWarnings = dedupeStrings(result.warnings.map((warning) => clipText(warning, 220))).slice(0, 14);
+  const normalizedBlockReasons = dedupeStrings(result.quality.blockReasons.map((reason) => clipText(reason, 220))).slice(0, 10);
+  const normalizedMissingInformation = result.missingInformation.slice(0, 12).map((item) => ({
+    field: clipText(item.field, 80),
+    suggestedQuestion: clipText(item.suggestedQuestion, 220)
+  }));
+  const normalizedConflicts = result.conflicts.slice(0, 8).map((conflict) => ({
+    field: clipText(conflict.field, 80),
+    candidates: dedupeStrings(conflict.candidates.map((candidate) => clipText(candidate, 180))).slice(0, 8),
+    resolution: clipText(conflict.resolution, 220)
+  }));
+  const normalizedRedFlags = result.redFlags.slice(0, 8).map((flag) => ({
+    ...flag,
+    title: clipText(flag.title, 120),
+    description: clipText(flag.description, 320),
+    sourceText: clipText(flag.sourceText, 260),
+    recommendation: clipText(flag.recommendation, 260)
+  }));
 
   const blocked = result.quality.status === "blocked" || normalizedBlockReasons.length > 0;
   const status: "pass" | "review_required" | "blocked" = blocked ? "blocked" : result.quality.status;
 
   return {
     ...result,
+    redFlags: normalizedRedFlags,
+    missingInformation: normalizedMissingInformation,
+    conflicts: normalizedConflicts,
     verificationScore: clamp01(result.verificationScore),
     completenessScore: clamp01(result.completenessScore),
     warnings: normalizedWarnings,
@@ -277,6 +328,7 @@ export async function runAiAdjudication(input: AiAdjudicationInput): Promise<AiA
   const googleProvider = createGoogleGenerativeAI({ apiKey });
   const sourceContext = buildSourceContext(input.parsedDocument);
   const extractedSnapshot = buildExtractedSnapshot(input.extracted);
+  const deterministicHints = sanitizeDeterministicHints(input.deterministicHints);
 
   const result = await runWithGeminiFlashModel((model) =>
     generateText({
@@ -297,7 +349,7 @@ EXTRACTED_FIELDS_JSON:
 ${JSON.stringify(extractedSnapshot)}
 
 DETERMINISTIC_HINTS_JSON:
-${JSON.stringify(input.deterministicHints)}
+${JSON.stringify(deterministicHints)}
 `
     })
   );
