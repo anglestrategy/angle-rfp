@@ -409,6 +409,35 @@ describe("analyzeRfpInput", () => {
     expect(result.submissionRequirements.physicalAddress).toBeNull();
   });
 
+  test("extracts no-year timeline dates with stable month/day values", async () => {
+    const noYearDatesDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Expo 2030 Riyadh Company",
+        "Project Name: Brand Localization Strategy",
+        "Important Dates",
+        "20 Nov - RFP Issued",
+        "2 Dec - Deadline for questions from bidders",
+        "4 Dec - Responses to questions issued",
+        "7 Dec - Proposal Submission deadline",
+        "Submission Requirements",
+        "All proposal documents will be submitted electronically ONLY via email."
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: noYearDatesDoc.analysisId,
+      parsedDocument: noYearDatesDoc
+    });
+
+    const normalizedDates = result.importantDates.map((item) => item.date);
+    expect(normalizedDates.some((date) => date.endsWith("-11-20"))).toBe(true);
+    expect(normalizedDates.some((date) => date.endsWith("-12-02"))).toBe(true);
+    expect(normalizedDates.some((date) => date.endsWith("-12-04"))).toBe(true);
+    expect(normalizedDates.some((date) => date.endsWith("-12-07"))).toBe(true);
+    expect(new Set(normalizedDates).size).toBeGreaterThan(1);
+  });
+
   test("keeps proposal submission docs out of required project deliverables", async () => {
     const proposalDocsOnly = {
       ...baseDocument,

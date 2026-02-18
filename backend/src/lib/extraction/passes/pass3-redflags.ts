@@ -261,6 +261,39 @@ function parseRedFlagsFromModelText(raw: string): RedFlag[] {
   return [];
 }
 
+function buildRiskFocusedContext(rawText: string): string {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return rawText.slice(0, 14_000);
+  }
+
+  const riskPattern =
+    /(terms?|conditions?|liability|indemnif|termination|payment|invoice|penalt|damages?|exclusive|non-?compete|confidential|renewal|deadline|timeline|submission|clarification|question|response|evaluation|scope|deliverables?|ip\b|intellectual\s+property|governing\s+law|jurisdiction|warranty|breach|amendment|change request|commercial|technical)/i;
+
+  const picked = new Set<number>();
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!riskPattern.test(lines[i]!)) {
+      continue;
+    }
+    for (let j = Math.max(0, i - 1); j <= Math.min(lines.length - 1, i + 1); j += 1) {
+      picked.add(j);
+    }
+  }
+
+  const focused = Array.from(picked)
+    .sort((a, b) => a - b)
+    .map((index) => lines[index]!)
+    .join("\n");
+
+  const head = rawText.slice(0, 6_000);
+  const tail = rawText.length > 6_000 ? rawText.slice(Math.max(0, rawText.length - 3_000)) : "";
+  const merged = [head, focused, tail].filter((part) => part.trim().length > 0).join("\n\n");
+  return merged.slice(0, 22_000);
+}
+
 const deterministicRedFlagKeywords: Array<{
   type: "contractual" | "feasibility" | "process";
   severity: "HIGH" | "MEDIUM" | "LOW";
@@ -424,8 +457,7 @@ async function runAiRedFlagAnalysis(rawText: string, scopeOfWork: string): Promi
   }
 
   const googleProvider = createGoogleGenerativeAI({ apiKey });
-  const textHead = rawText.slice(0, 30_000);
-  const textTail = rawText.length > 30_000 ? rawText.slice(Math.max(0, rawText.length - 10_000)) : "";
+  const riskContext = buildRiskFocusedContext(rawText);
 
   const prompt = `You are a senior agency risk analyst reviewing an RFP (Request for Proposal) for a creative/marketing agency.
 
@@ -493,10 +525,8 @@ Return ONLY valid JSON matching this schema:
   ]
 }
 
-## RFP TEXT (beginning):
-${textHead}
-
-${textTail ? `## RFP TEXT (end section):\n${textTail}` : ""}
+## RFP TEXT (risk-focused context):
+${riskContext}
 
 ## EXTRACTED SCOPE OF WORK:
 ${scopeOfWork.slice(0, 4_000)}
@@ -570,6 +600,16 @@ function deduplicateRedFlags(flags: Array<{
   return result;
 }
 
+function downgradeSeverity(severity: "HIGH" | "MEDIUM" | "LOW"): "HIGH" | "MEDIUM" | "LOW" {
+  if (severity === "HIGH") {
+    return "MEDIUM";
+  }
+  if (severity === "MEDIUM") {
+    return "LOW";
+  }
+  return "LOW";
+}
+
 export async function runPass3RedFlags(input: AnalyzeRfpInput, extracted: { scopeOfWork: string }) {
   const text = `${input.parsedDocument.rawText}\n${extracted.scopeOfWork}`;
   const warnings: string[] = [];
@@ -577,15 +617,32 @@ export async function runPass3RedFlags(input: AnalyzeRfpInput, extracted: { scop
   const deterministicFlags = runDeterministicRedFlags(text);
 
   let aiFlags: typeof deterministicFlags = [];
+  let aiUnavailable = false;
   try {
     aiFlags = await runAiRedFlagAnalysis(input.parsedDocument.rawText, extracted.scopeOfWork);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error("[Pass3] AI red flag analysis failed, using deterministic fallback:", message);
     warnings.push("AI red flag analysis unavailable; using deterministic detection only.");
+    aiUnavailable = true;
   }
 
-  const allFlags = deduplicateRedFlags([...aiFlags, ...deterministicFlags]);
+  if (aiFlags.length === 0) {
+    aiUnavailable = true;
+  }
+
+  const deterministicAdjusted = aiUnavailable
+    ? deterministicFlags.map((flag) => ({
+      ...flag,
+      severity: downgradeSeverity(flag.severity)
+    }))
+    : deterministicFlags;
+
+  if (aiUnavailable && deterministicAdjusted.length > 0) {
+    warnings.push("Deterministic red flags were down-weighted because AI risk adjudication was unavailable.");
+  }
+
+  const allFlags = deduplicateRedFlags([...aiFlags, ...deterministicAdjusted]);
 
   const severityOrder = { HIGH: 0, MEDIUM: 1, LOW: 2 };
   allFlags.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);

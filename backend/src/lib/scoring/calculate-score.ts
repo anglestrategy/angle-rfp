@@ -13,6 +13,14 @@ interface ExtractedRfpLike {
   evidence?: Array<{ field?: string }>;
   requiredDeliverables?: Array<string | { item?: string }>;
   importantDates?: Array<{ date?: string }>;
+  scopeOfWork?: string;
+  evaluationCriteria?: string;
+  evaluationCriteriaStructured?: Array<{ title?: string; items?: string[] }>;
+  deliverableRequirements?: {
+    technical?: Array<{ title?: string; description?: string }>;
+    commercial?: Array<{ title?: string; description?: string }>;
+    strategicCreative?: Array<{ title?: string; description?: string }>;
+  };
 }
 
 interface ScopeAnalysisLike {

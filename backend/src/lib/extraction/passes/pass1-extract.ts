@@ -829,20 +829,27 @@ ${JSON.stringify(baselineSnapshot)}
       ? refinedDeliverableRequirements
       : baseline.deliverableRequirements;
 
+  const refinedDateYear = inferTimelineYearFromText(sourceContext.datesSection || rawText);
   const refinedImportantDates = dedupeImportantDates(
     refined.importantDates
       .map((item) => ({
         title: normalizeRequirementLine(item.title),
-        date: normalizeRequirementLine(item.date),
+        date:
+          normalizeDate(normalizeRequirementLine(item.date), refinedDateYear) ??
+          normalizeRequirementLine(item.date),
         type: item.type,
         isCritical: item.isCritical || item.type === "submission_deadline" || item.type === "presentation"
       }))
       .filter((item) => item.title.length >= 4 && item.date.length >= 4)
       .filter((item) => !looksPlaceholderText(item.title) && !looksPlaceholderText(item.date))
   );
-  const importantDates = refinedImportantDates.length > 0
-    ? refinedImportantDates
-    : baseline.importantDates;
+  const sourceImportantDates = extractDates(sourceContext.datesSection || rawText).filter(
+    (item) => item.date !== "2099-12-31" && item.title.length >= 6
+  );
+  const importantDates = selectImportantDates(
+    refinedImportantDates,
+    sourceImportantDates.length > 0 ? sourceImportantDates : baseline.importantDates
+  );
 
   const refinedSubmissionRequirements = normalizeSubmissionRequirementsOutput({
     method: normalizeRequirementLine(refined.submissionRequirements.method || baseline.submissionRequirements.method),
@@ -1122,7 +1129,56 @@ function collectHeadingWindowLines(
   return dedupeStrings(out);
 }
 
-function normalizeDate(raw: string): string | null {
+const MONTH_LOOKUP: Record<string, string> = {
+  jan: "01",
+  january: "01",
+  feb: "02",
+  february: "02",
+  mar: "03",
+  march: "03",
+  apr: "04",
+  april: "04",
+  may: "05",
+  jun: "06",
+  june: "06",
+  jul: "07",
+  july: "07",
+  aug: "08",
+  august: "08",
+  sep: "09",
+  sept: "09",
+  september: "09",
+  oct: "10",
+  october: "10",
+  nov: "11",
+  november: "11",
+  dec: "12",
+  december: "12"
+};
+
+function inferTimelineYearFromText(text: string): number {
+  const years = Array.from(text.matchAll(/\b(20\d{2})\b/g))
+    .map((match) => Number.parseInt(match[1]!, 10))
+    .filter((year) => Number.isFinite(year) && year >= 2000 && year <= 2099);
+
+  if (years.length === 0) {
+    return new Date().getUTCFullYear();
+  }
+
+  const counts = new Map<number, number>();
+  for (const year of years) {
+    counts.set(year, (counts.get(year) ?? 0) + 1);
+  }
+  const ranked = Array.from(counts.entries()).sort((a, b) => {
+    if (b[1] !== a[1]) {
+      return b[1] - a[1];
+    }
+    return b[0] - a[0];
+  });
+  return ranked[0]?.[0] ?? new Date().getUTCFullYear();
+}
+
+function normalizeDate(raw: string, inferredYear: number): string | null {
   const iso = raw.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   if (iso?.[1]) {
     return iso[1];
@@ -1136,39 +1192,25 @@ function normalizeDate(raw: string): string | null {
     return `${yyyy}-${mm}-${dd}`;
   }
 
-  const monthLookup: Record<string, string> = {
-    jan: "01",
-    january: "01",
-    feb: "02",
-    february: "02",
-    mar: "03",
-    march: "03",
-    apr: "04",
-    april: "04",
-    may: "05",
-    jun: "06",
-    june: "06",
-    jul: "07",
-    july: "07",
-    aug: "08",
-    august: "08",
-    sep: "09",
-    sept: "09",
-    september: "09",
-    oct: "10",
-    october: "10",
-    nov: "11",
-    november: "11",
-    dec: "12",
-    december: "12"
-  };
   const dayMonthYear = raw.match(
-    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s*,?\s*(\d{4}))\b/i
+    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s*,?\s*(\d{4}))?\b/i
   );
-  if (dayMonthYear?.[1] && dayMonthYear[2] && dayMonthYear[3]) {
+  if (dayMonthYear?.[1] && dayMonthYear[2]) {
     const dd = dayMonthYear[1].padStart(2, "0");
-    const mm = monthLookup[dayMonthYear[2].toLowerCase()];
-    const yyyy = dayMonthYear[3];
+    const mm = MONTH_LOOKUP[dayMonthYear[2].toLowerCase()];
+    const yyyy = dayMonthYear[3] ?? String(inferredYear);
+    if (mm) {
+      return `${yyyy}-${mm}-${dd}`;
+    }
+  }
+
+  const monthDayYear = raw.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/i
+  );
+  if (monthDayYear?.[1] && monthDayYear[2]) {
+    const mm = MONTH_LOOKUP[monthDayYear[1].toLowerCase()];
+    const dd = monthDayYear[2].padStart(2, "0");
+    const yyyy = monthDayYear[3] ?? String(inferredYear);
     if (mm) {
       return `${yyyy}-${mm}-${dd}`;
     }
@@ -1189,6 +1231,7 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
   const out: Array<{ title: string; date: string; type: string; isCritical: boolean }> = [];
   let inDateContext = false;
   let dateContextCountdown = 0;
+  const inferredYear = inferTimelineYearFromText(text);
 
   for (const line of lines) {
     const normalizedLine = line.replace(/\s+/g, " ").trim();
@@ -1210,7 +1253,7 @@ function extractDates(text: string): Array<{ title: string; date: string; type: 
       continue;
     }
 
-    const normalized = normalizeDate(normalizedLine);
+    const normalized = normalizeDate(normalizedLine, inferredYear);
     if (!normalized) {
       continue;
     }
@@ -3923,27 +3966,13 @@ function dedupeImportantDates(
 ): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
   const byKey = new Map<string, { title: string; date: string; type: string; isCritical: boolean }>();
 
-  const canonicalEventKey = (title: string, type: string): string => {
-    const normalized = normalizeDedupeKey(title);
-    if (type === "submission_deadline") return "submission_deadline";
-    if (type === "qa_deadline") return "qa_deadline";
-    if (type === "presentation") return "presentation";
-    if (/intent/.test(normalized)) return "intent_to_tender";
-    if (/issued|issue/.test(normalized)) return "rfp_issued";
-    if (/question/.test(normalized)) return "qa_deadline";
-    if (/response/.test(normalized)) return "qa_response";
-    if (/submission|proposal/.test(normalized)) return "submission_deadline";
-    if (/presentation/.test(normalized)) return "presentation";
-    return type || "other";
-  };
-
   for (const date of dates) {
     const cleanTitle = date.title.replace(/\s+/g, " ").trim();
     if (!cleanTitle) {
       continue;
     }
 
-    const key = `${date.date}|${canonicalEventKey(cleanTitle, date.type)}`;
+    const key = `${date.date}|${canonicalDateEventKey(cleanTitle, date.type)}`;
     const candidate = {
       ...date,
       title: cleanTitle
@@ -3966,6 +3995,92 @@ function dedupeImportantDates(
   }
 
   return Array.from(byKey.values());
+}
+
+function canonicalDateEventKey(title: string, type: string): string {
+  const normalized = normalizeDedupeKey(title);
+  if (type === "submission_deadline") return "submission_deadline";
+  if (type === "qa_deadline") return "qa_deadline";
+  if (type === "presentation") return "presentation";
+  if (/intent/.test(normalized)) return "intent_to_tender";
+  if (/issued|issue/.test(normalized)) return "rfp_issued";
+  if (/question/.test(normalized)) return "qa_deadline";
+  if (/response/.test(normalized)) return "qa_response";
+  if (/submission|proposal/.test(normalized)) return "submission_deadline";
+  if (/presentation/.test(normalized)) return "presentation";
+  return type || "other";
+}
+
+function hasFourDigitYear(value: string): boolean {
+  return /\b20\d{2}\b/.test(value);
+}
+
+function scoreImportantDateCandidate(
+  item: { title: string; date: string; type: string; isCritical: boolean },
+  source: "ai" | "fallback"
+): number {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  let score = 0;
+  if (item.date && item.date !== "2099-12-31") {
+    score += 2;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(item.date)) {
+    score += 2;
+  }
+  if (hasFourDigitYear(item.title)) {
+    score += 1;
+  }
+  if (item.type === "submission_deadline" || item.type === "qa_deadline" || item.type === "presentation") {
+    score += 1;
+  }
+  if (item.isCritical) {
+    score += 1;
+  }
+  score += Math.min(item.title.length / 80, 2);
+  if (source === "fallback") {
+    score += 2;
+  }
+  if (source === "ai" && item.date === todayIso && !/today|اليوم/i.test(item.title)) {
+    score -= 2;
+  }
+  return score;
+}
+
+function selectImportantDates(
+  mappedDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>,
+  fallbackDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
+): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
+  const candidatesByEvent = new Map<string, { item: { title: string; date: string; type: string; isCritical: boolean }; score: number }>();
+
+  const allCandidates: Array<{ item: { title: string; date: string; type: string; isCritical: boolean }; source: "ai" | "fallback" }> = [
+    ...fallbackDates.map((item) => ({ item, source: "fallback" as const })),
+    ...mappedDates.map((item) => ({ item, source: "ai" as const }))
+  ];
+
+  for (const candidate of allCandidates) {
+    const title = candidate.item.title.replace(/\s+/g, " ").trim();
+    const date = candidate.item.date.trim();
+    if (!title || !date || date === "2099-12-31") {
+      continue;
+    }
+    const normalizedItem = { ...candidate.item, title, date };
+    const key = canonicalDateEventKey(normalizedItem.title, normalizedItem.type);
+    const score = scoreImportantDateCandidate(normalizedItem, candidate.source);
+    const existing = candidatesByEvent.get(key);
+    if (!existing || score > existing.score) {
+      candidatesByEvent.set(key, { item: normalizedItem, score });
+    }
+  }
+
+  if (candidatesByEvent.size === 0) {
+    return dedupeImportantDates([...fallbackDates, ...mappedDates]);
+  }
+
+  const selected = Array.from(candidatesByEvent.values())
+    .sort((a, b) => b.score - a.score)
+    .map((entry) => entry.item);
+
+  return dedupeImportantDates(selected);
 }
 
 function scoreDeliverableCategoryQuality(
@@ -4181,22 +4296,25 @@ function mapClaudeToPass1OutputAiFirst(
     warnings.push("Required deliverables were reinforced from source-scoped sections.");
   }
 
+  const inferredDateYear = inferTimelineYearFromText(dateSourceText || text);
   const mappedDates = dedupeImportantDates(
     claude.importantDates
       .map((dateItem) => ({
         title: dateItem.title,
-        date: dateItem.date,
+        date: normalizeDate(dateItem.date, inferredDateYear) ?? dateItem.date,
         type: dateItem.type,
         isCritical: dateItem.type === "submission_deadline" || dateItem.type === "presentation"
       }))
-      .filter((item) => item.title.trim().length >= 6 && item.date.trim().length >= 4)
+      .filter((item) => item.title.trim().length >= 6 && item.date.trim().length >= 4 && !looksPlaceholderText(item.date))
   );
   const fallbackDates = extractDates(dateSourceText).filter(
     (item) => item.date !== "2099-12-31" && item.title.trim().length >= 6
   );
-  const importantDates = mappedDates.length > 0 ? mappedDates : dedupeImportantDates(fallbackDates);
+  const importantDates = selectImportantDates(mappedDates, fallbackDates);
   if (importantDates.length === 0) {
     warnings.push("[dates_low_confidence] Important dates were not confidently extracted.");
+  } else if (fallbackDates.length > 0 && mappedDates.length > 0) {
+    warnings.push("[dates_hybrid_selection] Important dates combined AI extraction with source-grounded timeline evidence.");
   }
 
   const submissionFallback = extractSubmission(text);
@@ -4429,18 +4547,19 @@ function mapClaudeToPass1Output(
   }
 
   // Map Claude date types to our format with isCritical flag
+  const inferredDateYear = inferTimelineYearFromText(dateSourceText || text);
   const mappedDates = claude.importantDates
     .map((d) => ({
     title: d.title,
-    date: d.date,
+    date: normalizeDate(d.date, inferredDateYear) ?? d.date,
     type: d.type,
     isCritical: d.type === "submission_deadline" || d.type === "presentation"
     }))
-    .filter((entry) => entry.title.trim().length >= 6 && entry.date.trim().length >= 4);
+    .filter((entry) => entry.title.trim().length >= 6 && entry.date.trim().length >= 4 && !looksPlaceholderText(entry.date));
   const deterministicDates = extractDates(dateSourceText).filter(
     (entry) => entry.date !== "2099-12-31" && entry.title.length >= 6
   );
-  const importantDates = dedupeImportantDates([...deterministicDates, ...mappedDates]);
+  const importantDates = selectImportantDates(mappedDates, deterministicDates);
   if (deterministicDates.length === 0) {
     warnings.push("[dates_low_confidence] Important dates were inferred without strong timeline-section support.");
   }

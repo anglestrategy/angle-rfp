@@ -41,6 +41,14 @@ interface ExtractedRfpLike {
   requiredDeliverables?: Array<string | { item?: string }>;
   importantDates?: Array<{ date?: string }>;
   redFlags?: Array<{ severity?: string }>;
+  scopeOfWork?: string;
+  evaluationCriteria?: string;
+  evaluationCriteriaStructured?: Array<{ title?: string; items?: string[] }>;
+  deliverableRequirements?: {
+    technical?: Array<{ title?: string; description?: string }>;
+    commercial?: Array<{ title?: string; description?: string }>;
+    strategicCreative?: Array<{ title?: string; description?: string }>;
+  };
 }
 
 interface ClientResearchLike {
@@ -101,7 +109,11 @@ function factorItem(
 }
 
 function parseDate(value: string): Date | null {
-  const parsed = new Date(value);
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return null;
+  }
+  const parsed = new Date(`${trimmed}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
@@ -147,6 +159,41 @@ function parseOutputTypes(outputTypes: string[] | undefined): Set<string> {
   return new Set((outputTypes ?? []).map((item) => item.trim().toLowerCase()));
 }
 
+function countScopeBullets(scope: string | undefined): number {
+  if (!scope) {
+    return 0;
+  }
+  return scope
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("• "))
+    .length;
+}
+
+function countEvaluationGroups(extracted: ExtractedRfpLike): number {
+  const structuredCount = extracted.evaluationCriteriaStructured?.length ?? 0;
+  if (structuredCount > 0) {
+    return structuredCount;
+  }
+  const text = extracted.evaluationCriteria ?? "";
+  if (!text.trim()) {
+    return 0;
+  }
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^\d+\.\s+/.test(line))
+    .length;
+}
+
+function countDeliverableRequirementItems(extracted: ExtractedRfpLike): number {
+  const groups = extracted.deliverableRequirements;
+  if (!groups) {
+    return 0;
+  }
+  return (groups.technical?.length ?? 0) + (groups.commercial?.length ?? 0) + (groups.strategicCreative?.length ?? 0);
+}
+
 function parseEmployeeCount(clientResearch: ClientResearchLike): number | null {
   const profile = clientResearch.companyProfile ?? {};
   const candidates = [
@@ -182,12 +229,29 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
 
   const deliverableCount = input.extractedRfp.requiredDeliverables?.length ?? 0;
   const timelineMonths = inferTimelineMonths(input.extractedRfp.importantDates);
-  let scopePoints = 2;
-  if (deliverableCount >= 20 || (timelineMonths ?? 0) >= 6) {
+  const scopeBullets = countScopeBullets(input.extractedRfp.scopeOfWork);
+  const evaluationGroupCount = countEvaluationGroups(input.extractedRfp);
+  const deliverableRequirementCount = countDeliverableRequirementItems(input.extractedRfp);
+  const strategySignal = /(strategy|strategic|branding|brand|campaign|locali[sz]ation|positioning|messaging|research|insights?)/i.test(
+    `${input.extractedRfp.scopeOfWork ?? ""}\n${input.extractedRfp.evaluationCriteria ?? ""}`
+  );
+
+  let complexitySignals = 0;
+  if (deliverableCount >= 4) complexitySignals += 1;
+  if (deliverableRequirementCount >= 6) complexitySignals += 1;
+  if (scopeBullets >= 5) complexitySignals += 1;
+  if (evaluationGroupCount >= 3) complexitySignals += 1;
+  if ((timelineMonths ?? 0) >= 2) complexitySignals += 1;
+  if (strategySignal) complexitySignals += 1;
+
+  let scopePoints = 3.5;
+  if (deliverableCount >= 20 || (timelineMonths ?? 0) >= 6 || complexitySignals >= 6) {
     scopePoints = 17;
-  } else if (deliverableCount >= 10 || (timelineMonths ?? 0) >= 3) {
-    scopePoints = 12;
-  } else if (deliverableCount >= 5 || (timelineMonths ?? 0) >= 1) {
+  } else if (deliverableCount >= 10 || (timelineMonths ?? 0) >= 3 || complexitySignals >= 4) {
+    scopePoints = 13;
+  } else if (deliverableCount >= 5 || (timelineMonths ?? 0) >= 1 || complexitySignals >= 2) {
+    scopePoints = 9.5;
+  } else if (strategySignal) {
     scopePoints = 7;
   }
   factors.push(
@@ -195,7 +259,8 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
       `Deliverables counted: ${deliverableCount}`,
       timelineMonths === null
         ? "Timeline duration unavailable; using deliverable volume."
-        : `Timeline estimate: ${roundToTwo(timelineMonths)} months`
+        : `Timeline estimate: ${roundToTwo(timelineMonths)} months`,
+      `Scope bullets: ${scopeBullets}, evaluation groups: ${evaluationGroupCount}, submission artifacts: ${deliverableRequirementCount}`
     ])
   );
 
@@ -233,7 +298,13 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
   );
 
   const outputTypes = parseOutputTypes(input.scopeAnalysis.outputTypes);
-  const outputTypesIdentified = outputTypes.size > 0;
+  const strategyOutputSignal = /(strategy|strategic|branding|brand|campaign|locali[sz]ation|positioning|messaging|research|insights?)/i.test(
+    `${input.extractedRfp.scopeOfWork ?? ""}\n${input.extractedRfp.evaluationCriteria ?? ""}\n${
+      (input.extractedRfp.requiredDeliverables ?? [])
+        .map((item) => (typeof item === "string" ? item : item?.item ?? ""))
+        .join("\n")
+    }`
+  );
   let outputTypePoints = 0;
   if (outputTypes.has("videoproduction")) {
     outputTypePoints += 4;
@@ -247,12 +318,19 @@ export function buildFactorBreakdown(input: BuildFactorsInput): BuildFactorsResu
   if (outputTypes.has("contentonly")) {
     outputTypePoints += 1;
   }
+  if (strategyOutputSignal) {
+    outputTypePoints = Math.max(outputTypePoints, outputTypes.size > 0 ? 4 : 5.5);
+  }
+  const outputTypesIdentified = outputTypes.size > 0 || strategyOutputSignal;
   factors.push(
     factorItem(
       "outputTypes",
       "Output Types",
       outputTypesIdentified ? Math.min(outputTypePoints, 10) : 0,
-      [outputTypesIdentified ? `Detected output types: ${Array.from(outputTypes).join(", ")}` : "Output types not identified in RFP"],
+      [
+        outputTypesIdentified ? `Detected output types: ${Array.from(outputTypes).join(", ")}` : "Output types not identified in RFP",
+        strategyOutputSignal ? "Strategy-led output profile detected from scope/deliverables." : "No strategy-led output profile detected."
+      ],
       outputTypesIdentified,
       outputTypesIdentified ? "scored" : "insufficient_evidence"
     )

@@ -13,9 +13,24 @@ interface ExtractedRfpLike {
   evidence?: Array<{ field?: string }>;
   requiredDeliverables?: Array<unknown>;
   deliverableRequirements?: {
-    technical?: Array<{ source?: string; evidenceRef?: string }>;
-    commercial?: Array<{ source?: string; evidenceRef?: string }>;
-    strategicCreative?: Array<{ source?: string; evidenceRef?: string }>;
+    technical?: Array<{
+      source?: string;
+      evidenceRef?: string;
+      title?: string;
+      description?: string;
+    }>;
+    commercial?: Array<{
+      source?: string;
+      evidenceRef?: string;
+      title?: string;
+      description?: string;
+    }>;
+    strategicCreative?: Array<{
+      source?: string;
+      evidenceRef?: string;
+      title?: string;
+      description?: string;
+    }>;
   };
   evaluationCriteria?: string;
   importantDates?: Array<{ date?: string }>;
@@ -98,7 +113,7 @@ function isOperationalCriticalMissingField(field: string): boolean {
 function hasReliableDates(extracted: ExtractedRfpLike): boolean {
   return (extracted.importantDates ?? []).some((item) => {
     const rawDate = (item.date ?? "").trim();
-    return rawDate.length >= 6 && rawDate !== "2099-12-31";
+    return /^\d{4}-\d{2}-\d{2}$/.test(rawDate) && rawDate !== "2099-12-31";
   });
 }
 

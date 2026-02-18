@@ -156,4 +156,64 @@ describe("calculateScoreInput", () => {
     expect(result.score.recommendationBand).toBe("LOW");
     expect(result.warnings.some((warning) => warning.startsWith("quality_gate_blocked:"))).toBe(true);
   });
+
+  test("does not under-score strategy-led scopes when production output types are sparse", async () => {
+    const result = await calculateScoreInput({
+      ...baseInput,
+      extractedRfp: {
+        ...baseInput.extractedRfp,
+        redFlags: [],
+        completenessScore: 0.9,
+        requiredDeliverables: [
+          "Local Brand Strategy",
+          "Launch Campaign Strategy",
+          "Research and Benchmark Insights",
+          "Local Design System"
+        ],
+        scopeOfWork: [
+          "• Develop local brand strategy and positioning framework",
+          "• Build launch campaign strategy and messaging architecture",
+          "• Conduct market research and benchmark analysis",
+          "• Define creative direction and visual guidelines",
+          "• Deliver strategic rollout plan and governance model"
+        ].join("\n"),
+        evaluationCriteria: [
+          "1. Agency Credentials",
+          "• Relevant KSA strategy and campaign experience",
+          "2. Strategic Planning & Creativity",
+          "• Ability to translate insights into localization strategy",
+          "3. Project Management & Deliverables",
+          "• On-time delivery against milestones"
+        ].join("\n"),
+        evaluationCriteriaStructured: [
+          { title: "Agency Credentials", items: ["Relevant KSA strategy experience"] },
+          { title: "Strategic Planning & Creativity", items: ["Localization strategy and campaign quality"] },
+          { title: "Project Management & Deliverables", items: ["On-time milestone delivery"] }
+        ],
+        deliverableRequirements: {
+          technical: [{ title: "Methodology", description: "Approach and governance model" }],
+          commercial: [{ title: "Pricing", description: "Commercial pricing breakdown" }],
+          strategicCreative: [{ title: "Strategic proposal", description: "Brand and campaign strategy proposal" }]
+        }
+      },
+      scopeAnalysis: {
+        ...baseInput.scopeAnalysis,
+        outputQuantities: {
+          videoProduction: null,
+          motionGraphics: null,
+          visualDesign: null,
+          contentOnly: null
+        },
+        outputTypes: []
+      }
+    });
+
+    const scopeFactor = result.score.factorBreakdown.find((factor) => factor.factor === "Project Scope Magnitude");
+    const outputTypeFactor = result.score.factorBreakdown.find((factor) => factor.factor === "Output Types");
+
+    expect(scopeFactor).toBeDefined();
+    expect(outputTypeFactor).toBeDefined();
+    expect(scopeFactor?.score ?? 0).toBeGreaterThanOrEqual(45);
+    expect(outputTypeFactor?.score ?? 0).toBeGreaterThanOrEqual(40);
+  });
 });
