@@ -240,8 +240,42 @@ function parseObjectFromModelText(raw: string): Record<string, unknown> | null {
   return null;
 }
 
+function computeWeightedScoreFromFactors(factors: FactorBreakdownItem[]): number {
+  const identified = factors.filter((factor) => factor.identified);
+  const weightTotal = identified.reduce((sum, factor) => sum + factor.weight, 0);
+  if (weightTotal <= 0) {
+    return 0;
+  }
+  const contributionTotal = identified.reduce((sum, factor) => sum + factor.contribution, 0);
+  return roundToTwo(contributionTotal / weightTotal);
+}
+
+function recommendationBandForScore(score: number): "EXCELLENT" | "GOOD" | "MODERATE" | "LOW" {
+  if (score >= 85) {
+    return "EXCELLENT";
+  }
+  if (score >= 70) {
+    return "GOOD";
+  }
+  if (score >= 50) {
+    return "MODERATE";
+  }
+  return "LOW";
+}
+
+function blendAiScoreWithBaseline(aiScore: number, baselineScore: number): number {
+  const blended = aiScore * 0.65 + baselineScore * 0.35;
+  const softMin = Math.max(0, baselineScore - 35);
+  const softMax = Math.min(100, baselineScore + 35);
+  return roundToTwo(clamp(blended, softMin, softMax));
+}
+
 function normalizeAiResult(raw: AiScoreRefinementResult, baselineFactors: FactorBreakdownItem[]): AiScoreRefinementOutput {
   const baselineByLabel = new Map(baselineFactors.map((factor) => [factor.factor, factor]));
+  const normalizedWarnings = (raw.warnings ?? [])
+    .map((warning) => clip(warning, 220))
+    .filter(Boolean)
+    .slice(0, 10);
 
   const resolvedFactors: FactorBreakdownItem[] = (Object.keys(FactorLabels) as ScoreFactorKey[]).map((key) => {
     const label = FactorLabels[key];
@@ -251,8 +285,19 @@ function normalizeAiResult(raw: AiScoreRefinementResult, baselineFactors: Factor
     }
 
     const aiFactor = raw.factors[key];
-    const score = clamp(aiFactor.score, 0, 100);
-    const identified = Boolean(aiFactor.identified);
+    const aiScore = clamp(aiFactor.score, 0, 100);
+    const baselineScore = clamp(baseline.score, 0, 100);
+    const baselineIdentified = Boolean(baseline.identified);
+    const aiIdentified = Boolean(aiFactor.identified);
+    const identified = baselineIdentified || aiIdentified;
+    const score =
+      !identified
+        ? 0
+        : baselineIdentified && aiIdentified
+          ? blendAiScoreWithBaseline(aiScore, baselineScore)
+          : baselineIdentified
+            ? baselineScore
+            : roundToTwo(aiScore);
     const evidence = (aiFactor.evidence ?? []).map((entry) => clip(entry, 220)).filter(Boolean).slice(0, 4);
 
     return {
@@ -266,11 +311,19 @@ function normalizeAiResult(raw: AiScoreRefinementResult, baselineFactors: Factor
     };
   });
 
+  const calibratedScore = computeWeightedScoreFromFactors(resolvedFactors);
+  const calibratedBand = recommendationBandForScore(calibratedScore);
+  if (calibratedBand !== raw.recommendationBand) {
+    normalizedWarnings.push(
+      `AI recommendation band was recalibrated from ${raw.recommendationBand} to ${calibratedBand} based on factor consistency.`
+    );
+  }
+
   return {
     factors: resolvedFactors,
-    recommendationBand: raw.recommendationBand,
+    recommendationBand: calibratedBand,
     rationale: clip(raw.rationale, 420),
-    warnings: (raw.warnings ?? []).map((warning) => clip(warning, 220)).filter(Boolean).slice(0, 10)
+    warnings: normalizedWarnings.slice(0, 10)
   };
 }
 

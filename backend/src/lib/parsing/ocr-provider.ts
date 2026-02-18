@@ -1,4 +1,5 @@
 import { ImageAnnotatorClient } from "@google-cloud/vision";
+import { existsSync } from "node:fs";
 
 export interface OcrResult {
   text: string;
@@ -64,8 +65,10 @@ function summarizeVisionApiError(status: number, details: string): string {
 }
 
 function hasGoogleVisionCredentials(): boolean {
+  const adcPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() || "";
+  const hasAdcCredentials = adcPath.length > 0 && existsSync(adcPath);
   return Boolean(
-    process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ||
+    hasAdcCredentials ||
       process.env.GOOGLE_VISION_API_KEY?.trim()
   );
 }
@@ -76,6 +79,23 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
     return fallback;
   }
   return Math.floor(parsed);
+}
+
+const GOOGLE_VISION_FAILFAST_MS = parsePositiveInt(
+  process.env.GOOGLE_VISION_FAILFAST_MS,
+  15 * 60 * 1000
+);
+let googleVisionFailFastUntilMs = 0;
+let googleVisionFailFastReason: string | null = null;
+
+function isPermanentVisionConfigError(message: string): boolean {
+  return (
+    /default credentials were not found|could not load the default credentials|google_application_credentials/i.test(
+      message
+    ) ||
+    /vision api is disabled|enable vision\.googleapis\.com|has not been used/i.test(message) ||
+    /api key is invalid|unauthorized/i.test(message)
+  );
 }
 
 function clipWarning(value: string, maxChars: number): string {
@@ -233,7 +253,8 @@ class GoogleVisionOcrProvider implements OcrProvider {
 
   constructor() {
     const apiKey = process.env.GOOGLE_VISION_API_KEY?.trim() || null;
-    const hasAdcCredentials = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+    const adcPath = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() || "";
+    const hasAdcCredentials = adcPath.length > 0 && existsSync(adcPath);
     const authMode = (process.env.GOOGLE_VISION_AUTH_MODE ?? "auto").trim().toLowerCase();
     let clientMode: "adc_client" | "api_key_rest";
     let fallbackMode: "adc_client" | "api_key_rest" | null = null;
@@ -263,11 +284,11 @@ class GoogleVisionOcrProvider implements OcrProvider {
       } else if (apiKey) {
         clientMode = "api_key_rest";
         modeWarning =
-          "GOOGLE_VISION_AUTH_MODE=adc is set but GOOGLE_APPLICATION_CREDENTIALS is missing; falling back to API key mode.";
+          "GOOGLE_VISION_AUTH_MODE=adc is set but GOOGLE_APPLICATION_CREDENTIALS is missing/invalid; falling back to API key mode.";
       } else {
         clientMode = "adc_client";
         modeWarning =
-          "GOOGLE_VISION_AUTH_MODE=adc is set but GOOGLE_APPLICATION_CREDENTIALS is missing.";
+          "GOOGLE_VISION_AUTH_MODE=adc is set but GOOGLE_APPLICATION_CREDENTIALS is missing/invalid.";
       }
     } else if (apiKey) {
       // Prefer API key mode in auto mode to avoid ADC metadata/default-credential churn.
@@ -510,6 +531,20 @@ class GoogleVisionOcrProvider implements OcrProvider {
     fileName: string;
     pagesHint: number;
   }): Promise<OcrResult> {
+    const now = Date.now();
+    if (GOOGLE_VISION_FAILFAST_MS > 0 && googleVisionFailFastUntilMs > now && googleVisionFailFastReason) {
+      return {
+        text: "",
+        pagesOcred: 0,
+        warnings: [
+          `Google Vision OCR temporarily bypassed for ${input.fileName}: ${clipWarning(
+            googleVisionFailFastReason,
+            220
+          )}`
+        ]
+      };
+    }
+
     const attemptedModes: Array<"adc_client" | "api_key_rest"> = [];
     const errors: string[] = [];
 
@@ -520,6 +555,12 @@ class GoogleVisionOcrProvider implements OcrProvider {
           return this.performPdfOcrWithApiKey(input);
         }
         return this.performImageOcrWithApiKey(input);
+      }
+
+      if (!this.hasAdcCredentials) {
+        throw new Error(
+          "Google Vision ADC credentials are unavailable. Set GOOGLE_APPLICATION_CREDENTIALS or use GOOGLE_VISION_API_KEY."
+        );
       }
 
       if (this.isPdfInput(input)) {
@@ -538,6 +579,8 @@ class GoogleVisionOcrProvider implements OcrProvider {
 
     try {
       const primary = await runMode(this.clientMode);
+      googleVisionFailFastUntilMs = 0;
+      googleVisionFailFastReason = null;
       if (this.modeWarning) {
         primary.warnings = [this.modeWarning, ...primary.warnings];
       }
@@ -549,6 +592,8 @@ class GoogleVisionOcrProvider implements OcrProvider {
     if (this.fallbackMode && !attemptedModes.includes(this.fallbackMode)) {
       try {
         const fallback = await runMode(this.fallbackMode);
+        googleVisionFailFastUntilMs = 0;
+        googleVisionFailFastReason = null;
         const fallbackLabel = this.fallbackMode === "api_key_rest" ? "API key mode" : "ADC mode";
         fallback.warnings = [
           ...(this.modeWarning ? [this.modeWarning] : []),
@@ -570,6 +615,12 @@ class GoogleVisionOcrProvider implements OcrProvider {
       }
       return "";
     })();
+
+    const permanentError = errors.find((message) => isPermanentVisionConfigError(message));
+    if (permanentError && GOOGLE_VISION_FAILFAST_MS > 0) {
+      googleVisionFailFastReason = permanentError;
+      googleVisionFailFastUntilMs = Date.now() + GOOGLE_VISION_FAILFAST_MS;
+    }
 
     return {
       text: "",

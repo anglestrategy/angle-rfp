@@ -6,6 +6,9 @@ import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
 const RED_FLAG_TIMEOUT_MS = 60_000;
+const RED_FLAG_CONTEXT_MAX_CHARS = 16_000;
+const RED_FLAG_FALLBACK_CONTEXT_MAX_CHARS = 9_000;
+const RED_FLAG_MAX_OUTPUT_TOKENS = 2_800;
 
 function isAiEndToEndModeEnabled(): boolean {
   if (process.env.RFP_AI_END_TO_END === "1") {
@@ -233,6 +236,12 @@ function parseRedFlagsFromModelText(raw: string): RedFlag[] {
   for (const attempt of attempts) {
     try {
       const parsed = JSON.parse(attempt);
+      if (Array.isArray(parsed)) {
+        const normalizedArray = normalizeRedFlagArray(parsed);
+        if (normalizedArray.length > 0) {
+          return normalizedArray;
+        }
+      }
       const validated = RedFlagsResponseSchema.safeParse(parsed);
       if (validated.success) {
         return validated.data.redFlags;
@@ -252,6 +261,12 @@ function parseRedFlagsFromModelText(raw: string): RedFlag[] {
   for (const attempt of attempts) {
     try {
       const parsed = parseYaml(attempt);
+      if (Array.isArray(parsed)) {
+        const normalizedArray = normalizeRedFlagArray(parsed);
+        if (normalizedArray.length > 0) {
+          return normalizedArray;
+        }
+      }
       const validated = RedFlagsResponseSchema.safeParse(parsed);
       if (validated.success) {
         return validated.data.redFlags;
@@ -271,13 +286,27 @@ function parseRedFlagsFromModelText(raw: string): RedFlag[] {
   return [];
 }
 
-function buildRiskFocusedContext(rawText: string): string {
+function dedupeLinesForPrompt(lines: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const line of lines) {
+    const normalized = line.replace(/\s+/g, " ").trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function buildRiskFocusedContext(rawText: string, maxChars = RED_FLAG_CONTEXT_MAX_CHARS): string {
   const lines = rawText
     .split(/\r?\n/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean);
   if (lines.length === 0) {
-    return rawText.slice(0, 14_000);
+    return rawText.slice(0, maxChars);
   }
 
   const riskPattern =
@@ -301,7 +330,24 @@ function buildRiskFocusedContext(rawText: string): string {
   const head = rawText.slice(0, 6_000);
   const tail = rawText.length > 6_000 ? rawText.slice(Math.max(0, rawText.length - 3_000)) : "";
   const merged = [head, focused, tail].filter((part) => part.trim().length > 0).join("\n\n");
-  return merged.slice(0, 22_000);
+  return merged.slice(0, maxChars);
+}
+
+function buildCompactFallbackRiskContext(rawText: string): string {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return rawText.slice(0, RED_FLAG_FALLBACK_CONTEXT_MAX_CHARS);
+  }
+
+  const highSignalPattern =
+    /(risk|penalt|indemnif|liability|termination|deadline|timeline|submission|deliverables?|evaluation|ip\b|intellectual property|payment|commercial|technical|clarification|question|response|scope|conflict|exclusive|confidential)/i;
+  const selected = lines.filter((line) => highSignalPattern.test(line)).slice(0, 240);
+  const head = lines.slice(0, 120);
+  const merged = dedupeLinesForPrompt([...head, ...selected]).join("\n");
+  return merged.slice(0, RED_FLAG_FALLBACK_CONTEXT_MAX_CHARS);
 }
 
 const deterministicRedFlagKeywords: Array<{
@@ -555,7 +601,7 @@ ${scopeOfWork.slice(0, 4_000)}
           schema: RedFlagsResponseSchema
         }),
         temperature: 0.1,
-        maxOutputTokens: 4000,
+        maxOutputTokens: RED_FLAG_MAX_OUTPUT_TOKENS,
         abortSignal: AbortSignal.timeout(RED_FLAG_TIMEOUT_MS),
         prompt
       })
@@ -576,22 +622,69 @@ ${scopeOfWork.slice(0, 4_000)}
     console.warn(`[Pass3] Structured red flag extraction failed; retrying text mode: ${clip(message, 180)}`);
   }
 
-  const textMode = await runWithGeminiFlashModel((model) =>
+  try {
+    const textMode = await runWithGeminiFlashModel((model) =>
+      generateText({
+        model: googleProvider(model),
+        temperature: 0.1,
+        maxOutputTokens: RED_FLAG_MAX_OUTPUT_TOKENS,
+        abortSignal: AbortSignal.timeout(RED_FLAG_TIMEOUT_MS),
+        prompt:
+          `${prompt}\n\n` +
+          "OUTPUT RULES:\n" +
+          "- Return ONLY raw JSON.\n" +
+          "- One top-level object with key redFlags.\n" +
+          "- No markdown.\n"
+      })
+    );
+    const parsed = parseRedFlagsFromModelText(textMode.text ?? "");
+    if (parsed.length > 0) {
+      console.log("[Pass3] AI red flag analysis recovered via text-mode repair parser.");
+      return parsed;
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Pass3] Text-mode red flag extraction failed; retrying compact fallback: ${clip(message, 180)}`);
+  }
+
+  const compactContext = buildCompactFallbackRiskContext(rawText);
+  const simplifiedPrompt = `Extract up to 8 serious red flags from the RFP.
+
+Return strict raw JSON:
+{"redFlags":[{"type":"contractual|feasibility|process","severity":"HIGH|MEDIUM|LOW","title":"...","description":"...","sourceText":"exact excerpt","recommendation":"..."}]}
+
+Rules:
+- Only include material risks.
+- sourceText must be copied from the document context.
+- If no material risks: {"redFlags":[]}
+
+RFP_CONTEXT:
+${compactContext}
+
+SCOPE_HINT:
+${scopeOfWork.slice(0, 1_600)}
+`;
+
+  const simplifiedMode = await runWithGeminiFlashModel((model) =>
     generateText({
       model: googleProvider(model),
-      temperature: 0.1,
-      maxOutputTokens: 4000,
+      temperature: 0.05,
+      maxOutputTokens: 2_000,
       abortSignal: AbortSignal.timeout(RED_FLAG_TIMEOUT_MS),
-      prompt: `${prompt}\n\nReturn only strict raw JSON with one top-level key: "redFlags".`
+      prompt: simplifiedPrompt
     })
   );
-  const parsed = parseRedFlagsFromModelText(textMode.text ?? "");
-  if (parsed.length > 0) {
-    console.log("[Pass3] AI red flag analysis recovered via text-mode repair parser.");
-  } else if (isAiEndToEndModeEnabled()) {
-    throw new Error("AI red flag analysis returned empty/unparseable content in end-to-end AI mode.");
+
+  const simplifiedParsed = parseRedFlagsFromModelText(simplifiedMode.text ?? "");
+  if (simplifiedParsed.length > 0) {
+    console.log("[Pass3] AI red flag analysis recovered via compact simplified fallback.");
+    return simplifiedParsed;
   }
-  return parsed;
+
+  if (isAiEndToEndModeEnabled()) {
+    throw new Error("AI red flag analysis returned empty/unparseable content across all fallback modes.");
+  }
+  return [];
 }
 
 function deduplicateRedFlags(flags: Array<{

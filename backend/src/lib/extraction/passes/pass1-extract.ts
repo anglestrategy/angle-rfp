@@ -843,12 +843,22 @@ ${JSON.stringify(baselineSnapshot)}
       .filter((item) => item.title.length >= 4 && item.date.length >= 4)
       .filter((item) => !looksPlaceholderText(item.title) && !looksPlaceholderText(item.date))
   );
-  const sourceImportantDates = extractDates(sourceContext.datesSection || rawText).filter(
-    (item) => item.date !== "2099-12-31" && item.title.length >= 6
+  const sourceImportantDates = dedupeImportantDates(
+    [
+      ...extractDates(sourceContext.datesSection || "").filter(
+        (item) => item.date !== "2099-12-31" && item.title.length >= 6
+      ),
+      ...extractDates(rawText).filter(
+        (item) => item.date !== "2099-12-31" && item.title.length >= 6
+      ),
+      ...(baseline.importantDates ?? []).filter(
+        (item) => item.date !== "2099-12-31" && item.title.length >= 6
+      )
+    ]
   );
   const importantDates = selectImportantDates(
     refinedImportantDates,
-    sourceImportantDates.length > 0 ? sourceImportantDates : baseline.importantDates
+    sourceImportantDates
   );
 
   const refinedSubmissionRequirements = normalizeSubmissionRequirementsOutput({
@@ -1193,11 +1203,11 @@ function normalizeDate(raw: string, inferredYear: number): string | null {
   }
 
   const dayMonthYear = raw.match(
-    /\b(\d{1,2})\s+(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?:\s*,?\s*(\d{4}))?\b/i
+    /\b(\d{1,2})\s+(jan(?:uary)?\.?|feb(?:ruary)?\.?|mar(?:ch)?\.?|apr(?:il)?\.?|may\.?|jun(?:e)?\.?|jul(?:y)?\.?|aug(?:ust)?\.?|sep(?:t|tember)?\.?|oct(?:ober)?\.?|nov(?:ember)?\.?|dec(?:ember)?\.?)(?:\s*,?\s*(\d{4}))?\b/i
   );
   if (dayMonthYear?.[1] && dayMonthYear[2]) {
     const dd = dayMonthYear[1].padStart(2, "0");
-    const mm = MONTH_LOOKUP[dayMonthYear[2].toLowerCase()];
+    const mm = MONTH_LOOKUP[dayMonthYear[2].toLowerCase().replace(/\./g, "")];
     const yyyy = dayMonthYear[3] ?? String(inferredYear);
     if (mm) {
       return `${yyyy}-${mm}-${dd}`;
@@ -1205,10 +1215,10 @@ function normalizeDate(raw: string, inferredYear: number): string | null {
   }
 
   const monthDayYear = raw.match(
-    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t|tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/i
+    /\b(jan(?:uary)?\.?|feb(?:ruary)?\.?|mar(?:ch)?\.?|apr(?:il)?\.?|may\.?|jun(?:e)?\.?|jul(?:y)?\.?|aug(?:ust)?\.?|sep(?:t|tember)?\.?|oct(?:ober)?\.?|nov(?:ember)?\.?|dec(?:ember)?\.?)\s+(\d{1,2})(?:\s*,?\s*(\d{4}))?\b/i
   );
   if (monthDayYear?.[1] && monthDayYear[2]) {
-    const mm = MONTH_LOOKUP[monthDayYear[1].toLowerCase()];
+    const mm = MONTH_LOOKUP[monthDayYear[1].toLowerCase().replace(/\./g, "")];
     const dd = monthDayYear[2].padStart(2, "0");
     const yyyy = monthDayYear[3] ?? String(inferredYear);
     if (mm) {
@@ -4015,6 +4025,55 @@ function hasFourDigitYear(value: string): boolean {
   return /\b20\d{2}\b/.test(value);
 }
 
+function hasExplicitTodaySignal(title: string): boolean {
+  return /today|tonight|immediately|اليوم|حالياً|فوراً|فورًا/i.test(title);
+}
+
+function sanitizeAiImportantDates(
+  mappedDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>,
+  fallbackDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
+): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
+  const valid = mappedDates
+    .map((item) => ({
+      ...item,
+      title: item.title.replace(/\s+/g, " ").trim(),
+      date: item.date.trim()
+    }))
+    .filter((item) => item.title.length > 0 && item.date.length > 0 && item.date !== "2099-12-31");
+  if (valid.length < 2) {
+    return mappedDates;
+  }
+
+  const counts = new Map<string, number>();
+  for (const item of valid) {
+    counts.set(item.date, (counts.get(item.date) ?? 0) + 1);
+  }
+  const ranked = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  const dominant = ranked[0];
+  if (!dominant) {
+    return mappedDates;
+  }
+
+  const [dominantDate, dominantCount] = dominant;
+  const dominanceRatio = dominantCount / valid.length;
+  const fallbackHasReliableDates = fallbackDates.some((item) => hasReliableDateSignal(item));
+  const looksSyntheticCluster =
+    dominanceRatio >= 0.75 &&
+    valid.filter((item) => hasExplicitTodaySignal(item.title)).length === 0;
+
+  if (!looksSyntheticCluster) {
+    return mappedDates;
+  }
+
+  const todayIso = new Date().toISOString().slice(0, 10);
+  if (!fallbackHasReliableDates && dominantDate !== todayIso) {
+    return mappedDates;
+  }
+
+  const pruned = mappedDates.filter((item) => item.date.trim() !== dominantDate);
+  return pruned.length > 0 ? pruned : [];
+}
+
 function scoreImportantDateCandidate(
   item: { title: string; date: string; type: string; isCritical: boolean },
   source: "ai" | "fallback"
@@ -4050,11 +4109,15 @@ function selectImportantDates(
   mappedDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>,
   fallbackDates: Array<{ title: string; date: string; type: string; isCritical: boolean }>
 ): Array<{ title: string; date: string; type: string; isCritical: boolean }> {
+  const normalizedFallbackDates = dedupeImportantDates(fallbackDates);
+  const normalizedMappedDates = dedupeImportantDates(
+    sanitizeAiImportantDates(mappedDates, normalizedFallbackDates)
+  );
   const candidatesByEvent = new Map<string, { item: { title: string; date: string; type: string; isCritical: boolean }; score: number }>();
 
   const allCandidates: Array<{ item: { title: string; date: string; type: string; isCritical: boolean }; source: "ai" | "fallback" }> = [
-    ...fallbackDates.map((item) => ({ item, source: "fallback" as const })),
-    ...mappedDates.map((item) => ({ item, source: "ai" as const }))
+    ...normalizedFallbackDates.map((item) => ({ item, source: "fallback" as const })),
+    ...normalizedMappedDates.map((item) => ({ item, source: "ai" as const }))
   ];
 
   for (const candidate of allCandidates) {
@@ -4073,7 +4136,7 @@ function selectImportantDates(
   }
 
   if (candidatesByEvent.size === 0) {
-    return dedupeImportantDates([...fallbackDates, ...mappedDates]);
+    return dedupeImportantDates([...normalizedFallbackDates, ...normalizedMappedDates]);
   }
 
   const selected = Array.from(candidatesByEvent.values())

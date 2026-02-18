@@ -434,6 +434,21 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
     needsOcr = true;
   }
 
+  if (
+    detectedFormat === "pdf" &&
+    needsOcr &&
+    localPdfTextIsUsable({
+      text: rawText,
+      pageCount,
+      warnings
+    })
+  ) {
+    needsOcr = false;
+    warnings.push(
+      "[parser_pdf_local_accepted] Local PDF text quality is sufficient; skipping OCR to reduce timeout risk."
+    );
+  }
+
   let ocrStats: { used: boolean; pagesOcred: number } | null = null;
   const unstructuredConfigured = Boolean(process.env.UNSTRUCTURED_API_KEY);
 
