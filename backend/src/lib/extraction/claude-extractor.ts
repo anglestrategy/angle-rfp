@@ -32,16 +32,54 @@ function parseCopyCount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function coerceTextField(value: unknown): string {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return coerceString(value, "");
+  }
+  if (Array.isArray(value)) {
+    const parts = value
+      .map((entry) => coerceTextField(entry))
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    return parts.join("\n");
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const preferredKeys = ["text", "value", "content", "description", "summary", "title", "scope", "criteria"];
+    for (const key of preferredKeys) {
+      const candidate = coerceTextField(record[key]);
+      if (candidate.trim().length > 0) {
+        return candidate;
+      }
+    }
+    return "";
+  }
+  return "";
+}
+
+const LooseTextValueSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.array(z.union([z.string(), z.number(), z.boolean()])),
+  z.object({}).passthrough()
+]);
+
 const LooseDeliverableSchema = z.object({
-  item: z.string().nullable().optional(),
+  item: LooseTextValueSchema.nullable().optional(),
+  title: LooseTextValueSchema.nullable().optional(),
+  description: LooseTextValueSchema.nullable().optional(),
   source: z.enum(["verbatim", "inferred"]).optional()
 });
 
 const LooseDeliverableValueSchema = z.union([z.string(), LooseDeliverableSchema]);
 
 const LooseDeliverableRequirementEntrySchema = z.object({
-  title: z.string().nullable().optional(),
-  description: z.string().nullable().optional(),
+  title: LooseTextValueSchema.nullable().optional(),
+  description: LooseTextValueSchema.nullable().optional(),
   source: z.enum(["verbatim", "inferred"]).optional()
 });
 
@@ -57,11 +95,11 @@ const LooseDeliverableRequirementGroupsSchema = z.object({
 });
 
 const ClaudeWindowFieldsSchema = z.object({
-  clientName: z.string().nullable().optional(),
-  projectName: z.string().nullable().optional(),
-  projectDescription: z.string().nullable().optional(),
-  scopeOfWork: z.string().nullable().optional(),
-  evaluationCriteria: z.string().nullable().optional(),
+  clientName: LooseTextValueSchema.nullable().optional(),
+  projectName: LooseTextValueSchema.nullable().optional(),
+  projectDescription: LooseTextValueSchema.nullable().optional(),
+  scopeOfWork: LooseTextValueSchema.nullable().optional(),
+  evaluationCriteria: LooseTextValueSchema.nullable().optional(),
   requiredDeliverables: z.array(LooseDeliverableValueSchema).default([]),
   deliverableRequirements: LooseDeliverableRequirementGroupsSchema.default({
     technical: [],
@@ -70,17 +108,17 @@ const ClaudeWindowFieldsSchema = z.object({
   }),
   importantDates: z.array(
     z.object({
-      title: z.string().nullable().optional(),
-      date: z.string().nullable().optional(),
+      title: LooseTextValueSchema.nullable().optional(),
+      date: LooseTextValueSchema.nullable().optional(),
       type: z.enum(["submission_deadline", "qa_deadline", "presentation", "other"]).optional()
     })
   ).default([]),
   submissionRequirements: z.object({
-    method: z.string().nullable().optional(),
-    email: z.string().nullable().optional(),
-    format: z.string().nullable().optional(),
-    physicalAddress: z.string().nullable().optional(),
-    copies: z.string().nullable().optional()
+    method: LooseTextValueSchema.nullable().optional(),
+    email: LooseTextValueSchema.nullable().optional(),
+    format: LooseTextValueSchema.nullable().optional(),
+    physicalAddress: LooseTextValueSchema.nullable().optional(),
+    copies: z.union([LooseTextValueSchema, z.number()]).nullable().optional()
   }).default({})
 });
 
@@ -114,10 +152,10 @@ export interface ClaudeExtractedFields {
 
 function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFields {
   const normalizeEntry = (
-    entry: string | { title?: string | null; description?: string | null; source?: "verbatim" | "inferred" }
+    entry: string | number | boolean | { title?: unknown; description?: unknown; source?: "verbatim" | "inferred" }
   ) => {
-    if (typeof entry === "string") {
-      const text = coerceString(entry, "");
+    if (typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean") {
+      const text = coerceTextField(entry);
       return {
         title: text,
         description: text,
@@ -125,38 +163,38 @@ function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFie
       };
     }
     return {
-      title: coerceString(entry.title, ""),
-      description: coerceString(entry.description, ""),
+      title: coerceTextField(entry.title),
+      description: coerceTextField(entry.description),
       source: entry.source === "inferred" ? "inferred" as const : "verbatim" as const
     };
   };
 
   const normalizeOptional = (value: unknown): string | null => {
-    const normalized = coerceString(value, "").trim();
+    const normalized = coerceTextField(value).trim();
     return normalized.length > 0 ? normalized : null;
   };
 
   const normalizeDeliverable = (
-    item: string | { item?: string | null; source?: "verbatim" | "inferred" }
+    item: string | number | boolean | { item?: unknown; title?: unknown; description?: unknown; source?: "verbatim" | "inferred" }
   ): { item: string; source: "verbatim" | "inferred" } => {
-    if (typeof item === "string") {
+    if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
       return {
-        item: coerceString(item, ""),
+        item: coerceTextField(item),
         source: "verbatim"
       };
     }
     return {
-      item: coerceString(item.item, ""),
+      item: coerceTextField(item.item ?? item.title ?? item.description),
       source: item.source === "inferred" ? "inferred" : "verbatim"
     };
   };
 
   return {
-    clientName: coerceString(input.clientName, ""),
-    projectName: coerceString(input.projectName, ""),
-    projectDescription: coerceString(input.projectDescription, ""),
-    scopeOfWork: coerceString(input.scopeOfWork, ""),
-    evaluationCriteria: coerceString(input.evaluationCriteria, ""),
+    clientName: coerceTextField(input.clientName),
+    projectName: coerceTextField(input.projectName),
+    projectDescription: coerceTextField(input.projectDescription),
+    scopeOfWork: coerceTextField(input.scopeOfWork),
+    evaluationCriteria: coerceTextField(input.evaluationCriteria),
     requiredDeliverables: (input.requiredDeliverables ?? [])
       .map((entry) => normalizeDeliverable(entry))
       .filter((entry) => entry.item.trim().length > 0),
@@ -172,14 +210,14 @@ function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFie
         .filter((entry) => entry.title.length > 0 || entry.description.length > 0)
     },
     importantDates: (input.importantDates ?? []).map((item) => ({
-      title: coerceString(item.title, ""),
-      date: coerceString(item.date, ""),
+      title: coerceTextField(item.title),
+      date: coerceTextField(item.date),
       type: item.type ?? "other"
     })),
     submissionRequirements: {
-      method: coerceString(input.submissionRequirements?.method, "Unknown"),
+      method: coerceTextField(input.submissionRequirements?.method) || "Unknown",
       email: normalizeOptional(input.submissionRequirements?.email),
-      format: coerceString(input.submissionRequirements?.format, "Unspecified"),
+      format: coerceTextField(input.submissionRequirements?.format) || "Unspecified",
       physicalAddress: normalizeOptional(input.submissionRequirements?.physicalAddress),
       copies: parseCopyCount(input.submissionRequirements?.copies ?? null)
     }
@@ -847,6 +885,7 @@ Exclude generic legal boilerplate and standard T&C.
 - Keep long text fields concise and executive-grade (target <= 1200 chars per field).
 - Reliability caps: requiredDeliverables <= 8, each deliverableRequirements category <= 8, importantDates <= 8.
 - Never include commentary or prose outside the single JSON object.
+- Avoid double quotes inside field values; use single quotes for quoted phrases to keep JSON valid.
 
 ## CRITICAL OUTPUT RULES
 - Return ONLY a raw JSON object. Do NOT wrap it in markdown code fences (\`\`\`json ... \`\`\`).
