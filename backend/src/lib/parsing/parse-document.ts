@@ -129,8 +129,10 @@ function shouldUseUnstructuredParser(params: {
     return params.needsOcr || warningSignal || lowTextDensity;
   }
 
-  // high_assurance: always attempt premium parser when available.
-  return true;
+  // high_assurance: prefer premium parser when there are quality-risk signals.
+  // Do not always call it when local extraction is already strong, otherwise requests
+  // incur avoidable timeout overhead.
+  return params.needsOcr || warningSignal || lowTextDensity || largePdf || structuredHint;
 }
 
 function maxUnstructuredBytes(): number {
