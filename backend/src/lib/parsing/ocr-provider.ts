@@ -78,6 +78,13 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function clipWarning(value: string, maxChars: number): string {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(1, maxChars - 1)).trim()}…`;
+}
+
 function withTimeoutSignal(timeoutMs: number): AbortSignal {
   if (typeof AbortSignal.timeout === "function") {
     return AbortSignal.timeout(timeoutMs);
@@ -216,25 +223,63 @@ class AzureDocumentIntelligenceOcrProvider implements OcrProvider {
 
 class GoogleVisionOcrProvider implements OcrProvider {
   private readonly clientMode: "adc_client" | "api_key_rest";
+  private readonly fallbackMode: "adc_client" | "api_key_rest" | null;
+  private readonly modeWarning: string | null;
   private client: ImageAnnotatorClient | null;
   private readonly apiKey: string | null;
+  private readonly hasAdcCredentials: boolean;
   private readonly requestTimeoutMs: number;
   private readonly pdfPageLimit: number;
 
   constructor() {
-    const apiKey = process.env.GOOGLE_VISION_API_KEY?.trim();
+    const apiKey = process.env.GOOGLE_VISION_API_KEY?.trim() || null;
     const hasAdcCredentials = Boolean(process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim());
+    const authMode = (process.env.GOOGLE_VISION_AUTH_MODE ?? "auto").trim().toLowerCase();
+    let clientMode: "adc_client" | "api_key_rest";
+    let fallbackMode: "adc_client" | "api_key_rest" | null = null;
+    let modeWarning: string | null = null;
 
-    if (apiKey && !hasAdcCredentials) {
-      this.clientMode = "api_key_rest";
-      this.apiKey = apiKey;
-      this.client = null;
+    this.apiKey = apiKey;
+    this.hasAdcCredentials = hasAdcCredentials;
+    this.client = null;
+
+    if (authMode === "api_key") {
+      if (apiKey) {
+        clientMode = "api_key_rest";
+        fallbackMode = hasAdcCredentials ? "adc_client" : null;
+      } else if (hasAdcCredentials) {
+        clientMode = "adc_client";
+        modeWarning =
+          "GOOGLE_VISION_AUTH_MODE=api_key is set but GOOGLE_VISION_API_KEY is missing; falling back to ADC.";
+      } else {
+        clientMode = "api_key_rest";
+        modeWarning =
+          "GOOGLE_VISION_AUTH_MODE=api_key is set but GOOGLE_VISION_API_KEY is missing.";
+      }
+    } else if (authMode === "adc") {
+      if (hasAdcCredentials) {
+        clientMode = "adc_client";
+        fallbackMode = apiKey ? "api_key_rest" : null;
+      } else if (apiKey) {
+        clientMode = "api_key_rest";
+        modeWarning =
+          "GOOGLE_VISION_AUTH_MODE=adc is set but GOOGLE_APPLICATION_CREDENTIALS is missing; falling back to API key mode.";
+      } else {
+        clientMode = "adc_client";
+        modeWarning =
+          "GOOGLE_VISION_AUTH_MODE=adc is set but GOOGLE_APPLICATION_CREDENTIALS is missing.";
+      }
+    } else if (apiKey) {
+      // Prefer API key mode in auto mode to avoid ADC metadata/default-credential churn.
+      clientMode = "api_key_rest";
+      fallbackMode = hasAdcCredentials ? "adc_client" : null;
     } else {
-      this.clientMode = "adc_client";
-      this.apiKey = null;
-      this.client = null;
+      clientMode = "adc_client";
     }
 
+    this.clientMode = clientMode;
+    this.fallbackMode = fallbackMode;
+    this.modeWarning = modeWarning;
     this.requestTimeoutMs = parsePositiveInt(process.env.GOOGLE_VISION_TIMEOUT_MS, 45_000);
     this.pdfPageLimit = Math.max(
       1,
@@ -465,30 +510,74 @@ class GoogleVisionOcrProvider implements OcrProvider {
     fileName: string;
     pagesHint: number;
   }): Promise<OcrResult> {
-    try {
-      if (this.clientMode === "api_key_rest") {
+    const attemptedModes: Array<"adc_client" | "api_key_rest"> = [];
+    const errors: string[] = [];
+
+    const runMode = async (mode: "adc_client" | "api_key_rest"): Promise<OcrResult> => {
+      attemptedModes.push(mode);
+      if (mode === "api_key_rest") {
         if (this.isPdfInput(input)) {
-          return await this.performPdfOcrWithApiKey(input);
+          return this.performPdfOcrWithApiKey(input);
         }
-        return await this.performImageOcrWithApiKey(input);
+        return this.performImageOcrWithApiKey(input);
       }
 
       if (this.isPdfInput(input)) {
-        return await this.performPdfOcrWithAdcClient(input);
+        return this.performPdfOcrWithAdcClient(input);
       }
+      return this.performImageOcrWithAdcClient(input);
+    };
 
-      return await this.performImageOcrWithAdcClient(input);
-    } catch (error: unknown) {
+    const normalizeVisionError = (error: unknown): string => {
       const message = errorMessage(error);
-      const normalizedMessage = /could not load the default credentials/i.test(message)
-        ? "Google Vision default credentials were not found. Set GOOGLE_APPLICATION_CREDENTIALS or use GOOGLE_VISION_API_KEY."
-        : message;
-      return {
-        text: "",
-        pagesOcred: 0,
-        warnings: [`Google Vision OCR failed for ${input.fileName}: ${normalizedMessage}`]
-      };
+      if (/could not load the default credentials/i.test(message)) {
+        return "Google Vision default credentials were not found. Set GOOGLE_APPLICATION_CREDENTIALS or use GOOGLE_VISION_API_KEY.";
+      }
+      return message;
+    };
+
+    try {
+      const primary = await runMode(this.clientMode);
+      if (this.modeWarning) {
+        primary.warnings = [this.modeWarning, ...primary.warnings];
+      }
+      return primary;
+    } catch (error: unknown) {
+      errors.push(normalizeVisionError(error));
     }
+
+    if (this.fallbackMode && !attemptedModes.includes(this.fallbackMode)) {
+      try {
+        const fallback = await runMode(this.fallbackMode);
+        const fallbackLabel = this.fallbackMode === "api_key_rest" ? "API key mode" : "ADC mode";
+        fallback.warnings = [
+          ...(this.modeWarning ? [this.modeWarning] : []),
+          `Google Vision OCR recovered via ${fallbackLabel} fallback.`,
+          ...fallback.warnings
+        ];
+        return fallback;
+      } catch (error: unknown) {
+        errors.push(normalizeVisionError(error));
+      }
+    }
+
+    const modeHint = (() => {
+      if (this.clientMode === "adc_client" && !this.hasAdcCredentials && this.apiKey) {
+        return " ADC credentials were unavailable; set GOOGLE_APPLICATION_CREDENTIALS or use GOOGLE_VISION_AUTH_MODE=api_key.";
+      }
+      if (this.clientMode === "api_key_rest" && !this.apiKey && this.hasAdcCredentials) {
+        return " API key was unavailable; set GOOGLE_VISION_API_KEY or use GOOGLE_VISION_AUTH_MODE=adc.";
+      }
+      return "";
+    })();
+
+    return {
+      text: "",
+      pagesOcred: 0,
+      warnings: [
+        `Google Vision OCR failed for ${input.fileName}: ${clipWarning(errors.join(" | ") || "Unknown OCR error.", 260)}${modeHint}`
+      ]
+    };
   }
 }
 

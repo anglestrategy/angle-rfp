@@ -1614,14 +1614,34 @@ function fallbackExecutiveSummarySeed(text: string): string {
     .filter((line) => !/^project\s*(name)?\s*[:：-]/i.test(line))
     .filter((line) => !/^scope of work$/i.test(line))
     .filter((line) => !/^evaluation criteria$/i.test(line))
+    .filter((line) => !/^(submission format|submission requirements?|important dates?|timeline)$/i.test(line))
     .filter((line) => !/^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(line))
-    .slice(0, 8);
+    .slice(0, 16);
 
   return lines.join(" ").replace(/\s+/g, " ").trim();
 }
 
+function extractNarrativeSummaryBlock(text: string): string {
+  const explicitSummaryBlock = extractExactBlock(
+    text,
+    /executive\s+summary|project\s+overview|project\s+description|introduction|background|ملخص\s+تنفيذي|نبذة|مقدمة|خلفية/i,
+    2800
+  );
+  if (explicitSummaryBlock && explicitSummaryBlock.trim().length > 80) {
+    return explicitSummaryBlock.trim();
+  }
+
+  const objectiveBlock = extractExactBlock(
+    text,
+    /key\s+objective|objectives?|brief|about\s+the\s+project|project\s+brief|أهداف(?:\s+المشروع)?/i,
+    2200
+  );
+  return objectiveBlock?.trim() ?? "";
+}
+
 function buildExecutiveSummaryFromSource(parsedDocument: AnalyzeRfpInput["parsedDocument"]): string {
   const text = parsedDocument.rawText;
+  const narrativeBlock = extractNarrativeSummaryBlock(text);
   const scopeSection = bySectionName(text, parsedDocument.sections, ["scope_of_work"]);
   const scopeHeadingBlock = extractExactBlock(
     text,
@@ -1629,24 +1649,45 @@ function buildExecutiveSummaryFromSource(parsedDocument: AnalyzeRfpInput["parsed
     2200
   );
 
-  const candidate = scopeSection || scopeHeadingBlock || fallbackExecutiveSummarySeed(text);
-  const lines = candidate
+  const summaryCandidate = narrativeBlock || fallbackExecutiveSummarySeed(text);
+  const summaryLines = summaryCandidate
     .split(/\r?\n|\\r\\n|\\n/)
     .map((line) => normalizeRequirementLine(stripSectionHeadingPrefix(line)))
     .filter(Boolean)
     .filter((line) => line.length >= 12)
     .filter((line) => !SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(line)))
-    .filter((line) => !/^(scope of work|overview|key objectives?|program phases?|phase\s+\d+)/i.test(line))
+    .filter((line) => !/^(scope of work|submission format|important dates?|evaluation criteria|program phases?|phase\s+\d+)/i.test(line))
     .slice(0, 7);
 
-  const keyLines = lines.filter((line) =>
+  const keySummaryLines = summaryLines.filter((line) =>
     /(seeks?|seeking|requires?|scope|deliver|develop|strategy|campaign|locali[sz]ation|brand|proposal|تطوير|استراتيجية|حملة|العلامة)/i.test(
       line
     )
   );
+  const summarySeed = (keySummaryLines.length > 0 ? keySummaryLines : summaryLines).join(" ");
+  const normalizedSummary = normalizeExecutiveSummary(summarySeed || fallbackExecutiveSummarySeed(text));
+  const summaryScore = executiveSummaryQualityScore(normalizedSummary);
 
-  const summarySeed = (keyLines.length > 0 ? keyLines : lines).join(" ");
-  return normalizeExecutiveSummary(summarySeed || fallbackExecutiveSummarySeed(text));
+  if (summaryScore >= 2 && normalizedSummary.length >= 80) {
+    return normalizedSummary;
+  }
+
+  const scopeCandidate = scopeSection || scopeHeadingBlock || "";
+  const scopeLines = scopeCandidate
+    .split(/\r?\n|\\r\\n|\\n/)
+    .map((line) => normalizeRequirementLine(stripSectionHeadingPrefix(line)))
+    .filter(Boolean)
+    .filter((line) => line.length >= 14)
+    .filter((line) => !SCOPE_NON_WORK_PATTERNS.some((pattern) => pattern.test(line)))
+    .slice(0, 6);
+  const scopeSeed = scopeLines.join(" ");
+  const normalizedScopeSummary = normalizeExecutiveSummary(scopeSeed);
+  const scopeScore = executiveSummaryQualityScore(normalizedScopeSummary);
+  if (scopeScore > summaryScore + 1 && normalizedScopeSummary.length >= 80) {
+    return normalizedScopeSummary;
+  }
+
+  return normalizedSummary || normalizedScopeSummary || normalizeExecutiveSummary(fallbackExecutiveSummarySeed(text));
 }
 
 function executiveSummaryQualityScore(summary: string): number {
@@ -1813,6 +1854,9 @@ function ensureRequiredDeliverables(
       if (!candidate) {
         continue;
       }
+      if (!isProjectWorkDeliverableLine(candidate)) {
+        continue;
+      }
       inferred.push({
         item: truncateAtWordBoundary(candidate, 140),
         source: item.source ?? "inferred"
@@ -1820,9 +1864,10 @@ function ensureRequiredDeliverables(
     }
   };
 
+  // Deliverable requirements are proposal-submission oriented; only infer project deliverables
+  // from clearly project-work lines and bias strategic content first.
   pushFromCategory(grouped.strategicCreative);
   pushFromCategory(grouped.technical);
-  pushFromCategory(grouped.commercial);
 
   const inferredDeduped = dedupeDeliverables(inferred);
   if (inferredDeduped.length > 0) {
@@ -3191,6 +3236,34 @@ function extractSubmission(text: string): Pass1Output["submissionRequirements"] 
   };
 }
 
+function normalizeSubmissionRequirementsOutput(
+  input: Pass1Output["submissionRequirements"]
+): Pass1Output["submissionRequirements"] {
+  const method = normalizeRequirementLine(input.method ?? "");
+  const email = normalizeRequirementLine(input.email ?? "");
+  const format = normalizeRequirementLine(input.format ?? "");
+  const physicalAddress = input.physicalAddress ? normalizeRequirementLine(input.physicalAddress) : null;
+  const combinedSignal = [method, email, format].filter(Boolean).join(" ");
+
+  const electronicSignal = /(electronic|email|portal|online|e-submission|digit(?:al)?|الكتروني|البريد|منصة|بوابة)/i.test(
+    combinedSignal
+  );
+  const physicalRequiredSignal = /(hard\s*copy|physical|in person|courier|sealed envelope|نسخة ورقية|تسليم يدوي|عنوان التسليم)/i.test(
+    combinedSignal
+  );
+  const placeholderPhysicalAddress =
+    physicalAddress &&
+    /(see rfp address section|not applicable|n\/a|unknown|unspecified|to be shared|refer to rfp)/i.test(physicalAddress);
+
+  return {
+    ...input,
+    physicalAddress:
+      electronicSignal && !physicalRequiredSignal && placeholderPhysicalAddress
+        ? null
+        : input.physicalAddress
+  };
+}
+
 function mapClaudeToPass1OutputAiFirst(
   extractionResult: ClaudeExtractionResult,
   parsedDocument: AnalyzeRfpInput["parsedDocument"]
@@ -3210,6 +3283,7 @@ function mapClaudeToPass1OutputAiFirst(
   const sourceEvaluation = buildEvaluationCriteriaFromSource(parsedDocument);
   const sourceScope = buildScopeFromSource(parsedDocument);
   const sourceExecutiveSummary = buildExecutiveSummaryFromSource(parsedDocument);
+  const deliverableSourceText = buildDeliverablesSourceText(parsedDocument) || text;
   const dateSourceText = buildImportantDatesSourceText(parsedDocument) || text;
 
   const selectedExecutiveSummary = chooseExecutiveSummary(
@@ -3253,6 +3327,10 @@ function mapClaudeToPass1OutputAiFirst(
       item: typeof deliverable === "string" ? deliverable : deliverable.item,
       source: (typeof deliverable === "string" ? "verbatim" : deliverable.source) as "verbatim" | "inferred"
     }))
+      .filter((item) => isProjectWorkDeliverableLine(item.item))
+  );
+  const sourceRequiredDeliverables = dedupeDeliverables(
+    extractDeliverables(deliverableSourceText).filter((item) => isProjectWorkDeliverableLine(item.item))
   );
   const deliverableRequirements = compactDeliverableRequirementsForOutput(
     dedupeDeliverableRequirementsGlobal(
@@ -3263,16 +3341,24 @@ function mapClaudeToPass1OutputAiFirst(
     ...deliverableRequirements.technical,
     ...deliverableRequirements.commercial,
     ...deliverableRequirements.strategicCreative
-  ].map((item) => ({
-    item: truncateAtWordBoundary((item.title || item.description || "").trim(), 140),
-    source: item.source ?? "inferred"
-  }));
-  const requiredDeliverables = rawRequiredDeliverables.length > 0
+  ]
+    .map((item) => ({
+      item: truncateAtWordBoundary((item.title || item.description || "").trim(), 140),
+      source: item.source ?? "inferred"
+    }))
+    .filter((item) => isProjectWorkDeliverableLine(item.item));
+
+  const requiredDeliverables =
+    rawRequiredDeliverables.length > 0
     ? rawRequiredDeliverables
+    : sourceRequiredDeliverables.length > 0
+      ? sourceRequiredDeliverables
     : dedupeDeliverables(inferredDeliverables).slice(0, MAX_REQUIRED_DELIVERABLES_OUTPUT);
   const compactRequiredDeliverables = capRequiredDeliverablesForOutput(requiredDeliverables);
   if (compactRequiredDeliverables.length === 0) {
     warnings.push("AI did not identify explicit deliverables.");
+  } else if (rawRequiredDeliverables.length === 0 && sourceRequiredDeliverables.length > 0) {
+    warnings.push("Required deliverables were reinforced from source-scoped sections.");
   }
 
   const mappedDates = dedupeImportantDates(
@@ -3302,6 +3388,7 @@ function mapClaudeToPass1OutputAiFirst(
     copies: claude.submissionRequirements?.copies ?? submissionFallback.copies,
     otherRequirements: [] as string[]
   };
+  const normalizedSubmissionRequirements = normalizeSubmissionRequirementsOutput(submissionRequirements);
 
   const coverageScore = Math.max(0.4, Math.min(1, coverage.coveragePercent));
   const scopeScore = Math.max(0.45, Math.min(0.95, scopeOfWork.length >= 60 ? 0.9 : 0.6));
@@ -3339,7 +3426,7 @@ function mapClaudeToPass1OutputAiFirst(
     requiredDeliverables: compactRequiredDeliverables,
     deliverableRequirements,
     importantDates,
-    submissionRequirements
+    submissionRequirements: normalizedSubmissionRequirements
   });
 
   return {
@@ -3354,7 +3441,7 @@ function mapClaudeToPass1OutputAiFirst(
     requiredDeliverables: compactRequiredDeliverables,
     deliverableRequirements,
     importantDates,
-    submissionRequirements,
+    submissionRequirements: normalizedSubmissionRequirements,
     warnings,
     evidence,
     confidenceScores
@@ -3421,6 +3508,7 @@ function mapClaudeToPass1Output(
       item: typeof d === "string" ? d : d.item,
       source: (typeof d === "string" ? "verbatim" : d.source) as "verbatim" | "inferred"
     }))
+      .filter((item) => isProjectWorkDeliverableLine(item.item))
   );
   const claudeDeliverableRequirements = buildDeliverableRequirementsFromClaude(claude);
   const allowHeuristicDeliverableFallback =
@@ -3573,6 +3661,7 @@ function mapClaudeToPass1Output(
     copies: claude.submissionRequirements?.copies ?? null,
     otherRequirements: [] as string[] // Don't put deliverables here - they belong in requiredDeliverables
   };
+  const normalizedSubmissionRequirements = normalizeSubmissionRequirementsOutput(submissionRequirements);
   const projectDescription = normalizeExecutiveSummary(selectedExecutiveSummary);
   const evidence = buildPass1Evidence({
     clientName,
@@ -3583,7 +3672,7 @@ function mapClaudeToPass1Output(
     requiredDeliverables: canonicalRequiredDeliverables,
     deliverableRequirements: mergedDeliverableRequirements,
     importantDates,
-    submissionRequirements
+    submissionRequirements: normalizedSubmissionRequirements
   });
 
   return {
@@ -3598,7 +3687,7 @@ function mapClaudeToPass1Output(
     requiredDeliverables: canonicalRequiredDeliverables,
     deliverableRequirements: mergedDeliverableRequirements,
     importantDates,
-    submissionRequirements,
+    submissionRequirements: normalizedSubmissionRequirements,
     warnings,
     evidence,
     confidenceScores
@@ -3645,7 +3734,7 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
 
   const requiredDeliverables = extractDeliverables(deliverableSourceText);
   const importantDates = extractDates(dateSourceText);
-  const submissionRequirements = extractSubmission(text);
+  const submissionRequirements = normalizeSubmissionRequirementsOutput(extractSubmission(text));
   const dedupedRequiredDeliverables = dedupeDeliverables(requiredDeliverables);
   const deliverableRequirements = compactDeliverableRequirementsForOutput(
     buildDeliverableRequirements(
@@ -3749,6 +3838,10 @@ function shouldUseAiWrapperMode(): boolean {
   }
   return true;
 }
+
+export const __pass1ExtractTestUtils = {
+  normalizeSubmissionRequirementsOutput
+};
 
 export async function runPass1Extraction(input: AnalyzeRfpInput): Promise<Pass1Output> {
   // Try AI extraction first

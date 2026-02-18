@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
+import { parse as parseYaml } from "yaml";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 import type { Pass1Output } from "@/lib/extraction/passes/pass1-extract";
 
@@ -394,6 +395,429 @@ function normalizeResult(result: AiAdjudicationResult): AiAdjudicationResult {
   };
 }
 
+function buildAdjudicationPrompt(payload: {
+  analysisId: string;
+  sourceContext: Record<string, unknown>;
+  extractedSnapshot: Record<string, unknown>;
+  deterministicHints: AiAdjudicationInput["deterministicHints"];
+}): string {
+  return `${AI_ADJUDICATION_PROMPT}
+
+analysisId: ${payload.analysisId}
+
+SOURCE_CONTEXT_JSON:
+${JSON.stringify(payload.sourceContext)}
+
+EXTRACTED_FIELDS_JSON:
+${JSON.stringify(payload.extractedSnapshot)}
+
+DETERMINISTIC_HINTS_JSON:
+${JSON.stringify(payload.deterministicHints)}
+`;
+}
+
+function parseNumber(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function toArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function toString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function stripMarkdownCodeFences(raw: string): string {
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json|JSON|jsonc|yaml|YAML)?\s*\n?/gm, "");
+  cleaned = cleaned.replace(/\n?\s*```\s*$/gm, "");
+  cleaned = cleaned.replace(/^[^{\[]*?(?=[{\[])/s, "");
+  const lastBrace = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
+  if (lastBrace >= 0 && lastBrace < cleaned.length - 1) {
+    cleaned = cleaned.slice(0, lastBrace + 1);
+  }
+  return cleaned.trim();
+}
+
+function extractFirstBalancedJsonObject(raw: string): string | null {
+  const sanitized = stripMarkdownCodeFences(raw);
+  const start = sanitized.indexOf("{");
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < sanitized.length; index += 1) {
+    const char = sanitized[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return sanitized.slice(start, index + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function appendMissingJsonClosers(input: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (const char of input) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      stack.push("}");
+      continue;
+    }
+    if (char === "[") {
+      stack.push("]");
+      continue;
+    }
+    if ((char === "}" || char === "]") && stack.length > 0 && stack[stack.length - 1] === char) {
+      stack.pop();
+    }
+  }
+
+  if (stack.length === 0) {
+    return input;
+  }
+  return `${input}${stack.reverse().join("")}`;
+}
+
+function normalizeJsonLikeAttempts(base: string): string[] {
+  const quoteUnquotedKeys = (input: string): string =>
+    input.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, "$1\"$2\"$3");
+
+  const singleToDoubleQuotedStrings = (input: string): string =>
+    input.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner: string) => `"${inner.replace(/"/g, "\\\"")}"`);
+
+  const escapeNewlinesInJsonStrings = (input: string): string => {
+    let output = "";
+    let inString = false;
+    let escaped = false;
+
+    for (const char of input) {
+      if (inString) {
+        if (escaped) {
+          output += char;
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          output += char;
+          escaped = true;
+          continue;
+        }
+        if (char === "\"") {
+          output += char;
+          inString = false;
+          continue;
+        }
+        if (char === "\n" || char === "\r") {
+          output += "\\n";
+          continue;
+        }
+        output += char;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = true;
+      }
+      output += char;
+    }
+
+    return output;
+  };
+
+  const cleaned = base.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'").replace(/,\s*([}\]])/g, "$1");
+  const attempts = [
+    base,
+    cleaned,
+    quoteUnquotedKeys(cleaned),
+    singleToDoubleQuotedStrings(cleaned),
+    appendMissingJsonClosers(cleaned),
+    escapeNewlinesInJsonStrings(cleaned),
+    escapeNewlinesInJsonStrings(appendMissingJsonClosers(cleaned))
+  ];
+
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const attempt of attempts) {
+    const normalized = attempt.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
+function parseObjectFromModelText(raw: string): Record<string, unknown> | null {
+  const balancedJson = extractFirstBalancedJsonObject(raw);
+  const sanitizedRaw = stripMarkdownCodeFences(raw);
+  const firstBraceIndex = sanitizedRaw.indexOf("{");
+  const jsonLike = balancedJson ?? (firstBraceIndex >= 0 ? sanitizedRaw.slice(firstBraceIndex).trim() : null);
+
+  if (!jsonLike) {
+    return null;
+  }
+
+  const attempts = normalizeJsonLikeAttempts(jsonLike);
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      const record = toRecord(parsed);
+      if (record) {
+        return record;
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = parseYaml(attempt);
+      const record = toRecord(parsed);
+      if (record) {
+        return record;
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
+}
+
+function normalizeAdjudicationFromLooseObject(
+  looseObject: Record<string, unknown>,
+  deterministicHints: AiAdjudicationInput["deterministicHints"]
+): AiAdjudicationResult | null {
+  const hints = sanitizeDeterministicHints(deterministicHints);
+  const looseQuality = toRecord(looseObject.quality) ?? {};
+  const looseSectionScores = toRecord(looseQuality.sectionScores) ?? {};
+
+  const normalizedWarnings = dedupeStrings([
+    ...toArray(looseObject.warnings).map((item) => clipText(compactWhitespace(toString(item)), 220)),
+    ...hints.warnings.map((warning) => clipText(compactWhitespace(warning), 220))
+  ]).slice(0, 20);
+
+  const normalizedFlags = dedupeStrings(
+    toArray(looseObject.qualityFlags)
+      .map((item) => normalizeFlag(toString(item)))
+      .filter(Boolean)
+  ).slice(0, 14);
+
+  const normalizedMissingInformation = toArray(looseObject.missingInformation)
+    .map((item) => {
+      const record = toRecord(item);
+      if (!record) {
+        return null;
+      }
+      const field = clipText(compactWhitespace(toString(record.field)), 120);
+      const suggestedQuestion = clipText(compactWhitespace(toString(record.suggestedQuestion)), 320);
+      if (!field || !suggestedQuestion) {
+        return null;
+      }
+      return { field, suggestedQuestion };
+    })
+    .filter((item): item is { field: string; suggestedQuestion: string } => Boolean(item))
+    .slice(0, 16);
+
+  const normalizedConflicts = toArray(looseObject.conflicts)
+    .map((item) => {
+      const record = toRecord(item);
+      if (!record) {
+        return null;
+      }
+      const field = clipText(compactWhitespace(toString(record.field)), 120);
+      const resolution = clipText(compactWhitespace(toString(record.resolution)), 500);
+      const candidates = dedupeStrings(
+        toArray(record.candidates)
+          .map((candidate) => clipText(compactWhitespace(toString(candidate)), 400))
+          .filter(Boolean)
+      )
+        .slice(0, 20);
+      const fallbackCandidate = field || resolution;
+      const normalizedCandidates = candidates.length > 0 ? candidates : fallbackCandidate ? [fallbackCandidate] : [];
+      if (!field || !resolution || normalizedCandidates.length === 0) {
+        return null;
+      }
+      return {
+        field,
+        candidates: normalizedCandidates,
+        resolution
+      };
+    })
+    .filter((item): item is { field: string; candidates: string[]; resolution: string } => Boolean(item))
+    .slice(0, 12);
+
+  const normalizedRedFlags = toArray(looseObject.redFlags)
+    .map((item) => {
+      const record = toRecord(item);
+      if (!record) {
+        return null;
+      }
+      const typeRaw = toString(record.type).toLowerCase();
+      const severityRaw = toString(record.severity).toUpperCase();
+      const type = typeRaw === "contractual" || typeRaw === "feasibility" || typeRaw === "process" ? typeRaw : null;
+      const severity = severityRaw === "HIGH" || severityRaw === "MEDIUM" || severityRaw === "LOW" ? severityRaw : null;
+      const title = clipText(compactWhitespace(toString(record.title)), 120);
+      const description = clipText(compactWhitespace(toString(record.description)), 320);
+      const sourceText = clipText(compactWhitespace(toString(record.sourceText)), 260);
+      const recommendation = clipText(compactWhitespace(toString(record.recommendation)), 260);
+      if (!type || !severity || !title || !description || !sourceText || !recommendation) {
+        return null;
+      }
+      return { type, severity, title, description, sourceText, recommendation };
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        type: "contractual" | "feasibility" | "process";
+        severity: "HIGH" | "MEDIUM" | "LOW";
+        title: string;
+        description: string;
+        sourceText: string;
+        recommendation: string;
+      } => Boolean(item)
+    )
+    .slice(0, 8);
+
+  const blockReasons = dedupeStrings(
+    toArray(looseQuality.blockReasons)
+      .map((item) => clipText(compactWhitespace(toString(item)), 500))
+      .filter(Boolean)
+  ).slice(0, 12);
+
+  const verificationScore = clamp01(parseNumber(looseObject.verificationScore, hints.verificationScore));
+  const completenessScore = clamp01(parseNumber(looseObject.completenessScore, hints.completenessScore));
+  const qualityStatusRaw = toString(looseQuality.status).toLowerCase();
+  const qualityStatus =
+    qualityStatusRaw === "pass" || qualityStatusRaw === "review_required" || qualityStatusRaw === "blocked"
+      ? qualityStatusRaw
+      : "review_required";
+
+  const qualityCandidate: AiAdjudicationResult = {
+    verificationScore,
+    completenessScore,
+    redFlags: normalizedRedFlags.length > 0 ? normalizedRedFlags : hints.redFlags,
+    missingInformation:
+      normalizedMissingInformation.length > 0 ? normalizedMissingInformation : hints.missingInformation,
+    conflicts: normalizedConflicts.length > 0 ? normalizedConflicts : hints.conflicts,
+    warnings: normalizedWarnings,
+    qualityFlags: normalizedFlags,
+    quality: {
+      status: qualityStatus,
+      blockReasons,
+      evidenceDensity: clamp01(parseNumber(looseQuality.evidenceDensity, verificationScore)),
+      sectionScores: {
+        extraction: clamp01(parseNumber(looseSectionScores.extraction, verificationScore)),
+        scope: clamp01(parseNumber(looseSectionScores.scope, completenessScore)),
+        evaluation: clamp01(parseNumber(looseSectionScores.evaluation, completenessScore))
+      }
+    }
+  };
+
+  const validated = AiAdjudicationSchema.safeParse(qualityCandidate);
+  if (!validated.success) {
+    return null;
+  }
+  return normalizeResult(validated.data);
+}
+
+function extractTextFromAiError(error: unknown): string | null {
+  if (!error || typeof error !== "object") {
+    return null;
+  }
+
+  const directText = (error as { text?: unknown }).text;
+  if (typeof directText === "string" && directText.trim().length > 0) {
+    return directText;
+  }
+
+  const responseText = (error as { response?: { text?: unknown } }).response?.text;
+  if (typeof responseText === "string" && responseText.trim().length > 0) {
+    return responseText;
+  }
+
+  const causeText = (error as { cause?: { text?: unknown } }).cause?.text;
+  if (typeof causeText === "string" && causeText.trim().length > 0) {
+    return causeText;
+  }
+
+  return null;
+}
+
+export const __aiAdjudicatorTestUtils = {
+  parseObjectFromModelText,
+  normalizeAdjudicationFromLooseObject,
+  extractTextFromAiError
+};
+
 export async function runAiAdjudication(input: AiAdjudicationInput): Promise<AiAdjudicationResult> {
   const apiKey = resolveGoogleApiKey();
   if (!apiKey) {
@@ -406,34 +830,74 @@ export async function runAiAdjudication(input: AiAdjudicationInput): Promise<AiA
   const sourceContext = buildSourceContext(input.parsedDocument);
   const extractedSnapshot = buildExtractedSnapshot(input.extracted);
   const deterministicHints = sanitizeDeterministicHints(input.deterministicHints);
+  const adjudicationPrompt = buildAdjudicationPrompt({
+    analysisId: input.analysisId,
+    sourceContext,
+    extractedSnapshot,
+    deterministicHints
+  });
 
-  const result = await runWithGeminiFlashModel((model) =>
+  try {
+    const result = await runWithGeminiFlashModel((model) =>
+      generateText({
+        model: googleProvider(model),
+        temperature: 0,
+        abortSignal: AbortSignal.timeout(AI_ADJUDICATION_TIMEOUT_MS),
+        experimental_output: Output.object({
+          schema: AiAdjudicationSchema
+        }),
+        prompt: adjudicationPrompt
+      })
+    );
+
+    if (!result.experimental_output) {
+      throw new Error("AI adjudication returned no structured output.");
+    }
+
+    return normalizeResult(result.experimental_output);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const errorText = extractTextFromAiError(error);
+    if (errorText) {
+      const parsedErrorObject = parseObjectFromModelText(errorText);
+      if (parsedErrorObject) {
+        const fromErrorText = normalizeAdjudicationFromLooseObject(parsedErrorObject, deterministicHints);
+        if (fromErrorText) {
+          console.warn("[Adjudication] Recovered from structured-output validation failure via error text.");
+          return fromErrorText;
+        }
+      }
+    }
+
+    console.warn(
+      `[Adjudication] Structured generation failed; retrying text-mode JSON fallback: ${clipText(message, 260)}`
+    );
+  }
+
+  const fallbackResponse = await runWithGeminiFlashModel((model) =>
     generateText({
       model: googleProvider(model),
       temperature: 0,
+      maxOutputTokens: 8_192,
       abortSignal: AbortSignal.timeout(AI_ADJUDICATION_TIMEOUT_MS),
-      experimental_output: Output.object({
-        schema: AiAdjudicationSchema
-      }),
-      prompt: `${AI_ADJUDICATION_PROMPT}
-
-analysisId: ${input.analysisId}
-
-SOURCE_CONTEXT_JSON:
-${JSON.stringify(sourceContext)}
-
-EXTRACTED_FIELDS_JSON:
-${JSON.stringify(extractedSnapshot)}
-
-DETERMINISTIC_HINTS_JSON:
-${JSON.stringify(deterministicHints)}
-`
+      prompt:
+        `${adjudicationPrompt}\n` +
+        "\nCRITICAL OUTPUT RULES:\n" +
+        "- Return ONLY one raw JSON object.\n" +
+        "- Do not use markdown code fences.\n" +
+        "- No prose, notes, or commentary outside JSON.\n" +
+        "- Keep strings concise (<= 320 chars unless source quote).\n"
     })
   );
 
-  if (!result.experimental_output) {
-    throw new Error("AI adjudication returned no structured output.");
+  const fallbackObject = parseObjectFromModelText(fallbackResponse.text ?? "");
+  if (!fallbackObject) {
+    throw new Error("AI adjudication text-mode fallback returned unparsable JSON.");
   }
 
-  return normalizeResult(result.experimental_output);
+  const normalizedFallback = normalizeAdjudicationFromLooseObject(fallbackObject, deterministicHints);
+  if (!normalizedFallback) {
+    throw new Error("AI adjudication text-mode fallback could not be normalized to schema.");
+  }
+  return normalizedFallback;
 }
