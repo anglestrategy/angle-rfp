@@ -5,7 +5,7 @@ This folder contains the Next.js backend for angle/RFP.
 ## Required environment variables
 
 - `BACKEND_APP_TOKENS`: comma-separated bearer tokens accepted by backend auth.
-- `ANTHROPIC_API_KEY`: Anthropic API key used for extraction/scope/research LLM calls.
+- One Gemini key: `GOOGLE_API_KEY` (preferred) or `GEMINI_API_KEY` or `GOOGLE_GENERATIVE_AI_API_KEY`.
 
 ## Optional environment variables
 
@@ -23,28 +23,29 @@ This folder contains the Next.js backend for angle/RFP.
 - `OCR_AZURE_MAX_POLL_ATTEMPTS`
 - `GOOGLE_VISION_API_KEY` (enables Google Vision OCR fallback when Azure OCR is not configured)
 - `GOOGLE_APPLICATION_CREDENTIALS` (service-account credentials for Google Vision OCR)
+- `GOOGLE_VISION_AUTH_MODE` (`auto` default, `api_key`, or `adc`)
 - `UNSTRUCTURED_API_KEY`
 - `UNSTRUCTURED_API_URL`
 - `AGENCY_SUPPORTS_MARKET_RESEARCH`
-- `ENABLE_CLAUDE_BEAUTIFY` (`0` recommended; `1` enables extra model beautification pass)
+- `ENABLE_MODEL_BEAUTIFY` (`0` recommended; `1` enables extra model beautification pass)
+- `RFP_ALLOW_REGEX_FALLBACK` (`0` recommended in production high-assurance mode)
 
 ### Optional model overrides
 
-- `CLAUDE_MODEL_SONNET`
-- `CLAUDE_MODEL_HAIKU`
-- Legacy `CLAUDE_MODEL` is supported only for sonnet paths.
+- `GEMINI_MODEL_FLASH` (recommended primary override)
+- Also recognized: `GOOGLE_MODEL_FLASH`, `GOOGLE_GENERATIVE_AI_MODEL`
+- Legacy aliases are still accepted for compatibility: `CLAUDE_MODEL_SONNET`, `CLAUDE_MODEL_HAIKU`, `CLAUDE_MODEL`
 
 Default runtime candidates are:
 
-- Sonnet path: `claude-sonnet-4-5-20250929` -> `claude-sonnet-4-5` -> fallback list
-- Haiku path: `claude-haiku-4-5-20251001` -> `claude-haiku-4-5` -> fallback list
+- `gemini-2.5-flash` -> `gemini-2.0-flash` -> `gemini-1.5-flash` -> `gemini-2.5-flash-lite` -> `gemini-2.5-pro`
 
-Do not use deprecated aliases:
+Do not use deprecated legacy aliases:
 
 - `claude-sonnet-4-5-latest`
 - `claude-haiku-4-5-latest`
 
-If one of those values is provided, the backend logs a warning and falls back to safe defaults.
+If one of those values is provided, the backend logs a warning and falls back to Gemini defaults.
 
 ### Provider routing behavior
 
@@ -58,12 +59,14 @@ If one of those values is provided, the backend logs a warning and falls back to
 - Local parser remains the fast path.
 - If `UNSTRUCTURED_API_KEY` is set, parser can automatically use Unstructured for low-text / complex layouts.
 - If `AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT` + `AZURE_DOCUMENT_INTELLIGENCE_KEY` are set, OCR fallback is executed through Azure Document Intelligence.
+- If Azure OCR is not configured, Google Vision OCR can run with `GOOGLE_VISION_API_KEY` or `GOOGLE_APPLICATION_CREDENTIALS`.
+- If both Google auth modes are present, default preference is API key mode (`GOOGLE_VISION_AUTH_MODE=auto`).
 - If Unstructured is unavailable, backend falls back to local parser and emits warnings.
 
 ### Beautification behavior
 
 - Default mode is deterministic formatting (stable and lower-latency).
-- Set `ENABLE_CLAUDE_BEAUTIFY=1` only if you want an additional model pass for stylistic formatting.
+- Set `ENABLE_MODEL_BEAUTIFY=1` only if you want an additional model pass for stylistic formatting.
 
 ## Render deployment
 

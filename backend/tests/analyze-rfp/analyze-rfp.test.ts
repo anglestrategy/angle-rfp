@@ -384,4 +384,52 @@ describe("analyzeRfpInput", () => {
       expect(lastToken.length).toBeGreaterThanOrEqual(2);
     }
   });
+
+  test("clears placeholder physical address when submission is electronic-only", async () => {
+    const electronicOnlyDoc = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Submission Requirements",
+        "All proposal documents will be submitted electronically ONLY via email.",
+        "Email: cotender@erc.sa",
+        "Address: See RFP address section",
+        "Important Dates",
+        "Proposal Submission deadline: 2026-12-07"
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: electronicOnlyDoc.analysisId,
+      parsedDocument: electronicOnlyDoc
+    });
+
+    expect(result.submissionRequirements.method.toLowerCase()).toMatch(/electronic|email/);
+    expect(result.submissionRequirements.physicalAddress).toBeNull();
+  });
+
+  test("keeps proposal submission docs out of required project deliverables", async () => {
+    const proposalDocsOnly = {
+      ...baseDocument,
+      rawText: [
+        "Client: Example Holdings",
+        "Project Name: KSA Launch Campaign",
+        "Submission Format",
+        "Technical proposal should include CVs, certificates, account team details, and vendor profile.",
+        "Commercial proposal should include pricing breakdown and payment terms.",
+        "Scope of Work",
+        "Develop brand localization strategy and campaign rollout plan."
+      ].join("\n")
+    };
+
+    const result = await analyzeRfpInput({
+      analysisId: proposalDocsOnly.analysisId,
+      parsedDocument: proposalDocsOnly
+    });
+
+    const required = (result.requiredDeliverables ?? []).map((item) => item.item.toLowerCase());
+    expect(required.some((line) => /certificate|\bcv\b|vendor profile|pricing/.test(line))).toBe(false);
+    expect(required.some((line) => /strategy|campaign|rollout|brand/.test(line))).toBe(true);
+  });
 });
