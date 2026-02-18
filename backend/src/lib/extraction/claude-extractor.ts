@@ -185,21 +185,21 @@ function positiveIntFromEnv(raw: string | undefined, fallback: number): number {
 const API_TIMEOUT_MS = positiveIntFromEnv(process.env.EXTRACTION_MODEL_TIMEOUT_MS, 180_000);
 const WINDOW_TIMEOUT_MS = positiveIntFromEnv(process.env.EXTRACTION_WINDOW_TIMEOUT_MS, 120_000);
 const EXTRACTION_TOTAL_TIMEOUT_MS = positiveIntFromEnv(process.env.EXTRACTION_TOTAL_TIMEOUT_MS, 9 * 60 * 1000);
-const WINDOW_CONTEXT_CHARS = positiveIntFromEnv(process.env.EXTRACTION_WINDOW_CONTEXT_CHARS, 180_000);
+const WINDOW_CONTEXT_CHARS = positiveIntFromEnv(process.env.EXTRACTION_WINDOW_CONTEXT_CHARS, 400_000);
 const WINDOW_CONCURRENCY = Math.max(
   1,
   Math.min(4, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_CONCURRENCY, 2))
 );
 const WINDOW_MAX_CHUNKS = Math.max(
   1,
-  Math.min(8, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_MAX_CHUNKS, 2))
+  Math.min(12, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_MAX_CHUNKS, 5))
 );
 const WINDOW_MAX_RETRIES = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_RETRIES, 1)));
 const WINDOW_MAX_SPLIT_DEPTH = Math.max(0, Math.min(3, positiveIntFromEnv(process.env.EXTRACTION_WINDOW_SPLIT_DEPTH, 1)));
-const CHUNK_SIZE_CHARS = positiveIntFromEnv(process.env.EXTRACTION_CHUNK_SIZE_CHARS, 12_000);
+const CHUNK_SIZE_CHARS = positiveIntFromEnv(process.env.EXTRACTION_CHUNK_SIZE_CHARS, 24_000);
 const CHUNK_OVERLAP_CHARS = Math.min(
   CHUNK_SIZE_CHARS - 1,
-  positiveIntFromEnv(process.env.EXTRACTION_CHUNK_OVERLAP_CHARS, 1_200)
+  positiveIntFromEnv(process.env.EXTRACTION_CHUNK_OVERLAP_CHARS, 2_400)
 );
 const PROJECT_DESCRIPTION_MERGE_MAX_CHARS = positiveIntFromEnv(
   process.env.EXTRACTION_PROJECT_DESCRIPTION_MAX_CHARS,
@@ -585,37 +585,94 @@ function mergeWindowResults(results: ClaudeExtractedFields[]): ClaudeExtractedFi
   };
 }
 
-const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative agency. Extract decision-useful structured data.
+const EXTRACTION_PROMPT = `You are a senior RFP analyst at a creative/marketing agency. Your task is to extract structured, decision-useful data from RFP documents that may be in English, Arabic, or both languages mixed together.
 
-You are given a coverage-annotated document context with chunk markers. Read ALL chunks, especially priority chunks.
-Return ONLY valid JSON matching the requested schema.
+Read ALL provided document chunks carefully and thoroughly. Extract information with precision — cite verbatim when possible.
 
-RULES:
-1. clientName must be the RFP issuer (not bidders/vendors).
-2. scopeOfWork must include only actual execution scope items, concise bullets.
-3. evaluationCriteria must be clean, grouped, no markdown artifacts.
-4. Return only strict JSON that matches schema exactly (no nulls for required strings).
-5. requiredDeliverables must contain PROJECT DELIVERABLES - what the agency will CREATE for the client:
-   - Strategic documents (brand strategy, positioning, messaging frameworks)
-   - Creative outputs (campaigns, concepts, key visuals, brand identity)
-   - Design assets (templates, guidelines, adaptations)
-   - Content/production (videos, photography, copy, content calendars)
+## OUTPUT FORMAT
+Return ONLY a single valid JSON object matching the schema below. No markdown fences, no commentary, no extra text.
 
-   DO NOT include PROPOSAL SUBMISSION requirements (CVs, certificates, technical proposals,
-   compliance docs, commercial proposals). These belong in deliverableRequirements.
+## FIELD-BY-FIELD EXTRACTION RULES
 
-   Focus on the Scope of Work section. List 5-8 MAJOR deliverables for executive scanning.
-   REQUIRED FORMAT for each item:
-   { "item": "deliverable text", "source": "verbatim" | "inferred" }
+### clientName (string, required)
+- The organization ISSUING the RFP (the buyer/client), NOT the bidder/vendor.
+- If the document says "issued by X" or "prepared by X's procurement department", X is the client.
+- For Arabic RFPs, look for الجهة المالكة or الجهة الطالبة.
+- If unclear, use the entity requesting proposals.
 
-6. deliverableRequirements categorizes what the PROPOSAL must include (for bid preparation):
-   - technical: methodology, team CVs, certifications, credentials
-   - commercial: pricing, payment terms, financial docs
-   - strategicCreative: sample work, case studies, creative approach
-   Exclude legal boilerplate and generic terms/conditions.
-7. importantDates should include critical deadlines in YYYY-MM-DD where possible.
-8. Keep text executive-grade, concise, and non-duplicative.
-9. submissionRequirements.copies must be a string (for example "2", "Two copies") or null.
+### projectName (string, required)
+- The official project or tender name/title.
+- Use the exact name from the cover page or header if available.
+- Include any reference numbers (e.g., "RFP-0203: Brand Localization Strategy").
+
+### projectDescription (string, required)
+- A comprehensive 3-5 sentence executive summary of what this RFP is about.
+- Cover: the client's objective, what they want to achieve, the overall context.
+- Write in clear, professional English even if the source is Arabic.
+- Do NOT just repeat the scope — explain the WHY and strategic context.
+
+### scopeOfWork (string, required)
+- Extract ALL distinct work items the winning agency must EXECUTE.
+- Format as bullet points starting with "• " (one per line).
+- Each bullet should be a specific, actionable work item (e.g., "• Develop comprehensive brand positioning strategy").
+- Include 8-20 scope items for thorough coverage.
+- Only include EXECUTION work (what the agency will DO), not submission requirements.
+- For bilingual docs, translate Arabic scope items to English but preserve key Arabic terms in parentheses.
+
+### evaluationCriteria (string, required)
+- Extract ALL evaluation/scoring criteria with their weights/percentages.
+- Format as structured text: "Category (Weight%): description"
+- If weights are in a table, extract them precisely.
+- Include sub-criteria when specified.
+- Example: "Technical Approach (40%): Methodology, innovation, understanding of requirements"
+- For Arabic criteria (معايير التقييم), translate and include original weight structure.
+
+### requiredDeliverables (array, required)
+These are PROJECT DELIVERABLES — tangible outputs the agency will CREATE for the client:
+- Strategic documents (brand strategy, positioning framework, messaging architecture)
+- Creative outputs (campaign concepts, key visuals, brand identity system)
+- Design assets (templates, guidelines, style guides, adaptations)
+- Content/production (videos, photography, copywriting, content calendars)
+- Research outputs (market analysis, competitive audit, consumer insights report)
+
+DO NOT include here:
+- Proposal submission documents (CVs, certificates, compliance documents)
+- Administrative requirements (these go in deliverableRequirements)
+
+List 5-10 MAJOR deliverables. Use "verbatim" if copied from the document, "inferred" if synthesized from context.
+Format: { "item": "Clear deliverable description", "source": "verbatim" | "inferred" }
+
+### deliverableRequirements (object, required)
+What the PROPOSAL must include for bid preparation. Three categories:
+- technical: methodology documents, team CVs/resumes, certifications, credentials, past project references, organizational charts, project management plans
+- commercial: pricing breakdown, fee schedules, payment terms, financial documents, cost proposals
+- strategicCreative: sample work, case studies, creative approach description, strategic thinking examples
+
+Each entry: { "title": "Short title", "description": "What is required", "source": "verbatim" | "inferred" }
+Exclude generic legal boilerplate and standard T&C.
+
+### importantDates (array, required)
+- Extract ALL deadlines, milestones, and key dates.
+- Use YYYY-MM-DD format for dates when possible.
+- Classify each date:
+  - "submission_deadline": final proposal due date
+  - "qa_deadline": questions/clarifications deadline
+  - "presentation": pitch/presentation date
+  - "other": any other milestone
+
+### submissionRequirements (object, required)
+- method: How to submit (email, portal, physical delivery, etc.)
+- email: submission email address if specified, null otherwise
+- format: Required format (PDF, hard copy, USB, etc.)
+- physicalAddress: delivery address if physical submission required, null otherwise
+- copies: Number of copies as a string (e.g., "3") or null
+
+## QUALITY STANDARDS
+- Be thorough: extract ALL relevant information, not just surface-level data.
+- Be precise: use exact figures, percentages, and dates from the document.
+- Be intelligent: understand context — distinguish between what the CLIENT wants done vs. what the VENDOR must submit.
+- Handle bilingual content: if Arabic and English versions exist, prefer the more detailed version but cross-reference both.
+- No hallucination: if information is genuinely not in the document, use empty strings for required fields.
 
 Context:
 `;
