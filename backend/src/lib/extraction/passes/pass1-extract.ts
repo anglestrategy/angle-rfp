@@ -107,33 +107,32 @@ const AI_WRAPPER_REFINEMENT_TAIL_CHARS = positiveIntFromEnv(
 const AI_WRAPPER_REFINEMENT_ENABLED_BY_DEFAULT = process.env.NODE_ENV !== "test";
 
 const WrapperDeliverableRequirementItemSchema = z.object({
-  title: z.string().max(180).optional().default(""),
-  description: z.string().max(320).optional().default(""),
+  title: z.string().optional().default(""),
+  description: z.string().optional().default(""),
   source: z.enum(["verbatim", "inferred"]).optional().default("inferred")
 });
 
 const WrapperRefinementSchema = z.object({
-  clientName: z.string().max(220).optional().default(""),
-  projectName: z.string().max(260).optional().default(""),
-  projectDescription: z.string().max(1500).optional().default(""),
-  scopeOfWork: z.array(z.string().max(240)).max(60).optional().default([]),
+  clientName: z.string().optional().default(""),
+  projectName: z.string().optional().default(""),
+  projectDescription: z.string().optional().default(""),
+  scopeOfWork: z.array(z.string()).optional().default([]),
   evaluationCriteria: z
     .array(
       z.object({
-        title: z.string().max(180).optional().default(""),
-        weight: z.string().max(60).nullable().optional().default(null),
-        items: z.array(z.string().max(220)).max(10).optional().default([])
+        title: z.string().optional().default(""),
+        weight: z.string().nullable().optional().default(null),
+        items: z.array(z.string()).optional().default([])
       })
     )
-    .max(20)
     .optional()
     .default([]),
-  requiredDeliverables: z.array(z.string().max(180)).max(20).optional().default([]),
+  requiredDeliverables: z.array(z.string()).optional().default([]),
   deliverableRequirements: z
     .object({
-      technical: z.array(WrapperDeliverableRequirementItemSchema).max(20).optional().default([]),
-      commercial: z.array(WrapperDeliverableRequirementItemSchema).max(20).optional().default([]),
-      strategicCreative: z.array(WrapperDeliverableRequirementItemSchema).max(20).optional().default([])
+      technical: z.array(WrapperDeliverableRequirementItemSchema).optional().default([]),
+      commercial: z.array(WrapperDeliverableRequirementItemSchema).optional().default([]),
+      strategicCreative: z.array(WrapperDeliverableRequirementItemSchema).optional().default([])
     })
     .optional()
     .default({
@@ -144,23 +143,22 @@ const WrapperRefinementSchema = z.object({
   importantDates: z
     .array(
       z.object({
-        title: z.string().max(220).optional().default(""),
-        date: z.string().max(32).optional().default(""),
+        title: z.string().optional().default(""),
+        date: z.string().optional().default(""),
         type: z.enum(["submission_deadline", "qa_deadline", "presentation", "other"]).optional().default("other"),
         isCritical: z.boolean().optional().default(false)
       })
     )
-    .max(20)
     .optional()
     .default([]),
   submissionRequirements: z
     .object({
-      method: z.string().max(220).optional().default(""),
-      email: z.string().max(220).nullable().optional().default(null),
-      physicalAddress: z.string().max(320).nullable().optional().default(null),
-      format: z.string().max(220).optional().default(""),
+      method: z.string().optional().default(""),
+      email: z.string().nullable().optional().default(null),
+      physicalAddress: z.string().nullable().optional().default(null),
+      format: z.string().optional().default(""),
       copies: z.union([z.number(), z.string(), z.null()]).optional().default(null),
-      otherRequirements: z.array(z.string().max(220)).max(20).optional().default([])
+      otherRequirements: z.array(z.string()).optional().default([])
     })
     .optional()
     .default({
@@ -422,6 +420,147 @@ function parseWrapperRefinementFromModelText(raw: string): WrapperRefinementResu
   return null;
 }
 
+const SUMMARY_OFF_TOPIC_PATTERNS = [
+  /disaster\s+recovery/i,
+  /backup\s+(?:plan|strategy|restore|restoration)/i,
+  /high[-\s]?availability/i,
+  /business\s+continuity/i,
+  /cybersecurity/i,
+  /network\s+(?:security|architecture|infrastructure)/i,
+  /data\s+center/i,
+  /public[-\s]?key\s+infrastructure/i,
+  /\bpki\b/i,
+  /\bsla\b/i
+];
+
+const SUMMARY_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "this",
+  "that",
+  "from",
+  "into",
+  "will",
+  "shall",
+  "must",
+  "is",
+  "are",
+  "of",
+  "to",
+  "in",
+  "on",
+  "by",
+  "a",
+  "an"
+]);
+
+function tokenizeForGrounding(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !SUMMARY_STOP_WORDS.has(token));
+}
+
+function lexicalOverlapRatio(candidate: string, source: string): number {
+  const candidateTokens = tokenizeForGrounding(candidate);
+  if (candidateTokens.length === 0) {
+    return 0;
+  }
+  const sourceTokens = new Set(tokenizeForGrounding(source));
+  if (sourceTokens.size === 0) {
+    return 0;
+  }
+
+  const overlap = candidateTokens.filter((token) => sourceTokens.has(token)).length;
+  return overlap / candidateTokens.length;
+}
+
+function looksPlaceholderText(value: string): boolean {
+  const normalized = normalizeRequirementLine(value).toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  if (
+    /not explicitly found|not found|unknown|unspecified|n\/a|none provided|information not available|tbd|to be confirmed/i.test(
+      normalized
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isLikelyOffTopicExecutiveSummary(
+  summary: string,
+  sourceAnchor: string,
+  projectName: string
+): boolean {
+  const normalizedSummary = normalizeExecutiveSummary(summary);
+  if (!normalizedSummary) {
+    return true;
+  }
+
+  const summaryHasInfraSignals = SUMMARY_OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(normalizedSummary));
+  const sourceHasInfraSignals = SUMMARY_OFF_TOPIC_PATTERNS.some((pattern) => pattern.test(sourceAnchor));
+  if (summaryHasInfraSignals && !sourceHasInfraSignals) {
+    return true;
+  }
+
+  const overlap = lexicalOverlapRatio(normalizedSummary, sourceAnchor);
+  const summaryTokenCount = tokenizeForGrounding(normalizedSummary).length;
+  if (summaryTokenCount >= 8 && overlap < 0.16) {
+    return true;
+  }
+
+  const projectLooksBrand =
+    /(expo|brand|campaign|locali[sz]ation|marcom|marketing|creative|strategy|riyadh|agency)/i.test(projectName);
+  const summaryLooksBrand =
+    /(expo|brand|campaign|locali[sz]ation|marcom|marketing|creative|strategy|riyadh|agency)/i.test(normalizedSummary);
+
+  if (projectLooksBrand && !summaryLooksBrand && overlap < 0.24) {
+    return true;
+  }
+
+  return false;
+}
+
+function selectGroundedExecutiveSummary(
+  preferredSummary: string,
+  sourceSummary: string,
+  fallbackSummary: string,
+  sourceAnchor: string,
+  projectName: string
+): string {
+  const chosen = chooseExecutiveSummary(preferredSummary, sourceSummary, fallbackSummary);
+  if (!isLikelyOffTopicExecutiveSummary(chosen, sourceAnchor, projectName)) {
+    return chosen;
+  }
+
+  const sourceFirst = chooseExecutiveSummary("", sourceSummary, fallbackSummary);
+  if (!isLikelyOffTopicExecutiveSummary(sourceFirst, sourceAnchor, projectName)) {
+    return sourceFirst;
+  }
+
+  return fallbackSummary || sourceSummary || chosen;
+}
+
+function scoreCriteriaCandidate(text: string, structured: EvaluationCriteriaGroup[]): number {
+  const normalized = sanitizeEvaluationCriteria(normalizeStructuredText(text));
+  if (!normalized || looksPlaceholderText(normalized)) {
+    return 0;
+  }
+  const structureScore = evaluationStructureScore(normalized);
+  const structuredGroups = structured.length;
+  const itemCount = structured.reduce((sum, group) => sum + group.items.length, 0);
+  const lengthScore = Math.min(normalized.length / 220, 10);
+  return structureScore + Math.min(structuredGroups, 8) * 2 + Math.min(itemCount, 20) + lengthScore;
+}
+
 function compactBaselineSnapshot(baseline: Pass1Output): Record<string, unknown> {
   return {
     clientName: baseline.clientName,
@@ -528,6 +667,8 @@ ${JSON.stringify(baselineSnapshot)}
       refined = parseWrapperRefinementFromModelText(textMode.text ?? "");
       if (refined) {
         console.log("[Pass1] AI wrapper refinement recovered via text-mode repair parser.");
+      } else {
+        console.warn("[Pass1] AI wrapper refinement text mode returned unparsable JSON payload.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -536,11 +677,51 @@ ${JSON.stringify(baselineSnapshot)}
   }
 
   if (!refined) {
+    try {
+      const simplifiedPrompt =
+        "Return only a compact JSON object with the same schema as BASELINE_EXTRACTION_JSON. " +
+        "Fix obvious misclassification only. Keep unknown fields empty. No markdown.";
+      const simplifiedMode = await runWithGeminiFlashModel((model) =>
+        generateText({
+          model: provider(model),
+          temperature: 0,
+          maxOutputTokens: 8_192,
+          abortSignal: AbortSignal.timeout(AI_WRAPPER_REFINEMENT_TIMEOUT_MS),
+          prompt: `${simplifiedPrompt}\n\nSOURCE_CONTEXT_JSON:\n${JSON.stringify(sourceContext)}\n\nBASELINE_EXTRACTION_JSON:\n${JSON.stringify(baselineSnapshot)}`
+        })
+      );
+      refined = parseWrapperRefinementFromModelText(simplifiedMode.text ?? "");
+      if (refined) {
+        console.log("[Pass1] AI wrapper refinement recovered via simplified JSON fallback.");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[Pass1] AI wrapper refinement simplified mode failed: ${limitText(message, 180)}`);
+    }
+  }
+
+  if (!refined) {
     return null;
   }
 
+  const sourceSummary = normalizeExecutiveSummary(sourceContext.summarySection || baseline.projectDescription);
+  const sourceAnchor = [
+    sourceContext.summarySection,
+    sourceContext.scopeSection,
+    sourceContext.evaluationSection,
+    sourceContext.deliverablesSection
+  ]
+    .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    .join("\n\n");
+
   const refinedProjectDescription = normalizeExecutiveSummary(
-    refined.projectDescription || baseline.projectDescription
+    selectGroundedExecutiveSummary(
+      refined.projectDescription || baseline.projectDescription,
+      sourceSummary,
+      baseline.projectDescription,
+      sourceAnchor || baseline.scopeOfWork,
+      baseline.projectName
+    )
   );
   const refinedScopeSeed = dedupeStrings(
     refined.scopeOfWork
@@ -555,7 +736,7 @@ ${JSON.stringify(baselineSnapshot)}
     ? sanitizeScopeForAnalysis(refinedScopeSeed)
     : baseline.scopeOfWork;
 
-  const refinedCriteriaStructured = postProcessEvaluationGroups(
+  const refinedCriteriaStructuredRaw = postProcessEvaluationGroups(
     refined.evaluationCriteria
       .map((group) => ({
         title: normalizeRequirementLine(group.title),
@@ -565,9 +746,34 @@ ${JSON.stringify(baselineSnapshot)}
       }))
       .filter((group) => group.title.length > 0 && group.items.length > 0)
   );
-  const refinedEvaluationCriteria = refinedCriteriaStructured.length > 0
-    ? formatEvaluationCriteriaStructured(refinedCriteriaStructured)
-    : baseline.evaluationCriteria;
+  const refinedCriteriaStructured = refinedCriteriaStructuredRaw.filter((group) => {
+    const normalizedTitle = normalizeRequirementLine(group.title);
+    if (!normalizedTitle || looksPlaceholderText(normalizedTitle)) {
+      return false;
+    }
+    const meaningfulItems = group.items.filter((item) => !looksPlaceholderText(item) && item.length >= 8);
+    return meaningfulItems.length > 0;
+  });
+  const refinedEvaluationCriteriaCandidate = refinedCriteriaStructured.length > 0
+    ? sanitizeEvaluationCriteria(formatEvaluationCriteriaStructured(refinedCriteriaStructured))
+    : "";
+  const baselineEvaluationStructured = postProcessEvaluationGroups(
+    baseline.evaluationCriteriaStructured?.length
+      ? baseline.evaluationCriteriaStructured
+      : buildEvaluationCriteriaStructuredFromText(baseline.evaluationCriteria)
+  );
+  const baselineEvaluationCandidate = sanitizeEvaluationCriteria(
+    baselineEvaluationStructured.length > 0
+      ? formatEvaluationCriteriaStructured(baselineEvaluationStructured)
+      : baseline.evaluationCriteria
+  );
+  const refinedCriteriaScore = scoreCriteriaCandidate(refinedEvaluationCriteriaCandidate, refinedCriteriaStructured);
+  const baselineCriteriaScore = scoreCriteriaCandidate(baselineEvaluationCandidate, baselineEvaluationStructured);
+  const refinedEvaluationCriteria =
+    refinedCriteriaScore > 0 &&
+    (baselineCriteriaScore === 0 || refinedCriteriaScore >= baselineCriteriaScore - 2)
+      ? refinedEvaluationCriteriaCandidate
+      : baseline.evaluationCriteria;
 
   const refinedRequiredDeliverables = capRequiredDeliverablesForOutput(
     dedupeDeliverables(
@@ -577,6 +783,7 @@ ${JSON.stringify(baselineSnapshot)}
           source: "inferred" as const
         }))
         .filter((item) => item.item.length > 0)
+        .filter((item) => !looksPlaceholderText(item.item))
         .filter((item) => isProjectWorkDeliverableLine(item.item))
     )
   );
@@ -593,7 +800,8 @@ ${JSON.stringify(baselineSnapshot)}
           source: item.source,
           evidenceRef: undefined
         }))
-        .filter((item) => item.title || item.description),
+        .filter((item) => item.title || item.description)
+        .filter((item) => !looksPlaceholderText(item.title || item.description)),
       commercial: refined.deliverableRequirements.commercial
         .map((item) => ({
           title: normalizeRequirementLine(item.title),
@@ -601,7 +809,8 @@ ${JSON.stringify(baselineSnapshot)}
           source: item.source,
           evidenceRef: undefined
         }))
-        .filter((item) => item.title || item.description),
+        .filter((item) => item.title || item.description)
+        .filter((item) => !looksPlaceholderText(item.title || item.description)),
       strategicCreative: refined.deliverableRequirements.strategicCreative
         .map((item) => ({
           title: normalizeRequirementLine(item.title),
@@ -610,6 +819,7 @@ ${JSON.stringify(baselineSnapshot)}
           evidenceRef: undefined
         }))
         .filter((item) => item.title || item.description)
+        .filter((item) => !looksPlaceholderText(item.title || item.description))
     })
   );
   const deliverableRequirements =
@@ -628,6 +838,7 @@ ${JSON.stringify(baselineSnapshot)}
         isCritical: item.isCritical || item.type === "submission_deadline" || item.type === "presentation"
       }))
       .filter((item) => item.title.length >= 4 && item.date.length >= 4)
+      .filter((item) => !looksPlaceholderText(item.title) && !looksPlaceholderText(item.date))
   );
   const importantDates = refinedImportantDates.length > 0
     ? refinedImportantDates
@@ -3889,10 +4100,16 @@ function mapClaudeToPass1OutputAiFirst(
   const deliverableSourceText = buildDeliverablesSourceText(parsedDocument) || text;
   const dateSourceText = buildImportantDatesSourceText(parsedDocument) || text;
 
-  const selectedExecutiveSummary = chooseExecutiveSummary(
+  const fallbackSummary = fallbackExecutiveSummarySeed(text);
+  const sourceAnchor = [sourceExecutiveSummary, sourceScope, sourceEvaluation.formatted, deliverableSourceText]
+    .filter((value) => value.trim().length > 0)
+    .join("\n\n");
+  const selectedExecutiveSummary = selectGroundedExecutiveSummary(
     claude.projectDescription || "",
     sourceExecutiveSummary,
-    fallbackExecutiveSummarySeed(text)
+    fallbackSummary,
+    sourceAnchor || text.slice(0, 6_000),
+    claude.projectName || sourceExecutiveSummary
   );
 
   let scopeOfWork = sanitizeScopeForAnalysis(normalizeStructuredText(claude.scopeOfWork || ""));
@@ -4249,10 +4466,15 @@ function mapClaudeToPass1Output(
   };
   const sourceExecutiveSummary = buildExecutiveSummaryFromSource(parsedDocument);
   const fallbackExecutiveSummary = fallbackExecutiveSummarySeed(text);
-  const selectedExecutiveSummary = chooseExecutiveSummary(
+  const summaryAnchor = [sourceExecutiveSummary, scopeSourceText, sourceEvaluation.formatted, deliverableSourceText]
+    .filter((value) => value.trim().length > 0)
+    .join("\n\n");
+  const selectedExecutiveSummary = selectGroundedExecutiveSummary(
     claude.projectDescription || "",
     sourceExecutiveSummary,
-    fallbackExecutiveSummary
+    fallbackExecutiveSummary,
+    summaryAnchor || text.slice(0, 6_000),
+    claude.projectName || sourceExecutiveSummary
   );
   const clientName = claude.clientName || "Unknown Client";
   const projectName = claude.projectName || "Untitled Project";
@@ -4375,10 +4597,17 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
     }
   }
 
-  const projectDescription = chooseExecutiveSummary(
+  const sourceExecutiveSummary = buildExecutiveSummaryFromSource(input.parsedDocument);
+  const fallbackExecutiveSummary = fallbackExecutiveSummarySeed(text);
+  const summaryAnchor = [sourceExecutiveSummary, scopeOfWork, evaluationCriteria, deliverableSourceText]
+    .filter((value) => value.trim().length > 0)
+    .join("\n\n");
+  const projectDescription = selectGroundedExecutiveSummary(
     "",
-    buildExecutiveSummaryFromSource(input.parsedDocument),
-    fallbackExecutiveSummarySeed(text)
+    sourceExecutiveSummary,
+    fallbackExecutiveSummary,
+    summaryAnchor || text.slice(0, 6_000),
+    projectName
   );
   const normalizedProjectDescription = normalizeExecutiveSummary(projectDescription);
   const evidence = buildPass1Evidence({

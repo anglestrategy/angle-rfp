@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
+import { parse as parseYaml } from "yaml";
 import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
@@ -18,6 +19,247 @@ const RedFlagSchema = z.object({
 const RedFlagsResponseSchema = z.object({
   redFlags: z.array(RedFlagSchema).max(12).default([])
 });
+
+type RedFlag = z.infer<typeof RedFlagSchema>;
+
+function clip(value: string, max: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= max) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(1, max - 1)).trim()}…`;
+}
+
+function stripMarkdownCodeFences(raw: string): string {
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json|JSON|yaml|YAML)?\s*\n?/gm, "");
+  cleaned = cleaned.replace(/\n?\s*```\s*$/gm, "");
+  return cleaned.trim();
+}
+
+function extractFirstBalancedObject(raw: string): string | null {
+  const cleaned = stripMarkdownCodeFences(raw);
+  const start = cleaned.indexOf("{");
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < cleaned.length; i += 1) {
+    const char = cleaned[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return cleaned.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function appendMissingClosers(raw: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const char of raw) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      stack.push("}");
+      continue;
+    }
+    if (char === "[") {
+      stack.push("]");
+      continue;
+    }
+    if ((char === "}" || char === "]") && stack.length > 0 && stack[stack.length - 1] === char) {
+      stack.pop();
+    }
+  }
+
+  return stack.length > 0 ? `${raw}${stack.reverse().join("")}` : raw;
+}
+
+function normalizeRepairAttempts(raw: string): string[] {
+  const base = stripMarkdownCodeFences(raw);
+  const firstBrace = base.indexOf("{");
+  const candidate = extractFirstBalancedObject(base) ?? (firstBrace >= 0 ? base.slice(firstBrace).trim() : "");
+  if (!candidate) {
+    return [];
+  }
+
+  const cleaned = candidate
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1");
+  const quoteKeys = (value: string) => value.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, "$1\"$2\"$3");
+  const singleToDouble = (value: string) =>
+    value.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner: string) => `"${inner.replace(/"/g, "\\\"")}"`);
+
+  const attempts = [
+    candidate,
+    cleaned,
+    quoteKeys(cleaned),
+    singleToDouble(cleaned),
+    appendMissingClosers(cleaned),
+    appendMissingClosers(singleToDouble(quoteKeys(cleaned)))
+  ];
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const attempt of attempts) {
+    const normalized = attempt.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function toRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function toStringValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  return "";
+}
+
+function normalizeSeverity(value: unknown): "HIGH" | "MEDIUM" | "LOW" {
+  const normalized = toStringValue(value).toUpperCase();
+  if (normalized === "HIGH" || normalized === "MEDIUM" || normalized === "LOW") {
+    return normalized;
+  }
+  return "MEDIUM";
+}
+
+function normalizeType(value: unknown): "contractual" | "feasibility" | "process" {
+  const normalized = toStringValue(value).toLowerCase();
+  if (normalized === "contractual" || normalized === "feasibility" || normalized === "process") {
+    return normalized;
+  }
+  return "process";
+}
+
+function normalizeRedFlagArray(rawFlags: unknown): RedFlag[] {
+  if (!Array.isArray(rawFlags)) {
+    return [];
+  }
+
+  const normalized = rawFlags
+    .map((entry): RedFlag | null => {
+      const record = toRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      const title = clip(toStringValue(record.title), 120);
+      const description = clip(toStringValue(record.description), 320);
+      const sourceText = clip(toStringValue(record.sourceText), 260);
+      const recommendation = clip(toStringValue(record.recommendation), 260);
+      if (!title || !description || !sourceText || !recommendation) {
+        return null;
+      }
+
+      return {
+        type: normalizeType(record.type),
+        severity: normalizeSeverity(record.severity),
+        title,
+        description,
+        sourceText,
+        recommendation
+      };
+    })
+    .filter((item): item is RedFlag => item !== null);
+
+  return normalized.slice(0, 12);
+}
+
+function parseRedFlagsFromModelText(raw: string): RedFlag[] {
+  const attempts = normalizeRepairAttempts(raw);
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      const validated = RedFlagsResponseSchema.safeParse(parsed);
+      if (validated.success) {
+        return validated.data.redFlags;
+      }
+      const record = toRecord(parsed);
+      if (record) {
+        const normalized = normalizeRedFlagArray(record.redFlags);
+        if (normalized.length > 0) {
+          return normalized;
+        }
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = parseYaml(attempt);
+      const validated = RedFlagsResponseSchema.safeParse(parsed);
+      if (validated.success) {
+        return validated.data.redFlags;
+      }
+      const record = toRecord(parsed);
+      if (record) {
+        const normalized = normalizeRedFlagArray(record.redFlags);
+        if (normalized.length > 0) {
+          return normalized;
+        }
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  return [];
+}
 
 const deterministicRedFlagKeywords: Array<{
   type: "contractual" | "feasibility" | "process";
@@ -260,31 +502,49 @@ ${textTail ? `## RFP TEXT (end section):\n${textTail}` : ""}
 ${scopeOfWork.slice(0, 4_000)}
 `;
 
-  const result = await runWithGeminiFlashModel((model) =>
+  try {
+    const result = await runWithGeminiFlashModel((model) =>
+      generateText({
+        model: googleProvider(model),
+        output: Output.object({
+          schema: RedFlagsResponseSchema
+        }),
+        temperature: 0.1,
+        maxOutputTokens: 4000,
+        abortSignal: AbortSignal.timeout(RED_FLAG_TIMEOUT_MS),
+        prompt
+      })
+    );
+
+    if (result.output?.redFlags?.length) {
+      return result.output.redFlags.map((flag) => ({
+        type: flag.type,
+        severity: flag.severity,
+        title: clip(flag.title, 120),
+        description: clip(flag.description, 320),
+        sourceText: clip(flag.sourceText, 260),
+        recommendation: clip(flag.recommendation, 260)
+      }));
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[Pass3] Structured red flag extraction failed; retrying text mode: ${clip(message, 180)}`);
+  }
+
+  const textMode = await runWithGeminiFlashModel((model) =>
     generateText({
       model: googleProvider(model),
-      output: Output.object({
-        schema: RedFlagsResponseSchema
-      }),
       temperature: 0.1,
       maxOutputTokens: 4000,
       abortSignal: AbortSignal.timeout(RED_FLAG_TIMEOUT_MS),
-      prompt
+      prompt: `${prompt}\n\nReturn only strict raw JSON with one top-level key: "redFlags".`
     })
   );
-
-  if (!result.output?.redFlags) {
-    return [];
+  const parsed = parseRedFlagsFromModelText(textMode.text ?? "");
+  if (parsed.length > 0) {
+    console.log("[Pass3] AI red flag analysis recovered via text-mode repair parser.");
   }
-
-  return result.output.redFlags.map((flag) => ({
-    type: flag.type,
-    severity: flag.severity,
-    title: flag.title.slice(0, 120),
-    description: flag.description.slice(0, 320),
-    sourceText: flag.sourceText.slice(0, 260),
-    recommendation: flag.recommendation.slice(0, 260)
-  }));
+  return parsed;
 }
 
 function deduplicateRedFlags(flags: Array<{

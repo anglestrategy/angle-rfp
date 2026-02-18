@@ -217,6 +217,70 @@ function areNearDuplicate(a: string, b: string): boolean {
   return baseline > 0 && overlap / baseline >= 0.75;
 }
 
+const BEAUTIFIER_STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "this",
+  "that",
+  "from",
+  "into",
+  "will",
+  "shall",
+  "must",
+  "is",
+  "are",
+  "of",
+  "to",
+  "in",
+  "on",
+  "by",
+  "a",
+  "an"
+]);
+
+function groundingTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .filter((token) => !BEAUTIFIER_STOP_WORDS.has(token));
+}
+
+function groundingRatio(candidate: string, source: string): number {
+  const candidateTokens = groundingTokens(candidate);
+  if (candidateTokens.length === 0) {
+    return 0;
+  }
+  const sourceSet = new Set(groundingTokens(source));
+  if (sourceSet.size === 0) {
+    return 0;
+  }
+  const overlap = candidateTokens.filter((token) => sourceSet.has(token)).length;
+  return overlap / candidateTokens.length;
+}
+
+function looksUngroundedBeautifiedText(fieldName: string, sourceText: string, beautified: BeautifiedText): boolean {
+  const candidate = normalizeBulletItem(beautified.formatted || "");
+  if (!candidate || candidate.length < 40) {
+    return false;
+  }
+  const overlap = groundingRatio(candidate, sourceText);
+  if (overlap >= 0.16) {
+    return false;
+  }
+  if (fieldName === "Project Description") {
+    const infraSignals = /(disaster recovery|backup plan|high[-\s]?availability|cybersecurity|network infrastructure|business continuity)/i;
+    if (infraSignals.test(candidate) && !infraSignals.test(sourceText)) {
+      return true;
+    }
+  }
+  return candidate.length >= 80;
+}
+
 function synthesizeKeyObjective(seedText: string, avoidText = ""): string {
   const normalized = normalizeProjectSentence(seedText)
     .replace(/\([^)]*$/g, "")
@@ -605,19 +669,23 @@ export async function beautifyText(rawText: string, fieldName: string): Promise<
     );
     const validated = BeautifiedTextSchema.parse(result.output);
 
+    let normalized: BeautifiedText;
     if (fieldName === "Scope of Work") {
-      return normalizeScopeStructure(validated);
+      normalized = normalizeScopeStructure(validated);
+    } else if (fieldName === "Project Description") {
+      normalized = normalizeProjectDescriptionStructure(validated);
+    } else if (fieldName === "Evaluation Criteria") {
+      normalized = normalizeEvaluationCriteriaStructure(validated);
+    } else {
+      normalized = validated;
     }
 
-    if (fieldName === "Project Description") {
-      return normalizeProjectDescriptionStructure(validated);
+    if (looksUngroundedBeautifiedText(fieldName, rawText, normalized)) {
+      console.warn(`[Beautifier] Rejected ungrounded ${fieldName} model output; using deterministic formatter.`);
+      return deterministicBeautify(rawText, fieldName);
     }
 
-    if (fieldName === "Evaluation Criteria") {
-      return normalizeEvaluationCriteriaStructure(validated);
-    }
-
-    return validated;
+    return normalized;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Text beautification failed for ${fieldName}:`, message);
