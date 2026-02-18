@@ -490,6 +490,7 @@ ${JSON.stringify(baselineSnapshot)}
     overall: Math.max(baseline.confidenceScores.overall, 0.9)
   };
 
+  console.log("[Pass1] AI wrapper refinement applied.");
   return output;
 }
 
