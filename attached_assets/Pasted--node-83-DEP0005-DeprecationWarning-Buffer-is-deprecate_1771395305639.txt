@@ -1,0 +1,35 @@
+(node:83) [DEP0005] DeprecationWarning: Buffer() is deprecated due to security and usability issues. Please use the Buffer.alloc(), Buffer.allocUnsafe(), or Buffer.from() methods instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[Parse] analysisId=433c5934-9c09-476a-bcdb-75f75adf6fd2 durationMs=40702 format=pdf confidence=0.735 source=pdf_local,ocr warnings=4
+[Extraction] Starting at 2026-02-18T06:11:18.011Z, timeout: 180000ms
+[Extraction] Model candidates: gemini-2.5-flash, gemini-2.0-flash, gemini-1.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro (resolved=gemini-2.5-flash via GEMINI_MODEL_FLASH)
+[Extraction] Planned 1 windows across 3 total chunks (full-document AI coverage, raw chars=65094)
+[Extraction] Window 0 attempt 1 failed: Structured fallback parse failed for window 1: could not parse JSON payload.
+[Extraction] Window 0 attempt 2 failed: Structured fallback parse failed for window 1: could not parse JSON payload.
+[Extraction] Splitting window 0 (3 chunks) at depth 0
+[Extraction] Window 0 attempt 1 failed: Structured fallback parse failed for window 1: could not parse JSON payload.
+[Extraction] Window 0 attempt 2 failed: Structured fallback parse failed for window 1: could not parse JSON payload.
+[Extraction] Window 0 permanently failed (depth=1, tags=scope,evaluation,deliverables,dates,submission,legal,evaluation,deliverables,dates,submission,legal): Structured fallback parse failed for window 1: could not parse JSON payload.
+[Extraction] Window 0 succeeded (depth=1, chunks=1, tags=submission,legal)
+[Extraction] 1 windows failed: [
+  {
+    index: 0,
+    error: 'Structured fallback parse failed for window 1: could not parse JSON payload.'
+  }
+]
+[Extraction] Critical sections not covered: scope, evaluation, deliverables, dates {
+  chunksWithMissingTags: [
+    { index: 0, tags: [Array], analyzed: false },
+    { index: 1, tags: [Array], analyzed: false }
+  ],
+  analyzedCount: 1,
+  totalChunks: 3
+}
+AI extraction failed, using fallback: {
+  message: 'AI extraction did not cover critical sections: scope, evaluation, deliverables, dates.',
+  stack: 'Error: AI extraction did not cover critical sections: scope, evaluation, deliverables, dates.\n' +
+    '    at Q (/opt/render/project/src/backend/.next/server/chunks/771.js:100:4939)\n' +
+    '    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n' +
+    '    at async aT (/opt/render/project/src/backend/.next/server/chunks/26.js:1:47272)\n' +
+    '    at async bF (/opt/render/project/src/backend/.next/server/chunks/26.js:264:1483)'
+}

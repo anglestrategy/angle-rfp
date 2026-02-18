@@ -370,10 +370,15 @@ function mergeTextBlocks(values: string[], maxChars: number): string {
 }
 
 function stripMarkdownCodeFences(raw: string): string {
-  return raw
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json|JSON|jsonc)?\s*\n?/gm, "");
+  cleaned = cleaned.replace(/\n?\s*```\s*$/gm, "");
+  cleaned = cleaned.replace(/^[^{]*?(?=\{)/s, "");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (lastBrace >= 0 && lastBrace < cleaned.length - 1) {
+    cleaned = cleaned.slice(0, lastBrace + 1);
+  }
+  return cleaned.trim();
 }
 
 function extractFirstBalancedJsonObject(raw: string): string | null {
@@ -421,31 +426,54 @@ function extractFirstBalancedJsonObject(raw: string): string | null {
 function parseWindowFieldsFromText(raw: string): ClaudeWindowFields | null {
   const json = extractFirstBalancedJsonObject(raw);
   if (!json) {
+    console.warn("[Extraction] JSON parse: no balanced JSON object found in response. First 300 chars:", raw.slice(0, 300));
     return null;
   }
 
-  const attempts = [
-    json,
-    json.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'"),
-    json.replace(/,\s*([}\]])/g, "$1"),
-    json
-      .replace(/[“”]/g, "\"")
-      .replace(/[‘’]/g, "'")
+  const smartDoubleQuote = /[\u201c\u201d]/g;
+  const smartSingleQuote = /[\u2018\u2019]/g;
+
+  const repairStrategies: Array<(s: string) => string> = [
+    (s) => s,
+    (s) => s.replace(smartDoubleQuote, "\"").replace(smartSingleQuote, "'"),
+    (s) => s.replace(/,\s*([}\]])/g, "$1"),
+    (s) => s
+      .replace(smartDoubleQuote, "\"")
+      .replace(smartSingleQuote, "'")
+      .replace(/,\s*([}\]])/g, "$1"),
+    (s) => s.replace(/\n/g, "\\n").replace(/\t/g, "\\t"),
+    (s) => s
+      .replace(smartDoubleQuote, "\"")
+      .replace(smartSingleQuote, "'")
       .replace(/,\s*([}\]])/g, "$1")
+      .replace(/:\s*'([^']*)'/g, ': \"$1\"')
+      .replace(/\n/g, "\\n"),
+    (s) => s.replace(/\\(?!["\\\/bfnrtu])/g, "\\\\"),
   ];
 
-  for (const attempt of attempts) {
+  let lastJsonError = "";
+  let lastZodError = "";
+
+  for (const repair of repairStrategies) {
     try {
-      const parsed = JSON.parse(attempt);
+      const repaired = repair(json);
+      const parsed = JSON.parse(repaired);
       const validated = ClaudeWindowFieldsSchema.safeParse(parsed);
       if (validated.success) {
         return validated.data;
       }
-    } catch {
-      // Continue to next loose parse strategy.
+      lastZodError = validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+    } catch (e) {
+      lastJsonError = e instanceof Error ? e.message : String(e);
     }
   }
 
+  console.warn(
+    `[Extraction] JSON parse: all ${repairStrategies.length} repair strategies failed.`,
+    `Last JSON error: ${lastJsonError}.`,
+    `Last Zod error: ${lastZodError}.`,
+    `JSON snippet (first 500 chars): ${json.slice(0, 500)}`
+  );
   return null;
 }
 
@@ -674,6 +702,13 @@ Exclude generic legal boilerplate and standard T&C.
 - Handle bilingual content: if Arabic and English versions exist, prefer the more detailed version but cross-reference both.
 - No hallucination: if information is genuinely not in the document, use empty strings for required fields.
 
+## CRITICAL OUTPUT RULES
+- Return ONLY a raw JSON object. Do NOT wrap it in markdown code fences (\`\`\`json ... \`\`\`).
+- Do NOT include any text before or after the JSON object.
+- Do NOT include comments within the JSON.
+- Ensure all string values properly escape special characters (newlines as \\n, quotes as \\").
+- The response must start with { and end with }.
+
 Context:
 `;
 
@@ -755,7 +790,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
                 schema: ClaudeWindowFieldsSchema
               }),
               temperature: 0,
-              maxOutputTokens: 5200,
+              maxOutputTokens: 8192,
               abortSignal: abortController.signal,
               prompt: basePrompt
             })
@@ -777,7 +812,7 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
             generateText({
               model: googleProvider(model),
               temperature: 0,
-              maxOutputTokens: 5200,
+              maxOutputTokens: 8192,
               abortSignal: abortController.signal,
               prompt:
                 `${basePrompt}\n\n` +
@@ -788,15 +823,58 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
           `Extraction window ${window.index + 1} text-mode fallback timed out`
         );
         const parsed = parseWindowFieldsFromText(textResult.text ?? "");
-        if (!parsed) {
+        if (parsed) {
+          console.warn(
+            `[Extraction] Window ${window.index} recovered via text-mode JSON fallback`
+          );
+          return canonicalizeWindowFields(parsed);
+        }
+
+        console.warn(`[Extraction] Window ${window.index} text-mode fallback failed, trying simplified prompt`);
+        const simplifiedPrompt =
+          `Extract the following fields from this RFP document text as a JSON object. ` +
+          `Return ONLY raw JSON starting with { and ending with }. No markdown fences, no extra text.\n\n` +
+          `Required JSON structure (all string values, arrays can be empty):\n` +
+          `{\n` +
+          `  "clientName": "string or null",\n` +
+          `  "projectName": "string or null",\n` +
+          `  "projectDescription": "string or null",\n` +
+          `  "scopeOfWork": "bullet points with • prefix, all in one string, or null",\n` +
+          `  "evaluationCriteria": "criteria with weights, all in one string, or null",\n` +
+          `  "requiredDeliverables": [{"item": "deliverable text", "source": "verbatim"}],\n` +
+          `  "importantDates": [{"title": "deadline name", "date": "YYYY-MM-DD", "type": "other"}],\n` +
+          `  "submissionRequirements": {"method": "string or null", "email": "string or null", "format": "string or null", "physicalAddress": "string or null", "copies": "string or null"},\n` +
+          `  "deliverableRequirements": {\n` +
+          `    "technical": [{"title": "string", "description": "string", "source": "verbatim"}],\n` +
+          `    "commercial": [{"title": "string", "description": "string", "source": "verbatim"}],\n` +
+          `    "strategicCreative": [{"title": "string", "description": "string", "source": "verbatim"}]\n` +
+          `  }\n` +
+          `}\n\n` +
+          `Document text:\n${context.slice(0, 60_000)}`;
+
+        const simplifiedResult = await withHardTimeout(
+          runWithGeminiFlashModel((model) =>
+            generateText({
+              model: googleProvider(model),
+              temperature: 0,
+              maxOutputTokens: 8000,
+              abortSignal: abortController.signal,
+              prompt: simplifiedPrompt
+            })
+          ),
+          WINDOW_TIMEOUT_MS + 5_000,
+          `Extraction window ${window.index + 1} simplified fallback timed out`
+        );
+        const simplifiedParsed = parseWindowFieldsFromText(simplifiedResult.text ?? "");
+        if (!simplifiedParsed) {
           throw new Error(
-            `Structured fallback parse failed for window ${window.index + 1}: could not parse JSON payload.`
+            `All extraction fallbacks failed for window ${window.index + 1}: could not parse JSON payload.`
           );
         }
         console.warn(
-          `[Extraction] Window ${window.index} recovered via text-mode JSON fallback`
+          `[Extraction] Window ${window.index} recovered via simplified prompt fallback`
         );
-        return canonicalizeWindowFields(parsed);
+        return canonicalizeWindowFields(simplifiedParsed);
       }
     } finally {
       clearTimeout(timeoutId);
