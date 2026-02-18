@@ -2,12 +2,12 @@ import type { AnalyzeRfpInput } from "@/lib/extraction/analyze-rfp";
 import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
+import { parse as parseYaml } from "yaml";
 import {
   extractWithClaude,
   type ClaudeExtractedFields,
   type ClaudeExtractionResult
 } from "@/lib/extraction/claude-extractor";
-import { parseJsonFromModelText } from "@/lib/ai/json-response";
 import { resolveGoogleApiKey, runWithGeminiFlashModel } from "@/lib/ai/model-resolver";
 
 export interface DeliverableItem {
@@ -98,11 +98,11 @@ const AI_WRAPPER_REFINEMENT_TIMEOUT_MS = positiveIntFromEnv(
 );
 const AI_WRAPPER_REFINEMENT_HEAD_CHARS = positiveIntFromEnv(
   process.env.EXTRACTION_AI_WRAPPER_HEAD_CHARS,
-  45_000
+  18_000
 );
 const AI_WRAPPER_REFINEMENT_TAIL_CHARS = positiveIntFromEnv(
   process.env.EXTRACTION_AI_WRAPPER_TAIL_CHARS,
-  14_000
+  6_000
 );
 const AI_WRAPPER_REFINEMENT_ENABLED_BY_DEFAULT = process.env.NODE_ENV !== "test";
 
@@ -194,6 +194,7 @@ Formatting rules:
 - Return ONLY one raw JSON object.
 - No markdown fences.
 - No text before/after JSON.
+- Keep total response compact (target < 10000 characters).
 `;
 
 function shouldUseAiWrapperRefinement(): boolean {
@@ -229,6 +230,218 @@ function limitText(value: string, maxChars: number): string {
   return `${value.slice(0, Math.max(1, maxChars - 1)).trim()}…`;
 }
 
+function stripWrapperMarkdownCodeFences(raw: string): string {
+  let cleaned = raw.trim();
+  cleaned = cleaned.replace(/^```(?:json|JSON|jsonc|yaml|YAML)?\s*\n?/gm, "");
+  cleaned = cleaned.replace(/\n?\s*```\s*$/gm, "");
+  return cleaned.trim();
+}
+
+function extractFirstBalancedJsonObject(raw: string): string | null {
+  const sanitized = stripWrapperMarkdownCodeFences(raw);
+  const start = sanitized.indexOf("{");
+  if (start < 0) {
+    return null;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < sanitized.length; i += 1) {
+    const char = sanitized[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      depth += 1;
+      continue;
+    }
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return sanitized.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function appendMissingJsonClosers(raw: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (const char of raw) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      stack.push("}");
+      continue;
+    }
+    if (char === "[") {
+      stack.push("]");
+      continue;
+    }
+    if ((char === "}" || char === "]") && stack.length > 0 && stack[stack.length - 1] === char) {
+      stack.pop();
+    }
+  }
+
+  return stack.length > 0 ? `${raw}${stack.reverse().join("")}` : raw;
+}
+
+function escapeNewlinesInsideStrings(raw: string): string {
+  let output = "";
+  let inString = false;
+  let escaped = false;
+
+  for (const char of raw) {
+    if (inString) {
+      if (escaped) {
+        output += char;
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        output += char;
+        escaped = true;
+        continue;
+      }
+      if (char === "\"") {
+        output += char;
+        inString = false;
+        continue;
+      }
+      if (char === "\n" || char === "\r") {
+        output += "\\n";
+        continue;
+      }
+      output += char;
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+    }
+    output += char;
+  }
+
+  return output;
+}
+
+function normalizeJsonRepairCandidates(raw: string): string[] {
+  const base = stripWrapperMarkdownCodeFences(raw);
+  const firstBrace = base.indexOf("{");
+  const candidate = extractFirstBalancedJsonObject(base) ?? (firstBrace >= 0 ? base.slice(firstBrace).trim() : "");
+  if (!candidate) {
+    return [];
+  }
+
+  const cleaned = candidate
+    .replace(/[“”]/g, "\"")
+    .replace(/[‘’]/g, "'")
+    .replace(/,\s*([}\]])/g, "$1");
+  const quoteUnquotedKeys = (value: string) =>
+    value.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, "$1\"$2\"$3");
+  const singleToDoubleStrings = (value: string) =>
+    value.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner: string) => `"${inner.replace(/"/g, "\\\"")}"`);
+
+  const attempts = [
+    candidate,
+    cleaned,
+    quoteUnquotedKeys(cleaned),
+    singleToDoubleStrings(cleaned),
+    appendMissingJsonClosers(cleaned),
+    escapeNewlinesInsideStrings(cleaned),
+    appendMissingJsonClosers(escapeNewlinesInsideStrings(singleToDoubleStrings(quoteUnquotedKeys(cleaned))))
+  ];
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const attempt of attempts) {
+    const normalized = attempt.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function parseWrapperRefinementFromModelText(raw: string): WrapperRefinementResult | null {
+  const attempts = normalizeJsonRepairCandidates(raw);
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt);
+      const validated = WrapperRefinementSchema.safeParse(parsed);
+      if (validated.success) {
+        return validated.data;
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = parseYaml(attempt);
+      const validated = WrapperRefinementSchema.safeParse(parsed);
+      if (validated.success) {
+        return validated.data;
+      }
+    } catch {
+      // continue
+    }
+  }
+
+  return null;
+}
+
+function compactBaselineSnapshot(baseline: Pass1Output): Record<string, unknown> {
+  return {
+    clientName: baseline.clientName,
+    projectName: baseline.projectName,
+    projectDescription: limitText(baseline.projectDescription, 900),
+    scopeOfWork: limitText(baseline.scopeOfWork, 4500),
+    evaluationCriteria: limitText(baseline.evaluationCriteria, 4200),
+    evaluationCriteriaStructured: (baseline.evaluationCriteriaStructured ?? []).slice(0, 10),
+    requiredDeliverables: (baseline.requiredDeliverables ?? []).slice(0, 10),
+    deliverableRequirements: {
+      technical: (baseline.deliverableRequirements?.technical ?? []).slice(0, 8),
+      commercial: (baseline.deliverableRequirements?.commercial ?? []).slice(0, 8),
+      strategicCreative: (baseline.deliverableRequirements?.strategicCreative ?? []).slice(0, 8)
+    },
+    importantDates: (baseline.importantDates ?? []).slice(0, 10),
+    submissionRequirements: baseline.submissionRequirements,
+    warnings: (baseline.warnings ?? []).slice(0, 10)
+  };
+}
+
 async function runAiWrapperRefinement(
   parsedDocument: AnalyzeRfpInput["parsedDocument"],
   baseline: Pass1Output
@@ -252,35 +465,23 @@ async function runAiWrapperRefinement(
     primaryLanguage: parsedDocument.primaryLanguage,
     summarySection: limitText(
       extractNarrativeSummaryBlock(rawText) || fallbackExecutiveSummarySeed(rawText),
-      4_000
+      2_200
     ),
-    scopeSection: limitText(buildScopeFromSource(parsedDocument), 10_000),
-    evaluationSection: limitText(buildEvaluationCriteriaFromSource(parsedDocument).formatted, 9_000),
-    deliverablesSection: limitText(buildDeliverablesSourceText(parsedDocument) || "", 10_000),
-    datesSection: limitText(buildImportantDatesSourceText(parsedDocument) || "", 8_000),
+    scopeSection: limitText(buildScopeFromSource(parsedDocument), 6_000),
+    evaluationSection: limitText(buildEvaluationCriteriaFromSource(parsedDocument).formatted, 5_000),
+    deliverablesSection: limitText(buildDeliverablesSourceText(parsedDocument) || "", 5_000),
+    datesSection: limitText(buildImportantDatesSourceText(parsedDocument) || "", 3_500),
     submissionSection: limitText(
       bySectionName(rawText, parsedDocument.sections, ["submission_requirements", "proposal_submissions"]) ??
         extractExactBlock(rawText, /submission\s+format|submission\s+requirements?|proposal\s+requirements?/i, 2_400) ??
         "",
-      4_000
+      2_200
     ),
     rawTextHead: head,
     rawTextTail: tail
   };
 
-  const baselineSnapshot = {
-    clientName: baseline.clientName,
-    projectName: baseline.projectName,
-    projectDescription: baseline.projectDescription,
-    scopeOfWork: baseline.scopeOfWork,
-    evaluationCriteria: baseline.evaluationCriteria,
-    evaluationCriteriaStructured: baseline.evaluationCriteriaStructured,
-    requiredDeliverables: baseline.requiredDeliverables,
-    deliverableRequirements: baseline.deliverableRequirements,
-    importantDates: baseline.importantDates,
-    submissionRequirements: baseline.submissionRequirements,
-    warnings: baseline.warnings
-  };
+  const baselineSnapshot = compactBaselineSnapshot(baseline);
 
   const prompt = `${AI_WRAPPER_REFINEMENT_PROMPT}
 
@@ -324,13 +525,9 @@ ${JSON.stringify(baselineSnapshot)}
           prompt
         })
       );
-      const parsed = parseJsonFromModelText<unknown>(textMode.text ?? "", {
-        context: "pass1-ai-wrapper-refinement",
-        expectedType: "object"
-      });
-      const validated = WrapperRefinementSchema.safeParse(parsed);
-      if (validated.success) {
-        refined = validated.data;
+      refined = parseWrapperRefinementFromModelText(textMode.text ?? "");
+      if (refined) {
+        console.log("[Pass1] AI wrapper refinement recovered via text-mode repair parser.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
