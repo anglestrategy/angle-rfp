@@ -67,6 +67,22 @@ const MAX_DELIVERABLES_PER_CATEGORY = positiveIntFromEnv(
   process.env.EXTRACTION_MAX_DELIVERABLES_PER_CATEGORY,
   12
 );
+const MAX_REQUIRED_DELIVERABLES_OUTPUT = Math.max(
+  4,
+  Math.min(MAX_DELIVERABLES_PER_CATEGORY, positiveIntFromEnv(process.env.EXTRACTION_REQUIRED_DELIVERABLES_OUTPUT_MAX, 8))
+);
+const MAX_TECHNICAL_REQUIREMENTS_OUTPUT = Math.max(
+  2,
+  Math.min(MAX_DELIVERABLES_PER_CATEGORY, positiveIntFromEnv(process.env.EXTRACTION_TECHNICAL_REQUIREMENTS_OUTPUT_MAX, 6))
+);
+const MAX_COMMERCIAL_REQUIREMENTS_OUTPUT = Math.max(
+  2,
+  Math.min(MAX_DELIVERABLES_PER_CATEGORY, positiveIntFromEnv(process.env.EXTRACTION_COMMERCIAL_REQUIREMENTS_OUTPUT_MAX, 4))
+);
+const MAX_STRATEGIC_REQUIREMENTS_OUTPUT = Math.max(
+  2,
+  Math.min(MAX_DELIVERABLES_PER_CATEGORY, positiveIntFromEnv(process.env.EXTRACTION_STRATEGIC_REQUIREMENTS_OUTPUT_MAX, 4))
+);
 const MAX_SCOPE_ITEMS_FOR_ANALYSIS = positiveIntFromEnv(
   process.env.EXTRACTION_MAX_SCOPE_ITEMS,
   80
@@ -2130,6 +2146,7 @@ function normalizeExecutiveSummary(text: string): string {
   let clean = text
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\b(?:executive summary|project overview|key objective)\s*[:\-]\s*/gi, " ")
     .replace(/^\s*(?:[-*•▪‣●]|\d+[.)])\s+/gmu, "")
     .replace(/\*\*/g, "")
     .replace(/`/g, "")
@@ -2926,6 +2943,78 @@ function dedupeDeliverableRequirementsGlobal(
   };
 }
 
+function deliverableRequirementOutputLimit(category: DeliverableCategory): number {
+  if (category === "technical") {
+    return MAX_TECHNICAL_REQUIREMENTS_OUTPUT;
+  }
+  if (category === "commercial") {
+    return MAX_COMMERCIAL_REQUIREMENTS_OUTPUT;
+  }
+  return MAX_STRATEGIC_REQUIREMENTS_OUTPUT;
+}
+
+function scoreDeliverableRequirementForOutput(
+  category: DeliverableCategory,
+  item: DeliverableRequirementItem
+): number {
+  const title = normalizeRequirementLine(item.title);
+  const description = normalizeRequirementLine(item.description);
+  const combined = `${title} ${description}`.trim();
+  let score = 0;
+
+  if (item.source === "verbatim") {
+    score += 3;
+  } else {
+    score += 1;
+  }
+  if (item.evidenceRef && item.evidenceRef.trim().length >= 10) {
+    score += 1;
+  }
+  if (looksLikeRequirementStatement(description || combined)) {
+    score += 2;
+  }
+  if (isSubmissionDeliverableLine(combined, category)) {
+    score += 2;
+  }
+  if (/proposal sections?|understanding of the work to be performed|local content certificate|certificates? \(where applicable\)/i.test(combined)) {
+    score -= 2;
+  }
+  if (combined.split(/\s+/).length > 42) {
+    score -= 1;
+  }
+
+  return score;
+}
+
+function compactDeliverableRequirementsForOutput(groups: DeliverableRequirements): DeliverableRequirements {
+  const compactCategory = (
+    category: DeliverableCategory,
+    items: DeliverableRequirementItem[]
+  ): DeliverableRequirementItem[] => {
+    const deduped = dedupeDeliverableRequirementCategory(items);
+    const ranked = deduped
+      .slice()
+      .sort((a, b) => scoreDeliverableRequirementForOutput(category, b) - scoreDeliverableRequirementForOutput(category, a));
+    const limited = ranked.slice(0, deliverableRequirementOutputLimit(category));
+    return limited.map((item) => ({
+      ...item,
+      title: truncateAtWordBoundary(normalizeRequirementLine(item.title), 110),
+      description: truncateAtWordBoundary(normalizeRequirementLine(item.description), 220),
+      evidenceRef: item.evidenceRef ? truncateAtWordBoundary(normalizeRequirementLine(item.evidenceRef), 180) : undefined
+    }));
+  };
+
+  return {
+    technical: compactCategory("technical", groups.technical),
+    commercial: compactCategory("commercial", groups.commercial),
+    strategicCreative: compactCategory("strategicCreative", groups.strategicCreative)
+  };
+}
+
+function capRequiredDeliverablesForOutput(items: DeliverableItem[]): DeliverableItem[] {
+  return dedupeDeliverables(items).slice(0, MAX_REQUIRED_DELIVERABLES_OUTPUT);
+}
+
 function dedupeDeliverableItems(items: DeliverableRequirementItem[]): DeliverableRequirementItem[] {
   const byTitle = new Map<string, DeliverableRequirementItem>();
   const seenDescription = new Set<string>();
@@ -3165,8 +3254,10 @@ function mapClaudeToPass1OutputAiFirst(
       source: (typeof deliverable === "string" ? "verbatim" : deliverable.source) as "verbatim" | "inferred"
     }))
   );
-  const deliverableRequirements = dedupeDeliverableRequirementsGlobal(
-    buildDeliverableRequirementsFromClaude(claude)
+  const deliverableRequirements = compactDeliverableRequirementsForOutput(
+    dedupeDeliverableRequirementsGlobal(
+      buildDeliverableRequirementsFromClaude(claude)
+    )
   );
   const inferredDeliverables = [
     ...deliverableRequirements.technical,
@@ -3178,8 +3269,9 @@ function mapClaudeToPass1OutputAiFirst(
   }));
   const requiredDeliverables = rawRequiredDeliverables.length > 0
     ? rawRequiredDeliverables
-    : dedupeDeliverables(inferredDeliverables).slice(0, 12);
-  if (requiredDeliverables.length === 0) {
+    : dedupeDeliverables(inferredDeliverables).slice(0, MAX_REQUIRED_DELIVERABLES_OUTPUT);
+  const compactRequiredDeliverables = capRequiredDeliverablesForOutput(requiredDeliverables);
+  if (compactRequiredDeliverables.length === 0) {
     warnings.push("AI did not identify explicit deliverables.");
   }
 
@@ -3244,7 +3336,7 @@ function mapClaudeToPass1OutputAiFirst(
     projectDescription,
     scopeOfWork,
     evaluationCriteria,
-    requiredDeliverables,
+    requiredDeliverables: compactRequiredDeliverables,
     deliverableRequirements,
     importantDates,
     submissionRequirements
@@ -3259,7 +3351,7 @@ function mapClaudeToPass1OutputAiFirst(
     scopeOfWork,
     evaluationCriteria,
     evaluationCriteriaStructured,
-    requiredDeliverables,
+    requiredDeliverables: compactRequiredDeliverables,
     deliverableRequirements,
     importantDates,
     submissionRequirements,
@@ -3381,11 +3473,11 @@ function mapClaudeToPass1Output(
     ? claudeDeliverableRequirements
     : heuristicDeliverableRequirements;
 
-  const mergedDeliverableRequirements: DeliverableRequirements = dedupeDeliverableRequirementsGlobal({
+  const mergedDeliverableRequirements: DeliverableRequirements = compactDeliverableRequirementsForOutput(dedupeDeliverableRequirementsGlobal({
     technical: mergeCategory(primaryDeliverables.technical, secondaryDeliverables.technical, 3),
     commercial: mergeCategory(primaryDeliverables.commercial, secondaryDeliverables.commercial, 2),
     strategicCreative: mergeCategory(primaryDeliverables.strategicCreative, secondaryDeliverables.strategicCreative, 2)
-  });
+  }));
   if (preferHeuristicDeliverables) {
     warnings.push(
       "[deliverables_source_preferred] Source-scoped deliverable extraction was preferred over model-only grouping due higher quality signals."
@@ -3400,10 +3492,10 @@ function mapClaudeToPass1Output(
       warnings.push("Deliverable requirement groups were not confidently extracted from AI output.");
     }
   }
-  const canonicalRequiredDeliverables = ensureRequiredDeliverables(
+  const canonicalRequiredDeliverables = capRequiredDeliverablesForOutput(ensureRequiredDeliverables(
     requiredDeliverables,
     mergedDeliverableRequirements
-  );
+  ));
   const rawClaudeScope = normalizeStructuredText(claude.scopeOfWork || "");
   const rawScopeFragmentCount = splitScopeFragments(rawClaudeScope).length;
   const sanitizedClaudeScope = sanitizeScopeForAnalysis(rawClaudeScope);
@@ -3555,10 +3647,12 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   const importantDates = extractDates(dateSourceText);
   const submissionRequirements = extractSubmission(text);
   const dedupedRequiredDeliverables = dedupeDeliverables(requiredDeliverables);
-  const deliverableRequirements = buildDeliverableRequirements(
-    deliverableSourceText,
-    sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
-    dedupedRequiredDeliverables
+  const deliverableRequirements = compactDeliverableRequirementsForOutput(
+    buildDeliverableRequirements(
+      deliverableSourceText,
+      sanitizeEvaluationCriteria(normalizeStructuredText(evaluationCriteria)),
+      dedupedRequiredDeliverables
+    )
   );
   const deliverableContaminationCount = deliverableSourceText
     .split(/\r?\n/)
@@ -3573,10 +3667,10 @@ function runPass1ExtractionFallback(input: AnalyzeRfpInput): Pass1Output {
   if (importantDates[0]?.date === "2099-12-31") {
     warnings.push("[dates_low_confidence] Important dates were inferred without strong timeline-section support.");
   }
-  const canonicalRequiredDeliverables = ensureRequiredDeliverables(
+  const canonicalRequiredDeliverables = capRequiredDeliverablesForOutput(ensureRequiredDeliverables(
     dedupedRequiredDeliverables,
     deliverableRequirements
-  );
+  ));
   let scopeOfWork = sanitizeScopeForAnalysis(normalizeStructuredText(scopeSeed));
   if (countScopeItems(scopeOfWork) < 2) {
     const synthesized = buildScopeFromDeliverableSignals(

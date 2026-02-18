@@ -1,6 +1,7 @@
 import { generateText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { z } from "zod";
+import { parse as parseYaml } from "yaml";
 import {
   getGeminiModelResolutionDiagnostics,
   resolveGoogleApiKey,
@@ -36,16 +37,23 @@ const LooseDeliverableSchema = z.object({
   source: z.enum(["verbatim", "inferred"]).optional()
 });
 
+const LooseDeliverableValueSchema = z.union([z.string(), LooseDeliverableSchema]);
+
 const LooseDeliverableRequirementEntrySchema = z.object({
   title: z.string().nullable().optional(),
   description: z.string().nullable().optional(),
   source: z.enum(["verbatim", "inferred"]).optional()
 });
 
+const LooseDeliverableRequirementValueSchema = z.union([
+  z.string(),
+  LooseDeliverableRequirementEntrySchema
+]);
+
 const LooseDeliverableRequirementGroupsSchema = z.object({
-  technical: z.array(LooseDeliverableRequirementEntrySchema).default([]),
-  commercial: z.array(LooseDeliverableRequirementEntrySchema).default([]),
-  strategicCreative: z.array(LooseDeliverableRequirementEntrySchema).default([])
+  technical: z.array(LooseDeliverableRequirementValueSchema).default([]),
+  commercial: z.array(LooseDeliverableRequirementValueSchema).default([]),
+  strategicCreative: z.array(LooseDeliverableRequirementValueSchema).default([])
 });
 
 const ClaudeWindowFieldsSchema = z.object({
@@ -54,7 +62,7 @@ const ClaudeWindowFieldsSchema = z.object({
   projectDescription: z.string().nullable().optional(),
   scopeOfWork: z.string().nullable().optional(),
   evaluationCriteria: z.string().nullable().optional(),
-  requiredDeliverables: z.array(LooseDeliverableSchema).default([]),
+  requiredDeliverables: z.array(LooseDeliverableValueSchema).default([]),
   deliverableRequirements: LooseDeliverableRequirementGroupsSchema.default({
     technical: [],
     commercial: [],
@@ -105,11 +113,23 @@ export interface ClaudeExtractedFields {
 }
 
 function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFields {
-  const normalizeEntry = (entry: { title?: string | null; description?: string | null; source?: "verbatim" | "inferred" }) => ({
-    title: coerceString(entry.title, ""),
-    description: coerceString(entry.description, ""),
-    source: entry.source === "inferred" ? "inferred" as const : "verbatim" as const
-  });
+  const normalizeEntry = (
+    entry: string | { title?: string | null; description?: string | null; source?: "verbatim" | "inferred" }
+  ) => {
+    if (typeof entry === "string") {
+      const text = coerceString(entry, "");
+      return {
+        title: text,
+        description: text,
+        source: "verbatim" as const
+      };
+    }
+    return {
+      title: coerceString(entry.title, ""),
+      description: coerceString(entry.description, ""),
+      source: entry.source === "inferred" ? "inferred" as const : "verbatim" as const
+    };
+  };
 
   const normalizeOptional = (value: unknown): string | null => {
     const normalized = coerceString(value, "").trim();
@@ -117,8 +137,14 @@ function canonicalizeWindowFields(input: ClaudeWindowFields): ClaudeExtractedFie
   };
 
   const normalizeDeliverable = (
-    item: { item?: string | null; source?: "verbatim" | "inferred" }
+    item: string | { item?: string | null; source?: "verbatim" | "inferred" }
   ): { item: string; source: "verbatim" | "inferred" } => {
+    if (typeof item === "string") {
+      return {
+        item: coerceString(item, ""),
+        source: "verbatim"
+      };
+    }
     return {
       item: coerceString(item.item, ""),
       source: item.source === "inferred" ? "inferred" : "verbatim"
@@ -418,25 +444,156 @@ function extractFirstBalancedJsonObject(raw: string): string | null {
   return null;
 }
 
+function appendMissingJsonClosers(input: string): string {
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (const char of input) {
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      continue;
+    }
+    if (char === "{") {
+      stack.push("}");
+      continue;
+    }
+    if (char === "[") {
+      stack.push("]");
+      continue;
+    }
+    if ((char === "}" || char === "]") && stack.length > 0 && stack[stack.length - 1] === char) {
+      stack.pop();
+    }
+  }
+
+  if (stack.length === 0) {
+    return input;
+  }
+  return `${input}${stack.reverse().join("")}`;
+}
+
+function normalizeJsonLikeAttempts(base: string): string[] {
+  const escapeNewlinesInJsonStrings = (input: string): string => {
+    let output = "";
+    let inString = false;
+    let escaped = false;
+
+    for (const char of input) {
+      if (inString) {
+        if (escaped) {
+          output += char;
+          escaped = false;
+          continue;
+        }
+        if (char === "\\") {
+          output += char;
+          escaped = true;
+          continue;
+        }
+        if (char === "\"") {
+          output += char;
+          inString = false;
+          continue;
+        }
+        if (char === "\n" || char === "\r") {
+          output += "\\n";
+          continue;
+        }
+        output += char;
+        continue;
+      }
+
+      if (char === "\"") {
+        inString = true;
+      }
+      output += char;
+    }
+
+    return output;
+  };
+
+  const quoteUnquotedKeys = (input: string): string =>
+    input.replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)/g, "$1\"$2\"$3");
+
+  const singleToDoubleQuotedStrings = (input: string): string =>
+    input.replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_, inner: string) => `"${inner.replace(/"/g, "\\\"")}"`);
+
+  const cleaned = base.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'").replace(/,\s*([}\]])/g, "$1");
+  const attempts = [
+    base,
+    cleaned,
+    quoteUnquotedKeys(base),
+    singleToDoubleQuotedStrings(base),
+    escapeNewlinesInJsonStrings(base),
+    escapeNewlinesInJsonStrings(cleaned),
+    appendMissingJsonClosers(cleaned),
+    escapeNewlinesInJsonStrings(appendMissingJsonClosers(cleaned)),
+    escapeNewlinesInJsonStrings(
+      singleToDoubleQuotedStrings(
+        quoteUnquotedKeys(cleaned)
+      )
+    ),
+    appendMissingJsonClosers(
+      escapeNewlinesInJsonStrings(
+        singleToDoubleQuotedStrings(
+          quoteUnquotedKeys(cleaned)
+        )
+      )
+    )
+  ];
+
+  const seen = new Set<string>();
+  const deduped: string[] = [];
+  for (const attempt of attempts) {
+    const normalized = attempt.trim();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
 function parseWindowFieldsFromText(raw: string): ClaudeWindowFields | null {
-  const json = extractFirstBalancedJsonObject(raw);
-  if (!json) {
+  const balancedJson = extractFirstBalancedJsonObject(raw);
+  const sanitizedRaw = stripMarkdownCodeFences(raw);
+  const firstBraceIndex = sanitizedRaw.indexOf("{");
+  const jsonLike =
+    balancedJson ??
+    (firstBraceIndex >= 0 ? sanitizedRaw.slice(firstBraceIndex).trim() : null);
+  if (!jsonLike) {
     return null;
   }
 
-  const attempts = [
-    json,
-    json.replace(/[“”]/g, "\"").replace(/[‘’]/g, "'"),
-    json.replace(/,\s*([}\]])/g, "$1"),
-    json
-      .replace(/[“”]/g, "\"")
-      .replace(/[‘’]/g, "'")
-      .replace(/,\s*([}\]])/g, "$1")
-  ];
+  const attempts = normalizeJsonLikeAttempts(jsonLike);
 
   for (const attempt of attempts) {
     try {
       const parsed = JSON.parse(attempt);
+      const validated = ClaudeWindowFieldsSchema.safeParse(parsed);
+      if (validated.success) {
+        return validated.data;
+      }
+    } catch {
+      // Continue to next loose parse strategy.
+    }
+  }
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = parseYaml(attempt);
       const validated = ClaudeWindowFieldsSchema.safeParse(parsed);
       if (validated.success) {
         return validated.data;
@@ -616,6 +773,9 @@ RULES:
 7. importantDates should include critical deadlines in YYYY-MM-DD where possible.
 8. Keep text executive-grade, concise, and non-duplicative.
 9. submissionRequirements.copies must be a string (for example "2", "Two copies") or null.
+10. Keep each long text field concise (target <= 1200 characters).
+11. Limit arrays for reliability: requiredDeliverables <= 8, each deliverableRequirements category <= 8, importantDates <= 8.
+12. Never include commentary or prose outside the JSON object.
 
 Context:
 `;
@@ -772,7 +932,9 @@ export async function extractWithClaude(rawText: string): Promise<ClaudeExtracti
         console.warn(
           `[Extraction] Window ${window.index} attempt ${attempt + 1} failed: ${errorMsg.slice(0, 150)}`
         );
-        const retryable = attempt < WINDOW_MAX_RETRIES;
+        const retryable =
+          attempt < WINDOW_MAX_RETRIES &&
+          !/could not parse JSON payload|unexpected end of JSON input/i.test(errorMsg);
         if (retryable) {
           const backoffMs = Math.min(2000, 400 * (attempt + 1));
           await new Promise((resolve) => setTimeout(resolve, backoffMs));

@@ -65,6 +65,7 @@ STRICT RULES:
   1) One short paragraph only (no heading) summarizing the engagement.
   2) One subheading exactly: "Key Objective".
   3) One short paragraph OR bullet list (max 3 bullets) for the key objective.
+- The key objective content must not duplicate the summary sentence verbatim.
 - Do not include phase-by-phase breakdowns.
 - Do not include bid administration details.
 - No markdown code fences. JSON only.
@@ -173,8 +174,51 @@ function dedupeItems(items: string[]): string[] {
   return output;
 }
 
-function synthesizeKeyObjective(seedText: string): string {
-  const normalized = normalizeBulletItem(seedText)
+function normalizeProjectSentence(value: string): string {
+  return normalizeBulletItem(value)
+    .replace(/^key objective[:\s-]*/i, "")
+    .replace(/^objective[:\s-]*/i, "")
+    .replace(/^executive summary[:\s-]*/i, "")
+    .replace(/\([^)]*$/g, "")
+    .replace(/[;,:-]+\s*$/g, "")
+    .trim();
+}
+
+function similarityKey(value: string): string {
+  return normalizeProjectSentence(value)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function areNearDuplicate(a: string, b: string): boolean {
+  const left = similarityKey(a);
+  const right = similarityKey(b);
+  if (!left || !right) {
+    return false;
+  }
+  if (left === right) {
+    return true;
+  }
+  if (left.includes(right) || right.includes(left)) {
+    return true;
+  }
+
+  const leftTokens = left.split(" ").filter((token) => token.length > 3);
+  const rightTokens = right.split(" ").filter((token) => token.length > 3);
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return false;
+  }
+
+  const rightSet = new Set(rightTokens);
+  const overlap = leftTokens.filter((token) => rightSet.has(token)).length;
+  const baseline = Math.min(leftTokens.length, rightTokens.length);
+  return baseline > 0 && overlap / baseline >= 0.75;
+}
+
+function synthesizeKeyObjective(seedText: string, avoidText = ""): string {
+  const normalized = normalizeProjectSentence(seedText)
     .replace(/\([^)]*$/g, "")
     .replace(/[;,:-]+\s*$/g, "")
     .trim();
@@ -188,6 +232,14 @@ function synthesizeKeyObjective(seedText: string): string {
   if (!concise) {
     return "Define a clear execution objective aligned with scope, deliverables, and timeline.";
   }
+
+  if (avoidText && areNearDuplicate(concise, avoidText)) {
+    if (/(expo|brand|campaign|locali[sz]ation|marcom|positioning)/i.test(normalized)) {
+      return "Translate the brief into a localized brand and campaign strategy with clear execution priorities.";
+    }
+    return "Convert the brief into a focused objective with clear strategic outcomes and delivery priorities.";
+  }
+
   return /[.!?؟…]$/.test(concise) ? concise : `${concise}.`;
 }
 
@@ -244,26 +296,31 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
     return true;
   });
 
-  const firstParagraph =
+  const firstParagraphRaw =
     normalizedSections.find((section) => section.type === "paragraph" && section.content.trim().length > 0)?.content.trim() ??
     result.formatted
       .split(/\n+/)
       .map((line) => line.trim())
       .find((line) => line.length > 0 && !/^#{1,6}\s*/.test(line)) ??
     "";
+  const firstParagraph = normalizeProjectSentence(firstParagraphRaw);
 
   const keyObjectiveSection =
     normalizedSections.find((section) => /key objective/i.test(section.content)) ??
     { type: "subheading" as const, content: "Key Objective", items: undefined };
 
-  const keyObjectiveParagraph =
-    normalizedSections.find((section) => section.type === "paragraph" && section.content.trim() !== firstParagraph)?.content.trim() ?? "";
+  const keyObjectiveParagraphRaw =
+    normalizedSections.find((section) => section.type === "paragraph" && section.content.trim() !== firstParagraphRaw)?.content.trim() ?? "";
+  const keyObjectiveParagraph = normalizeProjectSentence(keyObjectiveParagraphRaw);
 
   const keyObjectiveBullets = dedupeItems(
     normalizedSections
       .filter((section) => section.type === "bullet_list" || section.type === "numbered_list")
       .flatMap((section) => section.items ?? [])
-  ).slice(0, 3);
+  )
+    .map((item) => normalizeProjectSentence(item))
+    .filter((item) => item.length > 0 && !areNearDuplicate(item, firstParagraph))
+    .slice(0, 3);
 
   const sections: BeautifiedText["sections"] = [];
   if (firstParagraph) {
@@ -282,7 +339,7 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
       content: "Key Objective",
       items: keyObjectiveBullets.map((item) => truncateAtWordBoundary(item, 140))
     });
-  } else if (keyObjectiveParagraph) {
+  } else if (keyObjectiveParagraph && !areNearDuplicate(keyObjectiveParagraph, firstParagraph)) {
     sections.push({
       type: "paragraph",
       content: truncateAtWordBoundary(keyObjectiveParagraph, 240),
@@ -300,7 +357,8 @@ function normalizeProjectDescriptionStructure(result: BeautifiedText): Beautifie
       content: synthesizeKeyObjective(
         [keyObjectiveParagraph, keyObjectiveSection.content, firstParagraph, result.formatted]
           .filter(Boolean)
-          .join(" ")
+          .join(" "),
+        firstParagraph
       ),
       items: undefined
     });
