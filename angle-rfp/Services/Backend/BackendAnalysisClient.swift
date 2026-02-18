@@ -126,16 +126,39 @@ final class BackendAnalysisClient {
         let analysisId = UUID().uuidString.lowercased()
         let traceId = UUID().uuidString.lowercased()
         var allWarnings: [String] = []
+        let localParseSupported = {
+            let ext = documentURL.pathExtension.lowercased()
+            return ext == "pdf" || ext == "txt"
+        }()
 
         onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.12, warnings: []))
         let parsed: ParsedDocumentV1
         if shouldUseBackendParsing() {
-            parsed = try await withStageTimeout(stage: .parse, seconds: StageTimeouts.parse) {
-                try await self.parseDocumentViaBackend(
-                    analysisId: analysisId,
-                    traceId: traceId,
-                    documentURL: documentURL
-                )
+            do {
+                parsed = try await withStageTimeout(stage: .parse, seconds: StageTimeouts.parse) {
+                    try await self.parseDocumentViaBackend(
+                        analysisId: analysisId,
+                        traceId: traceId,
+                        documentURL: documentURL
+                    )
+                }
+            } catch {
+                if localParseSupported && shouldFallbackToLocalParsing(after: error) {
+                    let warning = "Backend parsing timed out/unavailable; falling back to local parsing."
+                    allWarnings.append(warning)
+                    onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.14, warnings: [warning]))
+                    parsed = try await withStageTimeout(stage: .parse, seconds: StageTimeouts.parse) {
+                        try await self.parseDocumentLocally(
+                            analysisId: analysisId,
+                            documentURL: documentURL,
+                            onProgress: { progress in
+                                onStageUpdate(BackendStageUpdate(stage: .parse, progress: 0.14 + 0.08 * progress, warnings: [warning]))
+                            }
+                        )
+                    }
+                } else {
+                    throw error
+                }
             }
         } else {
             parsed = try await withStageTimeout(stage: .parse, seconds: StageTimeouts.parse) {
@@ -159,6 +182,7 @@ final class BackendAnalysisClient {
             try await self.pollExtractionResult(
                 analysisId: analysisId,
                 traceId: traceId,
+                parsedDocument: parsed,
                 onStageUpdate: onStageUpdate
             )
         }
@@ -671,6 +695,7 @@ final class BackendAnalysisClient {
     private func pollExtractionResult(
         analysisId: String,
         traceId: String,
+        parsedDocument: ParsedDocumentV1?,
         onStageUpdate: @escaping (BackendStageUpdate) -> Void
     ) async throws -> ApiEnvelope<ExtractedRFPDataV1Payload> {
         var startAttempt = 0
@@ -679,7 +704,7 @@ final class BackendAnalysisClient {
                 _ = try await postJSON(
                     path: "/api/analyze/start",
                     traceId: traceId,
-                    body: AnalyzeStartRequestV1(analysisId: analysisId, parsedDocument: nil)
+                    body: AnalyzeStartRequestV1(analysisId: analysisId, parsedDocument: parsedDocument)
                 ) as ApiEnvelope<AnalyzeJobStateV1>
                 break
             } catch {
@@ -776,6 +801,35 @@ final class BackendAnalysisClient {
         default:
             return false
         }
+    }
+
+    private func shouldFallbackToLocalParsing(after error: Error) -> Bool {
+        if let clientError = error as? BackendAnalysisClientError {
+            switch clientError {
+            case .parseTimeout:
+                return true
+            case .stageTimeout(let stage, _):
+                return stage == .parse
+            case .httpError(let statusCode, let message):
+                if [408, 429, 500, 502, 503, 504, 522, 524].contains(statusCode) {
+                    return true
+                }
+                return message.localizedCaseInsensitiveContains("timeout")
+            default:
+                return false
+            }
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return true
+            default:
+                return false
+            }
+        }
+
+        return error.localizedDescription.localizedCaseInsensitiveContains("timeout")
     }
 
     private func configureRequestTransport(_ request: inout URLRequest) {
