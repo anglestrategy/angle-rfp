@@ -236,6 +236,53 @@ function parseTimeoutFromEnv(raw: string | undefined, fallbackMs: number, minMs 
   return Math.max(minMs, Math.min(maxMs, Math.floor(parsed)));
 }
 
+function defaultParseStepTimeouts(profile: AnalysisProfile): {
+  localPdfMs: number;
+  ocrMs: number;
+  unstructuredMs: number;
+} {
+  if (profile === "fast") {
+    return {
+      localPdfMs: 15_000,
+      ocrMs: 20_000,
+      unstructuredMs: 15_000
+    };
+  }
+
+  if (profile === "balanced") {
+    return {
+      localPdfMs: 18_000,
+      ocrMs: 25_000,
+      unstructuredMs: 20_000
+    };
+  }
+
+  return {
+    localPdfMs: 20_000,
+    ocrMs: 30_000,
+    unstructuredMs: 25_000
+  };
+}
+
+type StepOutcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; message: string };
+
+async function captureStepOutcome<T>(operation: Promise<T>): Promise<StepOutcome<T>> {
+  try {
+    return {
+      ok: true,
+      value: await operation
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      message
+    };
+  }
+}
+
 async function withStepTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timeoutId: NodeJS.Timeout | null = null;
   const timeoutPromise = new Promise<T>((_, reject) => {
@@ -314,6 +361,7 @@ function buildChunkIndex(
 
 export async function parseDocumentInput(input: ParseDocumentInput): Promise<ParsedDocumentV1> {
   const analysisProfile = resolvedAnalysisProfile();
+  const timeoutDefaults = defaultParseStepTimeouts(analysisProfile);
   assertLimits(input.fileName, input.fileBytes);
   const detectedFormat = detectFormat(input.fileName, input.mimeType);
   const warnings: string[] = [];
@@ -323,9 +371,15 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
   let pageCount = 1;
   let sourceType: "pdf_text" | "ocr" | "docx" | "txt" | "unstructured" = "txt";
   let needsOcr = false;
-  const localPdfStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_LOCAL_PDF_TIMEOUT_MS, 60_000);
-  const ocrStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_OCR_TIMEOUT_MS, 120_000);
-  const unstructuredStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_UNSTRUCTURED_TIMEOUT_MS, 70_000);
+  const localPdfStepTimeoutMs = parseTimeoutFromEnv(
+    process.env.PARSE_LOCAL_PDF_TIMEOUT_MS,
+    timeoutDefaults.localPdfMs
+  );
+  const ocrStepTimeoutMs = parseTimeoutFromEnv(process.env.PARSE_OCR_TIMEOUT_MS, timeoutDefaults.ocrMs);
+  const unstructuredStepTimeoutMs = parseTimeoutFromEnv(
+    process.env.PARSE_UNSTRUCTURED_TIMEOUT_MS,
+    timeoutDefaults.unstructuredMs
+  );
 
   if (detectedFormat === "txt") {
     const result = parseTxtBuffer(input.fileBytes);
@@ -381,20 +435,68 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
   }
 
   let ocrStats: { used: boolean; pagesOcred: number } | null = null;
+  const unstructuredConfigured = Boolean(process.env.UNSTRUCTURED_API_KEY);
 
-  if (detectedFormat === "pdf" && needsOcr) {
-    const provider = input.ocrProvider ?? createOcrProvider();
-    try {
-      const ocrResult = await withStepTimeout(
-        provider.performOcr({
-          fileBytes: input.fileBytes,
-          fileName: input.fileName,
-          pagesHint: pageCount
-        }),
-        ocrStepTimeoutMs,
-        "OCR step"
-      );
+  if (detectedFormat !== "txt" && !unstructuredConfigured && analysisProfile === "high_assurance") {
+    warnings.push("[parser_unstructured_unavailable] UNSTRUCTURED_API_KEY is not configured; complex layout/table extraction quality may be reduced.");
+  }
 
+  const ocrOutcomePromise =
+    detectedFormat === "pdf" && needsOcr
+      ? captureStepOutcome(
+          withStepTimeout(
+            (input.ocrProvider ?? createOcrProvider()).performOcr({
+              fileBytes: input.fileBytes,
+              fileName: input.fileName,
+              pagesHint: pageCount
+            }),
+            ocrStepTimeoutMs,
+            "OCR step"
+          )
+        )
+      : null;
+
+  const shouldUseUnstructured =
+    detectedFormat !== "txt" &&
+    unstructuredConfigured &&
+    shouldUseUnstructuredParser({
+      analysisProfile,
+      detectedFormat,
+      needsOcr,
+      pageCount,
+      rawTextLength: rawText.length,
+      warnings
+    });
+
+  if (shouldUseUnstructured && input.fileBytes.length > maxUnstructuredBytes()) {
+    warnings.push(
+      `Unstructured parser skipped for large file (${Math.round(input.fileBytes.length / (1024 * 1024))} MB).`
+    );
+  }
+
+  const unstructuredOutcomePromise =
+    shouldUseUnstructured && input.fileBytes.length <= maxUnstructuredBytes()
+      ? captureStepOutcome(
+          withStepTimeout(
+            parseWithUnstructured({
+              fileBytes: input.fileBytes,
+              fileName: input.fileName,
+              mimeType: input.mimeType
+            }),
+            unstructuredStepTimeoutMs,
+            "Unstructured parse"
+          )
+        )
+      : null;
+
+  const [ocrOutcome, unstructuredOutcome] = await Promise.all([
+    ocrOutcomePromise ?? Promise.resolve<StepOutcome<Awaited<ReturnType<OcrProvider["performOcr"]>>> | null>(null),
+    unstructuredOutcomePromise ?? Promise.resolve<StepOutcome<Awaited<ReturnType<typeof parseWithUnstructured>>> | null>(null)
+  ]);
+
+  if (ocrOutcome) {
+    if (ocrOutcome.ok) {
+      const ocrResult = ocrOutcome.value;
       if (ocrResult.text.trim().length > 0) {
         rawText = `${rawText}\n\n${ocrResult.text}`.trim();
         sourceType = "ocr";
@@ -406,85 +508,55 @@ export async function parseDocumentInput(input: ParseDocumentInput): Promise<Par
         pagesOcred: ocrResult.pagesOcred
       };
       parserProvenance.push("ocr");
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      warnings.push(`[ocr_unavailable] OCR step failed or timed out: ${message}`);
+    } else {
+      warnings.push(`[ocr_unavailable] OCR step failed or timed out: ${ocrOutcome.message}`);
     }
   }
 
-  if (detectedFormat !== "txt" && !process.env.UNSTRUCTURED_API_KEY && analysisProfile === "high_assurance") {
-    warnings.push("[parser_unstructured_unavailable] UNSTRUCTURED_API_KEY is not configured; complex layout/table extraction quality may be reduced.");
-  }
-
-  if (detectedFormat !== "txt" && process.env.UNSTRUCTURED_API_KEY) {
-    const shouldUseUnstructured = shouldUseUnstructuredParser({
-      analysisProfile,
-      detectedFormat,
-      needsOcr,
-      pageCount,
-      rawTextLength: rawText.length,
-      warnings
-    });
-
-    if (shouldUseUnstructured) {
-      if (input.fileBytes.length > maxUnstructuredBytes()) {
-        warnings.push(
-          `Unstructured parser skipped for large file (${Math.round(input.fileBytes.length / (1024 * 1024))} MB).`
+  if (unstructuredOutcome) {
+    if (unstructuredOutcome.ok) {
+      const unstructured = unstructuredOutcome.value;
+      if (unstructured && unstructured.text.trim().length > 500) {
+        const localScore = textQualityScore(rawText);
+        const unstructuredScore = textQualityScore(unstructured.text);
+        const warningSignal = warnings.some((warning) =>
+          /limited|no direct text extracted|unable to extract|image-only|fallback|ocr|parser_degraded_local_pdf/i.test(
+            warning
+          )
         );
-      } else {
-        try {
-          const unstructured = await withStepTimeout(
-            parseWithUnstructured({
-              fileBytes: input.fileBytes,
-              fileName: input.fileName,
-              mimeType: input.mimeType
-            }),
-            unstructuredStepTimeoutMs,
-            "Unstructured parse"
+        const localCorrupted = looksCorruptedExtractedText(rawText);
+        const localDegraded = hasParserDegradationWarning(warnings);
+        const shouldPreferUnstructured =
+          analysisProfile === "high_assurance"
+            ? warningSignal ||
+              needsOcr ||
+              localCorrupted ||
+              localDegraded ||
+              unstructuredScore >= Math.max(0.2, localScore - 0.05)
+            : warningSignal ||
+              needsOcr ||
+              localCorrupted ||
+              unstructuredScore >= localScore + 0.05 ||
+              localScore < 0.42;
+
+        if (shouldPreferUnstructured) {
+          rawText = unstructured.text;
+          sourceType = "unstructured";
+        } else {
+          warnings.push(
+            `Unstructured output kept as secondary context (local quality score ${localScore.toFixed(2)} >= unstructured ${unstructuredScore.toFixed(2)}).`
           );
-
-          if (unstructured && unstructured.text.trim().length > 500) {
-            const localScore = textQualityScore(rawText);
-            const unstructuredScore = textQualityScore(unstructured.text);
-            const warningSignal = warnings.some((warning) =>
-              /limited|no direct text extracted|unable to extract|image-only|fallback|ocr|parser_degraded_local_pdf/i.test(
-                warning
-              )
-            );
-            const localCorrupted = looksCorruptedExtractedText(rawText);
-            const localDegraded = hasParserDegradationWarning(warnings);
-            const shouldPreferUnstructured =
-              analysisProfile === "high_assurance"
-                ? warningSignal ||
-                  needsOcr ||
-                  localCorrupted ||
-                  localDegraded ||
-                  unstructuredScore >= Math.max(0.2, localScore - 0.05)
-                : warningSignal ||
-                  needsOcr ||
-                  localCorrupted ||
-                  unstructuredScore >= localScore + 0.05 ||
-                  localScore < 0.42;
-
-            if (shouldPreferUnstructured) {
-              rawText = unstructured.text;
-              sourceType = "unstructured";
-            } else {
-              warnings.push(
-                `Unstructured output kept as secondary context (local quality score ${localScore.toFixed(2)} >= unstructured ${unstructuredScore.toFixed(2)}).`
-              );
-            }
-          }
-          parserProvenance.push("unstructured");
-
-          if (unstructured?.warnings.length) {
-            warnings.push(...unstructured.warnings);
-          }
-        } catch (error: unknown) {
-          const message = error instanceof Error ? error.message : String(error);
-          warnings.push(`[parser_unstructured_unavailable] Unstructured parser unavailable; continued with local parser. (${message})`);
         }
       }
+      parserProvenance.push("unstructured");
+
+      if (unstructured?.warnings.length) {
+        warnings.push(...unstructured.warnings);
+      }
+    } else {
+      warnings.push(
+        `[parser_unstructured_unavailable] Unstructured parser unavailable; continued with local parser. (${unstructuredOutcome.message})`
+      );
     }
   }
 

@@ -113,7 +113,7 @@ final class BackendAnalysisClient {
     private static func makeDefaultSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.waitsForConnectivity = false
-        configuration.timeoutIntervalForRequest = 60
+        configuration.timeoutIntervalForRequest = 390
         configuration.timeoutIntervalForResource = 900
         configuration.httpMaximumConnectionsPerHost = 2
         return URLSession(configuration: configuration)
