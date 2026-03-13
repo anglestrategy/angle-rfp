@@ -188,8 +188,6 @@ function buildHtml(d: PdfData): string {
 <head>
 <meta charset="utf-8">
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
-
   *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
   :root {
@@ -203,8 +201,8 @@ function buildHtml(d: PdfData): string {
     --red: #dc2626;
     --border: #1a1a1a;
     --divider: #dad8d2;
-    --font-sans: 'Urbanist', system-ui, -apple-system, sans-serif;
-    --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+    --font-sans: 'Inter', 'Helvetica Neue', Arial, system-ui, -apple-system, sans-serif;
+    --font-mono: 'SFMono-Regular', 'Menlo', 'Monaco', 'Courier New', monospace;
   }
 
   @page {
@@ -683,24 +681,50 @@ function buildHtml(d: PdfData): string {
 </html>`;
 }
 
+function getLaunchOptions() {
+  const executablePath =
+    process.env.PUPPETEER_EXECUTABLE_PATH ||
+    process.env.CHROME_BIN ||
+    process.env.CHROMIUM_PATH ||
+    (() => {
+      try {
+        return puppeteer.executablePath();
+      } catch {
+        return undefined;
+      }
+    })();
+
+  return {
+    headless: true as const,
+    executablePath,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-gpu",
+      "--disable-dev-shm-usage",
+      "--font-render-hinting=none",
+    ],
+  };
+}
+
 /* ── PDF Generation ── */
 export async function generatePdf(analysis: any): Promise<Buffer> {
   const data = extractPdfData(analysis);
   const html = buildHtml(data);
 
-  const browser = await puppeteer.launch({
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
-  });
+  const browser = await puppeteer.launch(getLaunchOptions());
 
   try {
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: "networkidle0" });
+    await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 1 });
+    await page.setContent(html, { waitUntil: "domcontentloaded", timeout: 15000 });
+    await page.emulateMediaType("screen");
 
     const pdfBuffer = await page.pdf({
       format: "A4",
       printBackground: true,
       margin: { top: "0", right: "0", bottom: "0", left: "0" },
+      preferCSSPageSize: true,
     });
 
     return Buffer.from(pdfBuffer);
