@@ -33,6 +33,10 @@ const allowlist = [
 
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
+  const clientEnv = {
+    "import.meta.env.DEV": "false",
+    "import.meta.env.VITE_ENABLE_DEV_PRELOADER": JSON.stringify(process.env.VITE_ENABLE_DEV_PRELOADER ?? ""),
+  };
 
   console.log("building client...");
   const clientResult = await esbuild({
@@ -52,6 +56,7 @@ async function buildAll() {
     jsx: "automatic",
     define: {
       "process.env.NODE_ENV": '"production"',
+      ...clientEnv,
     },
     loader: {
       ".svg": "file",
@@ -106,6 +111,7 @@ async function buildAll() {
     outfile: "dist/index.cjs",
     define: {
       "process.env.NODE_ENV": '"production"',
+      ...clientEnv,
     },
     minify: true,
     external: externals,
