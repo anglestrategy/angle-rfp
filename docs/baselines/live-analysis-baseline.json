@@ -1,0 +1,138 @@
+{
+  "generatedAt": "2026-03-09T12:47:49.372Z",
+  "criteriaVersion": "shadow-v2",
+  "analyses": [
+    {
+      "analysisId": 9,
+      "fileName": "Dnaneer_AOR_RFP_2026.pdf",
+      "createdAt": "2026-02-24T14:31:27.422Z",
+      "overallScore": 66,
+      "recommendation": "Moderate",
+      "fieldPresence": {
+        "clientName": true,
+        "projectTitle": true,
+        "deliverables": true,
+        "dates": true,
+        "submissionRequirements": true,
+        "contractTerms": true
+      },
+      "counts": {
+        "deliverables": 42,
+        "dates": 8,
+        "highSeverityRisks": 6,
+        "clarificationQuestions": 35,
+        "scopeMatchPct": 97
+      }
+    },
+    {
+      "analysisId": 8,
+      "fileName": "RFP Strategic Agency.pdf",
+      "createdAt": "2026-02-24T13:26:49.052Z",
+      "overallScore": 75,
+      "recommendation": "Good",
+      "fieldPresence": {
+        "clientName": true,
+        "projectTitle": true,
+        "deliverables": true,
+        "dates": true,
+        "submissionRequirements": true,
+        "contractTerms": true
+      },
+      "counts": {
+        "deliverables": 24,
+        "dates": 4,
+        "highSeverityRisks": 5,
+        "clarificationQuestions": 20,
+        "scopeMatchPct": 100
+      }
+    },
+    {
+      "analysisId": 7,
+      "fileName": "QPMO-410-CT-07753 - Scope Of Work.pdf",
+      "createdAt": "2026-02-21T05:09:51.913Z",
+      "overallScore": 75,
+      "recommendation": "Good",
+      "fieldPresence": {
+        "clientName": true,
+        "projectTitle": true,
+        "deliverables": true,
+        "dates": true,
+        "submissionRequirements": true,
+        "contractTerms": true
+      },
+      "counts": {
+        "deliverables": 22,
+        "dates": 14,
+        "highSeverityRisks": 9,
+        "clarificationQuestions": 25,
+        "scopeMatchPct": 95
+      }
+    },
+    {
+      "analysisId": 6,
+      "fileName": "QPMO-410-CT-07753 - Scope Of Work.pdf",
+      "createdAt": "2026-02-19T11:28:18.471Z",
+      "overallScore": 81,
+      "recommendation": "Good",
+      "fieldPresence": {
+        "clientName": true,
+        "projectTitle": true,
+        "deliverables": true,
+        "dates": false,
+        "submissionRequirements": true,
+        "contractTerms": true
+      },
+      "counts": {
+        "deliverables": 25,
+        "dates": 0,
+        "highSeverityRisks": 6,
+        "clarificationQuestions": 29,
+        "scopeMatchPct": 96
+      }
+    },
+    {
+      "analysisId": 5,
+      "fileName": "Financial Literacy Program RFP.pdf",
+      "createdAt": "2026-02-18T21:01:27.726Z",
+      "overallScore": 76,
+      "recommendation": "Good",
+      "fieldPresence": {
+        "clientName": true,
+        "projectTitle": true,
+        "deliverables": true,
+        "dates": true,
+        "submissionRequirements": true,
+        "contractTerms": true
+      },
+      "counts": {
+        "deliverables": 14,
+        "dates": 8,
+        "highSeverityRisks": 3,
+        "clarificationQuestions": 20,
+        "scopeMatchPct": 100
+      }
+    },
+    {
+      "analysisId": 4,
+      "fileName": "RFP-0203 - Brand Localization Strategy .pdf",
+      "createdAt": "2026-02-18T20:48:02.867Z",
+      "overallScore": 56,
+      "recommendation": "Moderate",
+      "fieldPresence": {
+        "clientName": true,
+        "projectTitle": true,
+        "deliverables": true,
+        "dates": true,
+        "submissionRequirements": true,
+        "contractTerms": true
+      },
+      "counts": {
+        "deliverables": 42,
+        "dates": 9,
+        "highSeverityRisks": 6,
+        "clarificationQuestions": 25,
+        "scopeMatchPct": 96
+      }
+    }
+  ]
+}

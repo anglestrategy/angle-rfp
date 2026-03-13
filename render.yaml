@@ -1,0 +1,41 @@
+services:
+  - type: web
+    name: angle-rfp-web
+    runtime: node
+    plan: starter
+    branch: release/public-v1
+    rootDir: .
+    buildCommand: npm ci && npm run db:push && npm run build
+    startCommand: npm run start
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: angle-rfp-db
+          property: connectionString
+      - key: AI_INTEGRATIONS_ANTHROPIC_API_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: FEATURE_ANALYSIS_WORKER
+        value: "false"
+      - key: FEATURE_SHADOW_V2
+        value: "false"
+      - key: FEATURE_EVIDENCE_UI
+        value: "false"
+      - key: FEATURE_WEB_RESEARCH
+        value: "false"
+      - key: FEATURE_OCR_FALLBACK
+        value: "false"
+      - key: FEATURE_LIVE_V2_CUTOVER
+        value: "false"
+
+databases:
+  - name: angle-rfp-db
+    databaseName: angle_rfp
+    user: angle_rfp

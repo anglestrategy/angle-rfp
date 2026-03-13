@@ -1,0 +1,1048 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Thin scrollbar for sidebar panels ── */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--foreground) / 0.12) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.12);
+  border-radius: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.20);
+}
+
+/* ── Sidebar column scroll — visible track on hover ── */
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--foreground) / 0.08) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.10);
+  border-radius: 6px;
+}
+.sidebar-scroll:hover::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.18);
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.28);
+}
+
+/* ── Inner section scroll (accordion content areas) ── */
+/* Force scrollbar visibility on macOS where overlay scrollbars are invisible */
+.overscroll-contain {
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--foreground) / 0.25) hsl(var(--foreground) / 0.06);
+  /* Force scrollbar to always be visible (not overlay) on WebKit */
+  &::-webkit-scrollbar {
+    -webkit-appearance: none;
+  }
+}
+.overscroll-contain::-webkit-scrollbar {
+  width: 6px;
+}
+.overscroll-contain::-webkit-scrollbar-track {
+  background: hsl(var(--foreground) / 0.06);
+  border-radius: 6px;
+  margin: 2px 0;
+}
+.overscroll-contain::-webkit-scrollbar-thumb {
+  background: hsl(var(--foreground) / 0.25);
+  border-radius: 6px;
+  min-height: 32px;
+}
+.overscroll-contain::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--foreground) / 0.40);
+}
+
+/* LIGHT MODE — Glass Editorial */
+:root {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+  --background: 30 15% 96%;
+  --foreground: 220 15% 12%;
+  --border: 220 10% 85%;
+  --card: 0 0% 100% / 0.65;
+  --card-foreground: 220 15% 12%;
+  --card-border: 220 10% 85%;
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 220 15% 12%;
+  --sidebar-border: 220 10% 85%;
+  --sidebar-primary: 14 80% 55%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 30 10% 92%;
+  --sidebar-accent-foreground: 220 15% 12%;
+  --sidebar-ring: 14 80% 55%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 15% 12%;
+  --popover-border: 220 10% 85%;
+  --primary: 14 80% 55%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 30 8% 92%;
+  --secondary-foreground: 220 15% 12%;
+  --muted: 30 8% 92%;
+  --muted-foreground: 220 8% 50%;
+  --accent: 30 8% 92%;
+  --accent-foreground: 220 15% 12%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 220 10% 80%;
+  --ring: 14 80% 55%;
+  --chart-1: 14 80% 48%;
+  --chart-2: 28 85% 55%;
+  --chart-3: 213 85% 55%;
+  --chart-4: 280 75% 50%;
+  --chart-5: 142 70% 42%;
+  --font-sans: 'Urbanist', sans-serif;
+  --font-display: 'Urbanist', sans-serif;
+  --font-ui: 'Urbanist', sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --radius: 1rem;
+  --shadow-2xs: 0 1px 2px rgba(0,0,0,.04);
+  --shadow-xs: 0 1px 3px rgba(0,0,0,.06);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,.06);
+  --shadow: 0 4px 16px rgba(0,0,0,.06);
+  --shadow-md: 0 6px 24px rgba(0,0,0,.08);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,.08);
+  --shadow-xl: 0 20px 60px rgba(0,0,0,.10);
+  --shadow-2xl: 0 32px 80px rgba(0,0,0,.12);
+  /* Glass tokens */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --glass-blur: 16px;
+  --glass-rim: rgba(232, 121, 59, 0.20);
+  --glass-rim-strong: rgba(232, 121, 59, 0.40);
+  --glass-inner-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+  --glass-outer-glow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.06);
+  --glass-highlight: linear-gradient(145deg, rgba(255,255,255,0.25) 0%, rgba(255,255,255,0) 45%);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+/* Fallback for older browsers */
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+.dark {
+  /* ── Japanese Gradient Glass — the dark mode IS liquid glass ── */
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+
+  /* ── Base palette: deep ink with subtle warmth ── */
+  --background: 230 15% 8%;
+  --foreground: 220 10% 92%;
+  --border: 225 10% 18%;
+  --card: 225 12% 12% / 0.35;
+  --card-foreground: 220 10% 92%;
+  --card-border: 225 10% 22%;
+  --surface-elevated: 225 10% 14%;
+  --surface-inset: 230 12% 6%;
+  --sidebar: 230 12% 6%;
+  --sidebar-foreground: 220 10% 92%;
+  --sidebar-border: 225 10% 16%;
+  --sidebar-primary: 14 80% 55%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 220 12% 14%;
+  --sidebar-accent-foreground: 220 10% 92%;
+  --sidebar-ring: 14 80% 55%;
+  --popover: 228 12% 11%;
+  --popover-foreground: 220 10% 92%;
+  --popover-border: 225 10% 20%;
+  --primary: 14 80% 55%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 225 8% 16%;
+  --secondary-foreground: 220 10% 92%;
+  --muted: 225 8% 16%;
+  --muted-foreground: 220 6% 55%;
+  --accent: 220 10% 14%;
+  --accent-foreground: 220 10% 92%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 225 8% 20%;
+  --ring: 14 80% 55%;
+  --chart-1: 14 90% 62%;
+  --chart-2: 28 90% 68%;
+  --chart-3: 213 90% 68%;
+  --chart-4: 280 80% 72%;
+  --chart-5: 142 69% 58%;
+
+  /* ── Glass tokens: frosted translucent panels ── */
+  --glass-bg: rgba(255, 255, 255, 0.04);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --glass-blur: 24px;
+  --glass-rim: rgba(232, 121, 59, 0.25);
+  --glass-rim-strong: rgba(232, 121, 59, 0.50);
+  --glass-inner-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.05);
+  --glass-outer-glow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 4px 24px rgba(0, 0, 0, 0.20),
+    0 12px 48px rgba(0, 0, 0, 0.15);
+  --glass-highlight: linear-gradient(
+    170deg,
+    rgba(255, 255, 255, 0.08) 0%,
+    rgba(255, 255, 255, 0.03) 30%,
+    transparent 60%
+  );
+
+  /* ── Shadows: deep, clean ── */
+  --shadow-2xs: 0 1px 2px hsl(230 20% 3% / 0.5);
+  --shadow-xs: 0 1px 3px hsl(230 20% 3% / 0.5);
+  --shadow-sm: 0 2px 8px hsl(230 20% 3% / 0.45);
+  --shadow: 0 4px 16px hsl(230 20% 3% / 0.40);
+  --shadow-md: 0 8px 24px hsl(230 20% 3% / 0.45);
+  --shadow-lg: 0 16px 40px hsl(230 20% 3% / 0.45);
+  --shadow-xl: 0 24px 56px hsl(230 20% 3% / 0.50);
+  --shadow-2xl: 0 32px 72px hsl(230 20% 3% / 0.60);
+
+  /* ── Elevation: cool white tint ── */
+  --elevate-1: rgba(255, 255, 255, 0.03);
+  --elevate-2: rgba(255, 255, 255, 0.06);
+
+/* Fallback for older browsers */
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* Fallback for older browsers */
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+/* (Glass variables are now merged into .dark above) */
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE CARD BEHAVIOURS — Liquid glass, frosted, floating
+   (Dark mode IS the Japanese gradient glass mode)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Card: frosted glass with luminous border ── */
+.dark .shadcn-card {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(24px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.3) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.03),
+    0 0 0 0.5px rgba(255, 255, 255, 0.06),
+    0 4px 24px rgba(0, 0, 0, 0.18),
+    0 16px 48px rgba(0, 0, 0, 0.10) !important;
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1),
+              box-shadow 0.4s ease,
+              border-color 0.4s ease;
+}
+
+/* ── Edge-lit rim: orange light refracting through glass edges ── */
+.dark .shadcn-card::before {
+  content: "" !important;
+  position: absolute !important;
+  inset: 0 !important;
+  border-radius: inherit !important;
+  padding: 1px !important;
+  background: conic-gradient(
+    from 220deg at 50% 50%,
+    rgba(255, 255, 255, 0.12) 0deg,
+    rgba(255, 255, 255, 0.06) 60deg,
+    rgba(232, 121, 59, 0.04) 120deg,
+    rgba(232, 121, 59, 0.14) 180deg,
+    rgba(232, 121, 59, 0.20) 240deg,
+    rgba(232, 121, 59, 0.08) 300deg,
+    rgba(255, 255, 255, 0.10) 360deg
+  ) !important;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  z-index: 1 !important;
+  pointer-events: none !important;
+  opacity: 1 !important;
+}
+
+/* ── Surface highlight: warm refraction sheen ── */
+.dark .shadcn-card::after {
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(232, 121, 59, 0.03) 20%,
+    rgba(255, 255, 255, 0.02) 40%,
+    transparent 55%
+  ) !important;
+}
+
+/* ── Hover: subtle lift with warm edge glow ── */
+.dark .shadcn-card:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 0 0 0.5px rgba(232, 121, 59, 0.08),
+    0 0 12px rgba(232, 121, 59, 0.06),
+    0 6px 24px rgba(0, 0, 0, 0.22),
+    0 16px 48px rgba(0, 0, 0, 0.12) !important;
+}
+.dark .shadcn-card:hover::before {
+  opacity: 1.4 !important;
+}
+
+/* ── Sticky header: thin frosted bar ── */
+.dark .sticky {
+  background: rgba(15, 18, 28, 0.6) !important;
+  backdrop-filter: blur(24px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
+  border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04), 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* ── Typography: crisp, legible ── */
+.dark .metric-value {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.dark .swiss-data-value {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.dark .section-heading {
+  color: hsl(var(--primary) / 0.75);
+}
+
+/* ── Grain: hidden (clean liquid look) ── */
+.dark .grain-overlay {
+  opacity: 0.015;
+}
+
+/* ── Hide the inline rim div (CSS ::before handles borders) ── */
+.dark .shadcn-card > .hover-parent-rim {
+  display: none;
+}
+
+/* ── Glass-panel overrides ── */
+.dark .glass-panel,
+.dark .glass-panel-accent {
+  background: rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(24px) saturate(1.3) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.3) !important;
+  border-color: rgba(255, 255, 255, 0.09) !important;
+  box-shadow:
+    0 0 0 0.5px rgba(255, 255, 255, 0.06),
+    0 4px 24px rgba(0, 0, 0, 0.18),
+    0 16px 48px rgba(0, 0, 0, 0.10) !important;
+}
+
+.dark .glass-panel-accent {
+  border-color: rgba(232, 121, 59, 0.15) !important;
+}
+
+.dark .glass-panel::before,
+.dark .glass-panel-accent::before {
+  opacity: 1 !important;
+  background: linear-gradient(
+    175deg,
+    rgba(255, 255, 255, 0.12) 0%,
+    rgba(255, 255, 255, 0.04) 20%,
+    rgba(232, 121, 59, 0.06) 75%,
+    rgba(232, 121, 59, 0.15) 100%
+  ) !important;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    overflow-x: hidden;
+  }
+
+  /* ── Branded text selection ── */
+  ::selection {
+    background: hsl(var(--primary) / 0.15);
+  }
+  .dark ::selection {
+    background: hsl(var(--primary) / 0.25);
+  }
+
+  /* ── Focus ring: primary-colored, accessible ── */
+  :focus-visible {
+    outline: 2px solid hsl(var(--primary));
+    outline-offset: 2px;
+  }
+
+  /* ── Smooth scroll (respects reduced-motion) ── */
+  html {
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  /* Lenis CSS is imported via lenis/dist/lenis.css in use-lenis.ts */
+  /* Override: disable native smooth-scroll when Lenis is active */
+  html.lenis {
+    scroll-behavior: auto;
+  }
+}
+
+/**
+ * Using the elevate system.
+ * Automatic contrast adjustment.
+ *
+ * <element className="hover-elevate" />
+ * <element className="active-elevate-2" />
+ *
+ * // Using the tailwind utility when a data attribute is "on"
+ * <element className="toggle-elevate data-[state=on]:toggle-elevated" />
+ * // Or manually controlling the toggle state
+ * <element className="toggle-elevate toggle-elevated" />
+ *
+ * Elevation systems have to handle many states.
+ * - not-hovered, vs. hovered vs. active  (three mutually exclusive states)
+ * - toggled or not
+ * - focused or not (this is not handled with these utilities)
+ *
+ * Even without handling focused or not, this is six possible combinations that
+ * need to be distinguished from eachother visually.
+ */
+@layer utilities {
+
+  /* Hide ugly search cancel button in Chrome until we can style it properly */
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  /* Placeholder styling for contentEditable div */
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
+   * buttons/badges can remove the automatic brightness adjustment on interactions
+   * and program their own. */
+  .no-default-hover-elevate {}
+
+  .no-default-active-elevate {}
+
+
+  /**
+   * Toggleable backgrounds go behind the content. Hoverable/active goes on top.
+   * This way they can stack/compound. Both will overlap the parent's borders!
+   * So borders will be automatically adjusted both on toggle, and hover/active,
+   * and they will be compounded.
+   */
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: -1;
+    /* sits behind content but above backdrop */
+  }
+
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
+  }
+
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.toggle-elevate::before {
+    inset: -1px;
+  }
+
+  /* Does not work on elements with overflow:hidden! */
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    /*border-radius: inherit;   match rounded corners */
+    border-radius: inherit;
+    z-index: 999;
+    /* sits in front of content */
+  }
+
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
+  }
+
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-2);
+  }
+
+  /* If there's a 1px border, adjust the inset so that it covers that parent's border */
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
+    inset: -1px;
+  }
+
+  /* ── Glass Panel System ── */
+
+  /* Glass card surface */
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      var(--glass-inner-shadow),
+      var(--glass-outer-glow);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Warm orange rim glow on bottom/right edge (like the 3D renders) */
+  .glass-panel::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      160deg,
+      transparent 40%,
+      var(--glass-rim) 70%,
+      var(--glass-rim-strong) 100%
+    );
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  .glass-panel:hover::before {
+    opacity: 1;
+  }
+
+  /* Highlight shine on top-left (like the glass render light reflection) */
+  .glass-panel::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: var(--glass-highlight);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Glass panel with persistent rim glow (for hero/accent cards) */
+  .glass-panel-accent {
+    background: var(--glass-bg);
+    backdrop-filter: blur(var(--glass-blur));
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    border: 1px solid var(--glass-rim);
+    box-shadow:
+      var(--glass-inner-shadow),
+      0 0 0 1px var(--glass-rim),
+      0 4px 30px rgba(232, 121, 59, 0.08),
+      0 8px 32px rgba(0,0,0,0.08);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .glass-panel-accent::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 50%;
+    background: var(--glass-highlight);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Typography Utilities ── */
+
+  /* Section heading: mono uppercase micro-label */
+  .section-heading {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Metric value: large display number */
+  .metric-value {
+    font-family: var(--font-sans);
+    font-size: 64px;
+    font-weight: 800;
+    line-height: 0.9;
+    letter-spacing: -0.03em;
+    color: hsl(var(--foreground));
+  }
+
+  /* Metric label: refined label beneath metric values */
+  .metric-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: hsl(var(--muted-foreground));
+  }
+
+  /* Panel section heading — unified across all dashboard cards */
+  .panel-heading {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    color: hsl(var(--foreground));
+  }
+
+  /* Swiss data row: key-value pairs in panels */
+  .swiss-data-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .swiss-data-value {
+    font-family: var(--font-sans);
+    font-size: 16px;
+    font-weight: 700;
+    color: hsl(var(--foreground));
+  }
+
+  /* ── Grain Overlay (Swiss print-proof texture) ── */
+  .grain-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.04;
+  }
+
+  .dark .grain-overlay {
+    opacity: 0.02;
+  }
+
+  /* ── Blinking Terminal Cursor ← Codrops Terminal Typography ── */
+  .blink-cursor::after {
+    content: "_";
+    animation: blink-cursor 1.06s step-end infinite;
+  }
+
+  .blink-cursor-fade::after {
+    content: "_";
+    animation: blink-cursor 1.06s step-end 3;
+    opacity: 0;
+  }
+
+  /* ── Corner Registration Marks (print-proof aesthetic) ── */
+  .corner-mark {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1;
+    color: hsl(var(--muted-foreground) / 0.3);
+    transition: color 0.3s ease, transform 0.3s ease;
+    user-select: none;
+  }
+
+  .corner-mark-tl { top: -1px; left: -1px; }
+  .corner-mark-tr { top: -1px; right: -1px; }
+  .corner-mark-bl { bottom: -1px; left: -1px; }
+  .corner-mark-br { bottom: -1px; right: -1px; }
+
+  /* ── Clip-path Wipe Reveal ← Crescente clip-path technique ── */
+  .clip-wipe-enter {
+    animation: clip-wipe 0.4s ease-out forwards;
+  }
+
+  /* ── Shimmer Progress Bar ← Codrops Elastic Progress ── */
+  .shimmer-bar {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--primary) / 0.6) 50%,
+      hsl(var(--primary)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+
+  /* ── Breathing Radial Gradient (drop zone pulse) ── */
+  .breathe-glow {
+    animation: breathe 4s ease-in-out infinite;
+  }
+
+  /* ── Swiss Brutalist Grid Overlay ── */
+  .editorial-grid {
+    background-image:
+      linear-gradient(to right, hsl(var(--foreground) / 0.03) 1px, transparent 1px),
+      linear-gradient(to bottom, hsl(var(--foreground) / 0.03) 1px, transparent 1px);
+    background-size: 80px 80px;
+    opacity: 0.6;
+    z-index: 0;
+  }
+  .dark .editorial-grid {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 80px 80px;
+    opacity: 0.8;
+  }
+
+  /* Accent cross-hairs at grid intersections (dark mode only) */
+  .dark .editorial-grid::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle 1px at center, rgba(232, 121, 59, 0.08) 0%, transparent 1px);
+    background-size: 80px 80px;
+    z-index: 0;
+  }
+
+  /* ── Progress Bar Elastic Overshoot ← Codrops Elastic Progress ── */
+  .elastic-progress {
+    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  /* ── Nav bar links ── */
+  .nav-link {
+    @apply font-mono text-xs uppercase tracking-wider text-muted-foreground
+           hover:text-foreground transition-colors;
+  }
+
+  .nav-link-active {
+    @apply text-foreground;
+  }
+
+  /* ── File list row ── */
+  .file-row {
+    @apply flex items-center gap-4 px-6 py-3 hover:bg-muted/50
+           cursor-pointer transition-colors;
+  }
+
+  /* ── Progress track glow (processing state) ── */
+  .progress-track-glow {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.1);
+    animation: breathe-glow 3s ease-in-out infinite;
+  }
+
+  /* ── Data row hover ── */
+  .row-hover {
+    transition: background-color 150ms ease;
+  }
+  .row-hover:hover {
+    background-color: var(--elevate-1);
+  }
+
+  /* ── Subtle card lift ── */
+  .card-lift {
+    transition: transform 350ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 350ms ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-1px);
+  }
+
+  /* ═══════════════════════════════════════════════════════════
+     LANDING PAGE — Premium CTA + Section Styles
+     ═══════════════════════════════════════════════════════════ */
+
+  /* Primary CTA button — strong, bold, inverted */
+  .landing-cta-primary {
+    position: relative;
+    overflow: hidden;
+    letter-spacing: -0.01em;
+  }
+
+  /* Sweep shine on hover */
+  .landing-cta-primary::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.12) 45%,
+      rgba(255, 255, 255, 0.15) 50%,
+      rgba(255, 255, 255, 0.12) 55%,
+      transparent 65%
+    );
+    transform: translateX(-120%);
+    transition: transform 0.6s ease;
+    pointer-events: none;
+  }
+  .landing-cta-primary:hover::after {
+    transform: translateX(120%);
+  }
+
+  /* Dark mode: bright CTA glow */
+  .dark .landing-cta-primary {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 4px 20px rgba(232, 121, 59, 0.10),
+      0 8px 32px rgba(0, 0, 0, 0.20);
+  }
+  .dark .landing-cta-primary:hover {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.10),
+      0 4px 24px rgba(232, 121, 59, 0.18),
+      0 12px 40px rgba(0, 0, 0, 0.25);
+  }
+
+  /* Horizontal scroll feature card hover: warm orange line + border */
+  .hscroll-card {
+    transition: border-color 0.5s ease, box-shadow 0.5s ease, transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .hscroll-card:hover {
+    transform: translateY(-3px);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.06),
+      0 0 0 1px var(--glass-border);
+  }
+  .dark .hscroll-card:hover {
+    box-shadow:
+      0 0 0 1px rgba(232, 121, 59, 0.10),
+      0 4px 24px rgba(0, 0, 0, 0.25),
+      0 12px 48px rgba(0, 0, 0, 0.15);
+  }
+
+  /* Process step number circle — pop animation */
+  .process-num {
+    transition: box-shadow 0.4s ease;
+  }
+  .dark .process-num {
+    box-shadow: 0 0 0 4px rgba(232, 121, 59, 0.06);
+  }
+
+  /* Trust bullets — warm border on hover */
+  .trust-bullet {
+    transition: border-color 0.3s ease, background-color 0.3s ease, transform 0.3s ease;
+  }
+  .trust-bullet:hover {
+    transform: translateX(4px);
+  }
+
+  /* Reveal word — smooth opacity transition override (scroll-driven) */
+  .reveal-word {
+    will-change: opacity;
+  }
+}
+
+/* ── Keyframes ── */
+
+@keyframes rfp-scan {
+  0% { top: 0%; opacity: 0; }
+  5% { opacity: 1; }
+  95% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+.rfp-scan-line {
+  animation: rfp-scan 3s ease-in-out infinite;
+}
+
+@keyframes blink-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.04); }
+}
+
+@keyframes draw-line {
+  from { width: 0; }
+  to { width: 80px; }
+}
+
+@keyframes clip-wipe {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0% 0 0); }
+}
+
+@keyframes float-up {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes breathe-glow {
+  0%, 100% { box-shadow: 0 0 20px hsl(var(--primary) / 0.05); }
+  50% { box-shadow: 0 0 40px hsl(var(--primary) / 0.15); }
+}
+
+@keyframes radial-pulse {
+  0% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.15); }
+  70% { box-shadow: 0 0 0 30px hsl(var(--primary) / 0); }
+  100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0); }
+}
+
+/* ── GSAP Element Defaults ── */
+/* Elements that GSAP will animate should start invisible to prevent FOUC */
+.gsap-metric-item,
+.gsap-step-card,
+.gsap-step-num,
+.gsap-step-arrow,
+.gsap-bento-card,
+.gsap-trust-left,
+.gsap-trust-bullet,
+.gsap-footer-credit {
+  opacity: 0;
+}
+
+/* Elements with clip-path animations */
+.gsap-section-head {
+  clip-path: inset(0% 100% 0% 0%);
+}
+
+/* Lines that draw from zero */
+.gsap-connect-line,
+.gsap-strip-line,
+.gsap-cta-line {
+  transform: scaleX(0);
+}
+
+/* Bento head starts hidden */
+.gsap-bento-head {
+  opacity: 0;
+}
+
+/* CTA text container */
+[class*="gsap-cta-line"] + h2,
+[class*="gsap-cta-line"] ~ p,
+[class*="gsap-cta-line"] ~ a {
+  /* These are inside ctaTextRef which GSAP animates as a group */
+}
+
+/* ── Reduced Motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .blink-cursor::after,
+  .blink-cursor-fade::after,
+  .shimmer-bar,
+  .breathe-glow,
+  .clip-wipe-enter,
+  .elastic-progress {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .grain-overlay {
+    display: none;
+  }
+
+  /* Show GSAP elements immediately if reduced motion */
+  .gsap-metric-item,
+  .gsap-step-card,
+  .gsap-step-num,
+  .gsap-step-arrow,
+  .gsap-bento-card,
+  .gsap-trust-left,
+  .gsap-trust-bullet,
+  .gsap-footer-credit,
+  .gsap-section-head,
+  .gsap-bento-head {
+    opacity: 1 !important;
+    clip-path: none !important;
+  }
+
+  .gsap-connect-line,
+  .gsap-strip-line,
+  .gsap-cta-line {
+    transform: scaleX(1) !important;
+  }
+}
