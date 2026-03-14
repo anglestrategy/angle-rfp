@@ -1,6 +1,10 @@
 import { build as esbuild } from "esbuild";
 import { rm, readFile, writeFile, mkdir, cp } from "fs/promises";
 import path from "path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 // server deps to bundle to reduce openat(2) syscalls
 // which helps cold start times
@@ -33,90 +37,119 @@ const allowlist = [
 
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
+  await rm("client/src/build-main.production.tsx", { force: true });
   const clientEnv = {
     "import.meta.env.DEV": "false",
     "import.meta.env.VITE_ENABLE_DEV_PRELOADER": JSON.stringify(process.env.VITE_ENABLE_DEV_PRELOADER ?? ""),
   };
 
-  console.log("building client...");
-  const clientResult = await esbuild({
-    entryPoints: ["client/src/main.tsx"],
-    bundle: true,
-    outdir: "dist/public/assets",
-    entryNames: "[name]-[hash]",
-    assetNames: "asset-[name]-[hash]",
-    chunkNames: "chunk-[name]-[hash]",
-    format: "esm",
-    splitting: true,
-    platform: "browser",
-    target: ["es2020"],
-    minify: true,
-    metafile: true,
-    sourcemap: false,
-    jsx: "automatic",
-    define: {
-      "process.env.NODE_ENV": '"production"',
-      ...clientEnv,
-    },
-    loader: {
-      ".svg": "file",
-      ".png": "file",
-      ".jpg": "file",
-      ".jpeg": "file",
-      ".webp": "file",
-      ".woff": "file",
-      ".woff2": "file",
-    },
-    alias: {
-      "@": path.resolve("client/src"),
-      "@shared": path.resolve("shared"),
-      "@assets": path.resolve("attached_assets"),
-    },
-    logLevel: "info",
-  });
+  const mainSource = await readFile("client/src/main.tsx", "utf-8");
+  const clientEntryPath = path.resolve("client/src/build-main.production.tsx");
+  // Keep this temp entry in client/src so relative imports continue to resolve.
+  await writeFile(
+    clientEntryPath,
+    mainSource.replace(/^import\s+["']\.\/index\.css["'];\s*$/m, ""),
+    "utf-8",
+  );
 
-  const outputFiles = Object.keys(clientResult.metafile.outputs);
-  const entryJs = outputFiles.find((file) => file.startsWith("dist/public/assets/main-") && file.endsWith(".js"));
-  const entryCss = outputFiles.find((file) => file.startsWith("dist/public/assets/main-") && file.endsWith(".css"));
+  try {
+    console.log("building client...");
+    const clientResult = await esbuild({
+      entryPoints: [clientEntryPath],
+      bundle: true,
+      outdir: "dist/public/assets",
+      entryNames: "[name]-[hash]",
+      assetNames: "asset-[name]-[hash]",
+      chunkNames: "chunk-[name]-[hash]",
+      format: "esm",
+      splitting: true,
+      platform: "browser",
+      target: ["es2020"],
+      minify: true,
+      metafile: true,
+      sourcemap: false,
+      jsx: "automatic",
+      define: {
+        "process.env.NODE_ENV": '"production"',
+        ...clientEnv,
+      },
+      loader: {
+        ".svg": "file",
+        ".png": "file",
+        ".jpg": "file",
+        ".jpeg": "file",
+        ".webp": "file",
+        ".woff": "file",
+        ".woff2": "file",
+      },
+      alias: {
+        "@": path.resolve("client/src"),
+        "@shared": path.resolve("shared"),
+        "@assets": path.resolve("attached_assets"),
+      },
+      logLevel: "info",
+    });
 
-  if (!entryJs) {
-    throw new Error("Client build failed: entry JavaScript bundle was not generated");
-  }
-
-  const indexTemplate = await readFile("client/index.html", "utf-8");
-  const productionIndex = indexTemplate
-    .replace(/<script type="module" src="\/src\/main\.tsx"><\/script>/, `<script type="module" src="/assets/${path.basename(entryJs)}"></script>`)
-    .replace(
-      "</head>",
-      entryCss ? `    <link rel="stylesheet" href="/assets/${path.basename(entryCss)}" />\n  </head>` : "</head>",
+    await execFileAsync(
+      path.resolve("node_modules/.bin/tailwindcss"),
+      [
+        "-i",
+        path.resolve("client/src/index.css"),
+        "-o",
+        path.resolve("dist/public/assets/main.css"),
+        "--config",
+        path.resolve("tailwind.config.ts"),
+        "--minify",
+      ],
+      { env: process.env },
     );
 
-  await mkdir("dist/public", { recursive: true });
-  await writeFile("dist/public/index.html", productionIndex, "utf-8");
-  await cp("client/public", "dist/public", { recursive: true });
+    const outputFiles = Object.keys(clientResult.metafile.outputs);
+    const entryJs = outputFiles.find(
+      (file) => file.startsWith("dist/public/assets/build-main.production-") && file.endsWith(".js"),
+    );
 
-  console.log("building server...");
-  const pkg = JSON.parse(await readFile("package.json", "utf-8"));
-  const allDeps = [
-    ...Object.keys(pkg.dependencies || {}),
-    ...Object.keys(pkg.devDependencies || {}),
-  ];
-  const externals = allDeps.filter((dep) => !allowlist.includes(dep));
+    if (!entryJs) {
+      throw new Error("Client build failed: entry JavaScript bundle was not generated");
+    }
 
-  await esbuild({
-    entryPoints: ["server/index.ts"],
-    platform: "node",
-    bundle: true,
-    format: "cjs",
-    outfile: "dist/index.cjs",
-    define: {
-      "process.env.NODE_ENV": '"production"',
-      ...clientEnv,
-    },
-    minify: true,
-    external: externals,
-    logLevel: "info",
-  });
+    const indexTemplate = await readFile("client/index.html", "utf-8");
+    const productionIndex = indexTemplate
+      .replace(
+        /<script type="module" src="\/src\/main\.tsx"><\/script>/,
+        `<script type="module" src="/assets/${path.basename(entryJs)}"></script>`,
+      )
+      .replace("</head>", `    <link rel="stylesheet" href="/assets/main.css" />\n  </head>`);
+
+    await mkdir("dist/public", { recursive: true });
+    await writeFile("dist/public/index.html", productionIndex, "utf-8");
+    await cp("client/public", "dist/public", { recursive: true });
+
+    console.log("building server...");
+    const pkg = JSON.parse(await readFile("package.json", "utf-8"));
+    const allDeps = [
+      ...Object.keys(pkg.dependencies || {}),
+      ...Object.keys(pkg.devDependencies || {}),
+    ];
+    const externals = allDeps.filter((dep) => !allowlist.includes(dep));
+
+    await esbuild({
+      entryPoints: ["server/index.ts"],
+      platform: "node",
+      bundle: true,
+      format: "cjs",
+      outfile: "dist/index.cjs",
+      define: {
+        "process.env.NODE_ENV": '"production"',
+        ...clientEnv,
+      },
+      minify: true,
+      external: externals,
+      logLevel: "info",
+    });
+  } finally {
+    await rm("client/src/build-main.production.tsx", { force: true });
+  }
 }
 
 buildAll().catch((err) => {
