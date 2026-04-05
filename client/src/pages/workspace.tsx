@@ -300,7 +300,7 @@ export default function WorkspacePage() {
                       <div>
                         <p className="text-sm font-semibold">{credential.title}</p>
                         <p className="mt-1 text-[11px] text-white/45">
-                          {(credential.services || []).join(", ") || "No service tags yet"}
+                          {(credential.services || []).map((s: any) => typeof s === "string" ? s : s?.name || s?.id || "").filter(Boolean).join(", ") || "No service tags yet"}
                         </p>
                       </div>
                       <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-400">

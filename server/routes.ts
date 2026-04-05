@@ -528,8 +528,8 @@ export async function registerRoutes(
               ? req.body.title.trim()
               : `Suggested credential ${id}`,
           caseStudyText: suggestion.extractedSummary,
-          services: Array.isArray(suggestion.proposedTags) ? suggestion.proposedTags : [],
-          tags: Array.isArray(suggestion.proposedTags) ? suggestion.proposedTags : [],
+          services: Array.isArray(suggestion.proposedTags) ? suggestion.proposedTags.map((t: any) => typeof t === "string" ? t : String(t?.name || t || "")).filter(Boolean) : [],
+          tags: Array.isArray(suggestion.proposedTags) ? suggestion.proposedTags.map((t: any) => typeof t === "string" ? t : String(t?.name || t || "")).filter(Boolean) : [],
           status: "approved",
         });
       }
@@ -804,7 +804,10 @@ export async function registerRoutes(
             extractedSummary: summary,
             proposedTags: Array.isArray(scopeAnalysis?.matches)
               ? scopeAnalysis.matches
-                  .map((match: any) => String(match?.matchedService || "").trim())
+                  .map((match: any) => {
+                    const svc = match?.matchedService;
+                    return typeof svc === "string" ? svc.trim() : typeof svc?.name === "string" ? svc.name.trim() : "";
+                  })
                   .filter(Boolean)
                   .slice(0, 5)
               : [],

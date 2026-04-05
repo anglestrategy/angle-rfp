@@ -133,7 +133,10 @@ export function buildCredentialSuggestionSummary(pass1Result: any, scopeResult: 
   const deliverables = flattenDeliverables(pass1Result).slice(0, 4);
   const services = Array.isArray(scopeResult?.matches)
     ? scopeResult.matches
-        .map((match: any) => String(match?.matchedService || "").trim())
+        .map((match: any) => {
+          const svc = match?.matchedService;
+          return typeof svc === "string" ? svc.trim() : typeof svc?.name === "string" ? svc.name.trim() : "";
+        })
         .filter(Boolean)
         .slice(0, 3)
     : [];
