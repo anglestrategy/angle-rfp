@@ -182,13 +182,21 @@ export default function WorkspacePage() {
                 Calibrate the product for your agency before the team starts making bid decisions from it.
               </p>
             </div>
-            <button
-              onClick={() => setLocation("/upload")}
-              className="inline-flex items-center gap-2 border border-white/[0.08] bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-white/90"
-            >
-              Continue to analyses
-              <ArrowRight className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setLocation("/upload")}
+                className="inline-flex items-center gap-2 border border-white/[0.08] bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-white/90"
+              >
+                Continue to analyses
+                <ArrowRight className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setLocation("/upload")}
+                className="text-sm text-white/40 hover:text-white/70 font-mono tracking-wide transition-colors"
+              >
+                Skip for now
+              </button>
+            </div>
           </div>
         </motion.div>
 

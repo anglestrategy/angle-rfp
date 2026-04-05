@@ -239,12 +239,9 @@ export default function UploadPage() {
     if (!authLoading && !user) {
       setLocation("/sign-in");
     }
-    if (!authLoading && user && onboarding?.status !== "completed") {
-      setLocation("/workspace");
-    }
-  }, [authLoading, onboarding?.status, setLocation, user]);
+  }, [authLoading, setLocation, user]);
 
-  if (authLoading || (!isAuthenticated && !user) || (user && onboarding?.status !== "completed")) {
+  if (authLoading || (!isAuthenticated && !user)) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center">
         <p className="text-sm text-white/50 font-mono">Loading your workspace...</p>
