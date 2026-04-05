@@ -105,9 +105,15 @@ This link expires in 30 minutes.`;
 
   if (!response.ok) {
     const details = await response.text();
-    throw new Error(
-      `Verification email failed: ${response.status}${details ? ` ${details}` : ""}`,
+    console.warn(
+      `[auth] email delivery failed (${response.status}), falling back to preview link: ${details}`,
     );
+    const previewUrl = buildVerificationPreviewPath(input.token);
+    return {
+      delivery: "preview" as const,
+      redirectTo: previewUrl,
+      verificationPreviewUrl: previewUrl,
+    };
   }
 
   return {
