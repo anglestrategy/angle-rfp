@@ -14,7 +14,6 @@ import { GlowingEffect } from "@/components/ui/glowing-effect";
 const NAV_LINKS = [
   { label: "Product", href: "#features" },
   { label: "Workflow", href: "#workflow" },
-  { label: "Pricing", href: "/pricing" },
 ];
 
 const FADE_UP = {

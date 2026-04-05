@@ -55,7 +55,7 @@ function Router() {
         <Route path="/sign-up" component={SignUpPage} />
         <Route path="/verify-email" component={VerifyEmailPage} />
         <Route path="/workspace" component={WorkspacePage} />
-        <Route path="/pricing" component={PricingPage} />
+        {/* <Route path="/pricing" component={PricingPage} /> */}
         <Route component={NotFound} />
       </Switch>
     </Suspense>

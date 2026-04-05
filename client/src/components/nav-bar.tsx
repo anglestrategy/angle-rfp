@@ -49,6 +49,7 @@ export function NavBar() {
             Upload
           </span>
         </Link>
+        {/* Pricing link hidden until billing is wired up
         <Link href="/pricing">
           <span
             className={`cursor-pointer font-mono text-[11px] uppercase tracking-[0.15em] transition-colors ${
@@ -60,6 +61,7 @@ export function NavBar() {
             Pricing
           </span>
         </Link>
+        */}
 
         {user ? (
           <motion.button
