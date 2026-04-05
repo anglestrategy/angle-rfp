@@ -356,7 +356,7 @@ export default function WorkspacePage() {
                 )}
               </div>
 
-              {(data?.credentialSuggestions || []).filter((s) => s.approvalStatus !== "approved").length > 0 && (
+              {(data?.credentialSuggestions || []).filter((s: any) => s.approvalStatus === "draft").length > 0 && (
                 <div className="mt-6 border-t border-white/[0.06] pt-4">
                   <div className="flex items-center gap-2 text-sm text-white">
                     <CheckCircle2 className="h-4 w-4 text-[#ff5a36]" />
@@ -366,7 +366,7 @@ export default function WorkspacePage() {
                     These were extracted from RFPs you marked as won. Approve to add them to your credentials.
                   </p>
                   <div className="mt-3 space-y-2">
-                    {data?.credentialSuggestions.filter((s) => s.approvalStatus !== "approved").map((suggestion) => (
+                    {data?.credentialSuggestions.filter((s: any) => s.approvalStatus === "draft").map((suggestion) => (
                       <div key={suggestion.id} className="border border-white/[0.06] bg-black/40 px-4 py-3">
                         <p className="text-sm leading-relaxed">{suggestion.extractedSummary}</p>
                         <div className="mt-3 flex justify-end">
