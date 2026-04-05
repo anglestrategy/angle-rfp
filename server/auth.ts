@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
+import rateLimit from "express-rate-limit";
 import type { Express, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { pool } from "./db";
@@ -276,7 +277,23 @@ export async function attachAuth(app: Express) {
     });
   });
 
-  app.post("/api/auth/sign-up", async (req, res) => {
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    limit: 10,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { message: "Too many attempts. Please try again in a few minutes." },
+  });
+
+  const verifyLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 5,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    message: { message: "Too many verification requests. Please try again later." },
+  });
+
+  app.post("/api/auth/sign-up", authLimiter, async (req, res) => {
     try {
       const input = registerSchema.parse(req.body);
       const email = input.email.toLowerCase();
@@ -312,7 +329,7 @@ export async function attachAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/sign-in", async (req, res) => {
+  app.post("/api/auth/sign-in", authLimiter, async (req, res) => {
     try {
       const input = authSchema.parse(req.body);
       const email = input.email.toLowerCase();
@@ -355,7 +372,7 @@ export async function attachAuth(app: Express) {
     }
   });
 
-  app.post("/api/auth/resend-verification", async (req, res) => {
+  app.post("/api/auth/resend-verification", verifyLimiter, async (req, res) => {
     try {
       const email = z.string().trim().email().parse(req.body?.email).toLowerCase();
       if (!isBusinessEmail(email)) {
