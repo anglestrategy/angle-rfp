@@ -240,6 +240,9 @@ export default function SignInPage() {
                     </span>
                   </Link>
                 </div>
+                <a href="mailto:info@angle.tools?subject=Sign-in help" className="block text-center text-[11px] font-mono uppercase tracking-[0.12em] text-white/25 hover:text-white/50 transition-colors">
+                  Need help signing in? Email info@angle.tools
+                </a>
               </div>
             </motion.div>
           </div>
