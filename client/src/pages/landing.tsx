@@ -1,6 +1,7 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { ArrowRight, Check, X, Menu, FileText, Shield, Clock } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
+import { useIsAuthenticated } from "@/hooks/use-auth";
 import {
   motion,
   useInView,
@@ -370,6 +371,14 @@ function HeroProductMock() {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function LandingPage() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [, setLocation] = useLocation();
+  const { isAuthenticated, isLoading } = useIsAuthenticated();
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      setLocation("/upload");
+    }
+  }, [isLoading, isAuthenticated, setLocation]);
 
   return (
     <div className="min-h-screen bg-black text-white font-sans selection:bg-[#ff5a36]/30 overflow-x-hidden">

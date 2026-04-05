@@ -867,7 +867,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
         <div className="max-w-[1600px] mx-auto px-6 lg:px-12 py-2.5 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
             <motion.div whileHover={{ x: -3 }} whileTap={{ scale: 0.95 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}>
-              <Button variant="ghost" size="icon" onClick={() => setLocation("/")} data-testid="button-back">
+              <Button variant="ghost" size="icon" onClick={() => setLocation("/upload")} data-testid="button-back">
                 <ArrowLeft />
               </Button>
             </motion.div>
