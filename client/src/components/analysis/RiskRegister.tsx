@@ -1,7 +1,6 @@
 import { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   CollapsibleSection,
   CollapsibleTrigger,
@@ -108,8 +107,8 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
   const activeGroups = groupMode === "category" ? categoryGroups : severityGroups;
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4" data-testid="section-red-flags">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5" data-testid="section-red-flags">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Risk Register</p>
           {riskSummary && (() => {
@@ -118,12 +117,12 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
             const isMed = level.includes("med");
             return (
               <span className={cn(
-                "px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full",
+                "px-3 py-1 text-[10px] font-bold uppercase tracking-wider border",
                 isHigh
-                  ? "bg-red-500/15 text-red-500"
+                  ? "border-red-500/30 bg-red-500/10 text-red-500"
                   : isMed
-                    ? "bg-amber-500/15 text-amber-600"
-                    : "bg-emerald-500/15 text-emerald-600"
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-500"
+                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
               )}>
                 {riskSummary.overallRiskLevel}
               </span>
@@ -131,23 +130,23 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
           })()}
         </div>
 
-        {/* Stats row — glass pills */}
+        {/* Stats row */}
         {riskSummary && (
-          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-foreground/8">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10">
-              <span className="h-2 w-2 rounded-full bg-red-500" />
+          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/[0.06]">
+            <div className="flex items-center gap-1.5 border border-red-500/20 bg-red-500/10 px-2.5 py-1">
+              <span className="h-1.5 w-1.5 bg-red-500" />
               <span className="font-mono text-xs font-bold text-red-500">{highCount}</span>
               <span className="font-mono text-[10px] text-red-500/60 uppercase">High</span>
             </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10">
-              <span className="h-2 w-2 rounded-full bg-amber-500" />
-              <span className="font-mono text-xs font-bold text-amber-600">{medCount}</span>
+            <div className="flex items-center gap-1.5 border border-amber-500/20 bg-amber-500/10 px-2.5 py-1">
+              <span className="h-1.5 w-1.5 bg-amber-500" />
+              <span className="font-mono text-xs font-bold text-amber-500">{medCount}</span>
               <span className="font-mono text-[10px] text-amber-500/60 uppercase">Med</span>
             </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-foreground/5">
-              <span className="h-2 w-2 rounded-full bg-foreground/20" />
-              <span className="font-mono text-xs font-bold">{lowCount}</span>
-              <span className="font-mono text-[10px] text-muted-foreground uppercase">Low</span>
+            <div className="flex items-center gap-1.5 border border-white/[0.08] bg-white/[0.04] px-2.5 py-1">
+              <span className="h-1.5 w-1.5 bg-white/20" />
+              <span className="font-mono text-xs font-bold text-white/50">{lowCount}</span>
+              <span className="font-mono text-[10px] text-white/30 uppercase">Low</span>
             </div>
           </div>
         )}
@@ -162,10 +161,10 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
                 type="button"
                 onClick={() => setGroupMode(mode)}
                 className={cn(
-                  "px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full transition-all",
+                  "px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider transition-all border",
                   groupMode === mode
-                    ? "bg-foreground text-background shadow-sm"
-                    : "bg-foreground/[0.06] text-muted-foreground hover:bg-foreground/10"
+                    ? "border-white/20 bg-white/10 text-white"
+                    : "border-white/[0.06] text-white/40 hover:text-white/70 hover:border-white/15"
                 )}
               >
                 {mode}
@@ -190,7 +189,7 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
                     <div className="flex items-center gap-2 flex-1 mr-2 min-w-0">
                       {gBadge ? (
                         <span className={cn(
-                          "px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 rounded-full",
+                          "px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0",
                           gBadge.bg, gBadge.text, gBadge.glow
                         )}>
                           {groupKey}
@@ -204,7 +203,7 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
                         {items.length}
                       </span>
                       {groupMode === "category" && groupHighCount > 0 && (
-                        <span className="px-2 py-0.5 text-[10px] font-bold bg-red-500/10 text-red-500 shrink-0 ml-auto rounded-full">
+                        <span className="px-2 py-0.5 text-[10px] font-bold border border-red-500/20 bg-red-500/10 text-red-500 shrink-0 ml-auto">
                           {groupHighCount} HIGH
                         </span>
                       )}
@@ -235,10 +234,10 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
                           <CollapsibleGroupSection value={`${groupKey}-risk-${i}`}>
                             <CollapsibleTrigger className="py-1.5 px-0 hover:no-underline row-hover rounded-md">
                               <div className="flex items-center gap-2 flex-1 mr-2 min-w-0">
-                                <span className={cn(
-                                  "px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 rounded-full transition-transform duration-150 hover:scale-105",
-                                  badge.bg, badge.text, badge.glow
-                                )}>
+                        <span className={cn(
+                          "px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 transition-transform duration-150 hover:scale-105",
+                          badge.bg, badge.text, badge.glow
+                        )}>
                                   {severity.toUpperCase().slice(0, 4)}
                                 </span>
                                 {groupMode === "severity" && category && (
@@ -301,7 +300,7 @@ export function RiskRegister({ redFlagList, riskSummary }: RiskRegisterProps) {
         ) : (
           <p className="text-sm text-muted-foreground italic">No risks identified</p>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

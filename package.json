@@ -7,14 +7,14 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "dev:api": "NODE_ENV=development SKIP_VITE=true PORT=3002 tsx server/index.ts",
     "dev:web": "VITE_API_TARGET=http://127.0.0.1:3002 vite --host 127.0.0.1 --port 3001 --strictPort",
-    "build": "tsx script/build.ts",
+    "build": "node --experimental-strip-types script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc --noEmit -p client/tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "db:push": "drizzle-kit push",
     "shadow:backfill": "tsx script/backfill-shadow.ts",
     "baseline:snapshot": "tsx script/snapshot-baselines.ts",
     "baseline:compare": "tsx script/compare-shadow-baselines.ts",
-    "test": "node --import tsx --test tests/**/*.test.ts"
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.76.0",

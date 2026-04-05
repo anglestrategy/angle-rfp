@@ -1,36 +1,49 @@
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { Sun, Moon } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
 import { useCurrentUser, useSignOut } from "@/hooks/use-auth";
 
 export function NavBar() {
   const [location, setLocation] = useLocation();
-  const { theme, toggleTheme } = useTheme();
   const { data } = useCurrentUser();
   const signOut = useSignOut();
   const user = data?.user ?? null;
+  const workspace = data?.workspace ?? null;
 
   return (
     <motion.nav
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="h-14 border-b border-foreground/10 bg-background/80 backdrop-blur-sm flex items-center justify-between px-6 sticky top-0 z-50"
+      className="sticky top-0 z-50 flex h-14 items-center justify-between border-b border-white/[0.06] bg-black/90 px-6 backdrop-blur-sm"
     >
       {/* Left: wordmark */}
       <Link href="/">
-        <span className="text-lg font-bold tracking-tight cursor-pointer">
-          angle<span className="text-primary">/</span>RFP
+        <span className="cursor-pointer font-bold text-lg tracking-tight text-white">
+          ANGLE<span className="text-white/35">/RFP</span>
         </span>
       </Link>
 
       {/* Right: nav links + actions */}
       <div className="flex items-center gap-6">
+        {user && (
+          <Link href="/workspace">
+            <span
+              className={`cursor-pointer font-mono text-[11px] uppercase tracking-[0.15em] transition-colors ${
+                location === "/workspace"
+                  ? "text-white"
+                  : "text-white/40 hover:text-white/70"
+              }`}
+            >
+              {workspace?.name || "Workspace"}
+            </span>
+          </Link>
+        )}
         <Link href="/upload">
           <span
-            className={`nav-link cursor-pointer ${
-              location === "/upload" ? "nav-link-active" : ""
+            className={`cursor-pointer font-mono text-[11px] uppercase tracking-[0.15em] transition-colors ${
+              location === "/upload"
+                ? "text-white"
+                : "text-white/40 hover:text-white/70"
             }`}
           >
             Upload
@@ -38,8 +51,10 @@ export function NavBar() {
         </Link>
         <Link href="/pricing">
           <span
-            className={`nav-link cursor-pointer ${
-              location === "/pricing" ? "nav-link-active" : ""
+            className={`cursor-pointer font-mono text-[11px] uppercase tracking-[0.15em] transition-colors ${
+              location === "/pricing"
+                ? "text-white"
+                : "text-white/40 hover:text-white/70"
             }`}
           >
             Pricing
@@ -48,36 +63,39 @@ export function NavBar() {
 
         {user ? (
           <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
+            whileHover={{ scale: 1.01 }}
+            whileTap={{ scale: 0.99 }}
             onClick={() => {
               signOut.mutate(undefined, {
                 onSuccess: () => setLocation("/sign-in"),
               });
             }}
-            className="inline-flex items-center px-3.5 py-1.5 text-xs font-medium border border-foreground/15 bg-card text-foreground hover:border-foreground/40 transition-colors cursor-pointer"
+            className="cursor-pointer border border-white/[0.08] bg-black px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.15em] text-white/50 transition-colors hover:border-white/20 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
           >
-            Sign Out
+            Sign out
           </motion.button>
         ) : (
-          <Link href="/sign-in">
-            <motion.span
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="inline-flex items-center px-3.5 py-1.5 text-xs font-medium border border-foreground/15 bg-card text-foreground hover:border-foreground/40 transition-colors cursor-pointer"
-            >
-              Sign In
-            </motion.span>
-          </Link>
+          <>
+            <Link href="/sign-in">
+              <motion.span
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                className="cursor-pointer border border-white/[0.08] bg-black px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.15em] text-white/50 transition-colors hover:border-white/20 hover:text-white/80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
+              >
+                Sign in
+              </motion.span>
+            </Link>
+            <Link href="/sign-up">
+              <motion.span
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                className="cursor-pointer bg-[#ff5a36] px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.15em] font-bold text-white transition-colors hover:bg-[#ff5a36]/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              >
+                Try free
+              </motion.span>
+            </Link>
+          </>
         )}
-
-        <button
-          onClick={toggleTheme}
-          className="p-1.5 text-muted-foreground hover:text-foreground transition-colors"
-          aria-label="Toggle theme"
-        >
-          {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-        </button>
       </div>
     </motion.nav>
   );

@@ -1,6 +1,6 @@
+import "./index.css";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import "./index.css";
 
 /*
  * GSAP / Tailwind v4 compatibility patch

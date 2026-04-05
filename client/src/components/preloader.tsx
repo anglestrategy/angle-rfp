@@ -50,10 +50,10 @@ export function Preloader({
   onCompleteRef.current = onComplete;
   const onExitingRef = useRef(onExiting);
   onExitingRef.current = onExiting;
-  const env = (import.meta as ImportMeta & { env?: Record<string, string | boolean> }).env ?? {};
+  const env = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {};
 
   useEffect(() => {
-    const isDev = env.DEV === true || env.DEV === "true";
+    const isDev = env.DEV === true || String(env.DEV) === "true";
     const showDevPreloader = String(env.VITE_ENABLE_DEV_PRELOADER ?? "").toLowerCase() === "true";
     const alreadySeen = sessionStorage.getItem(STORAGE_KEY);
 

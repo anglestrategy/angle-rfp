@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { formatEvidence } from "@/lib/format-evidence";
 import { cn } from "@/lib/utils";
 import { ShimmerBar } from "@/components/ui/shimmer-bar";
@@ -37,6 +36,40 @@ interface ScoringBreakdownProps {
     qualityGateTriggered?: boolean;
     qualityGateReason?: string;
     redFlagBreakdown?: RedFlagBreakdownItem[];
+    budgetAdequacy?: {
+      status?: string;
+      summary?: string;
+    };
+    pitchCostEstimate?: {
+      effortLevel?: string;
+      estimatedHoursRange?: string;
+      summary?: string;
+    };
+    agencyRiskFlags?: Array<{
+      title?: string;
+      severity?: string;
+      category?: string;
+      summary?: string;
+    }>;
+    submissionComplexity?: {
+      level?: string;
+      requirementsCount?: number;
+      summary?: string;
+    };
+    credentialsMatch?: {
+      status?: string;
+      summary?: string;
+    };
+    clientQualityNotes?: {
+      signal?: string;
+      summary?: string;
+      notes?: string[];
+    };
+    saudiComplianceReadiness?: {
+      status?: string;
+      summary?: string;
+      signals?: string[];
+    };
   };
 }
 
@@ -60,10 +93,57 @@ export function ScoringBreakdown({ factors, financial }: ScoringBreakdownProps) 
   const hasPenalties = hasRedFlag || hasIncomplete;
   const totalPenalty =
     (financial.redFlagPenalty || 0) + (financial.incompletePenalty || 0);
+  const qualificationCards = [
+    {
+      label: "Budget adequacy",
+      value:
+        financial.budgetAdequacy?.status === "likely_viable"
+          ? "Likely viable"
+          : financial.budgetAdequacy?.status === "under_scoped"
+            ? "Under-scoped"
+            : "Unclear",
+      detail: financial.budgetAdequacy?.summary,
+    },
+    {
+      label: "Pursuit cost",
+      value:
+        financial.pitchCostEstimate?.estimatedHoursRange ||
+        financial.pitchCostEstimate?.effortLevel ||
+        "Not estimated",
+      detail: financial.pitchCostEstimate?.summary,
+    },
+    {
+      label: "Submission complexity",
+      value:
+        financial.submissionComplexity?.level
+          ? `${financial.submissionComplexity.level}${typeof financial.submissionComplexity.requirementsCount === "number" ? ` · ${financial.submissionComplexity.requirementsCount} reqs` : ""}`
+          : "Not assessed",
+      detail: financial.submissionComplexity?.summary,
+    },
+    {
+      label: "Credentials match",
+      value:
+        financial.credentialsMatch?.status === "strong"
+          ? "Strong"
+          : financial.credentialsMatch?.status === "partial"
+            ? "Partial"
+            : "Weak",
+      detail: financial.credentialsMatch?.summary,
+    },
+  ];
+  const clientNotes = Array.isArray(financial.clientQualityNotes?.notes)
+    ? financial.clientQualityNotes?.notes ?? []
+    : [];
+  const riskFlags = Array.isArray(financial.agencyRiskFlags)
+    ? financial.agencyRiskFlags.slice(0, 4)
+    : [];
+  const saudiSignals = Array.isArray(financial.saudiComplianceReadiness?.signals)
+    ? financial.saudiComplianceReadiness?.signals ?? []
+    : [];
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4" data-testid="section-financial">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5" data-testid="section-financial">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Scoring Breakdown</p>
         </div>
@@ -138,7 +218,87 @@ export function ScoringBreakdown({ factors, financial }: ScoringBreakdownProps) 
             Quality gate triggered: {financial.qualityGateReason}
           </p>
         )}
-      </CardContent>
-    </Card>
+
+        <div className="border-t border-foreground/8 mt-4 pt-4">
+          <p className="panel-heading mb-3">Qualification Lens</p>
+          <div className="grid gap-2 md:grid-cols-2">
+            {qualificationCards.map((card) => (
+              <div key={card.label} className="border border-white/[0.06] bg-black/40 px-3 py-3">
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                  {card.label}
+                </p>
+                <p className="mt-1 text-sm font-semibold">{card.value}</p>
+                {card.detail && (
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                    {card.detail}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-2 mt-4">
+          <div className="border border-white/[0.06] bg-black/40 px-3 py-3">
+            <p className="panel-heading mb-2">Agency Risk Flags</p>
+            {riskFlags.length > 0 ? (
+              <div className="space-y-2">
+                {riskFlags.map((flag, index) => (
+                  <div key={`${flag.title}-${index}`} className="border border-white/[0.05] bg-[#050505] px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">{flag.title || "Agency risk"}</span>
+                      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#ff5a36]">
+                        {flag.severity || "watch"}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                      {flag.summary || "Agency-relevant qualification risk."}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">
+                No agency-specific risk framing available.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="border border-white/[0.06] bg-black/40 px-3 py-3">
+              <p className="panel-heading mb-2">Client Quality</p>
+              <p className="text-sm leading-relaxed">
+                {financial.clientQualityNotes?.summary || "Client quality notes are not available yet."}
+              </p>
+              {clientNotes.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {clientNotes.map((note, index) => (
+                    <p key={`${note}-${index}`} className="text-[11px] leading-relaxed text-muted-foreground">
+                      {note}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border border-white/[0.06] bg-black/40 px-3 py-3">
+              <p className="panel-heading mb-2">Saudi Readiness</p>
+              <p className="text-sm leading-relaxed">
+                {financial.saudiComplianceReadiness?.summary || "Saudi-specific procurement cues were not assessed."}
+              </p>
+              {saudiSignals.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  {saudiSignals.map((signal, index) => (
+                    <p key={`${signal}-${index}`} className="text-[11px] leading-relaxed text-muted-foreground">
+                      {signal}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

@@ -13,9 +13,14 @@ import { queryClient } from "@/lib/queryClient";
 import { useIsAuthenticated } from "@/hooks/use-auth";
 import { StatusBadge } from "@/components/status-badge";
 import { getScoreColor } from "@/components/score-badge";
-import { GrainOverlay } from "@/components/grain-overlay";
 import { NavBar } from "@/components/nav-bar";
 import type { RfpAnalysis } from "@shared/schema";
+
+// Animation variants matching landing page
+const fadeUp = {
+  initial: { opacity: 0, y: 24 },
+  animate: { opacity: 1, y: 0 },
+};
 
 /* ═══════════════════════════════════════════════════════════
    SCORE TWEEN — Animated number count-up on mount
@@ -60,22 +65,22 @@ function FileRow({
         ease: [0.22, 1, 0.36, 1],
       }}
       onClick={onClick}
-      className="file-row group"
+      className="flex items-center gap-4 px-6 py-3 hover:bg-white/[0.02] cursor-pointer transition-colors border-b border-white/[0.04] last:border-b-0"
     >
       {/* File icon */}
-      <div className="flex-shrink-0 text-muted-foreground/50 group-hover:text-primary transition-colors">
+      <div className="flex-shrink-0 text-white/30 group-hover:text-[#ff5a36] transition-colors">
         <FileText className="h-4 w-4" />
       </div>
 
       {/* File name + date */}
       <div className="min-w-0 flex-1">
         <p
-          className="text-sm font-medium truncate leading-snug"
+          className="text-sm font-medium truncate leading-snug text-white/80"
           title={analysis.fileName}
         >
           {analysis.fileName}
         </p>
-        <p className="font-mono text-[10px] text-muted-foreground tracking-wide mt-0.5">
+        <p className="font-mono text-[10px] text-white/40 tracking-wide mt-0.5">
           {analysis.createdAt
             ? formatDistanceToNow(new Date(analysis.createdAt), {
                 addSuffix: true,
@@ -93,7 +98,7 @@ function FileRow({
             <ScoreTween value={analysis.overallScore} />
           </span>
         ) : (
-          <span className="text-xs text-muted-foreground/40">--</span>
+          <span className="text-xs text-white/30">--</span>
         )}
       </div>
 
@@ -103,19 +108,18 @@ function FileRow({
       </div>
 
       {/* Chevron */}
-      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-foreground/60 transition-colors flex-shrink-0" />
+      <ChevronRight className="h-3.5 w-3.5 text-white/20 group-hover:text-white/50 transition-colors flex-shrink-0" />
     </motion.div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════
    UPLOAD PAGE — File Manager Workspace
-   Viewport-fitting layout: NavBar + drop zone + file list
    ═══════════════════════════════════════════════════════════ */
 export default function UploadPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { user, isLoading: authLoading, isAuthenticated } = useIsAuthenticated();
+  const { user, onboarding, isLoading: authLoading, isAuthenticated } = useIsAuthenticated();
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -235,30 +239,65 @@ export default function UploadPage() {
     if (!authLoading && !user) {
       setLocation("/sign-in");
     }
-  }, [authLoading, setLocation, user]);
+    if (!authLoading && user && onboarding?.status !== "completed") {
+      setLocation("/workspace");
+    }
+  }, [authLoading, onboarding?.status, setLocation, user]);
 
-  if (authLoading || (!isAuthenticated && !user)) {
+  if (authLoading || (!isAuthenticated && !user) || (user && onboarding?.status !== "completed")) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-sm text-muted-foreground">Checking your session...</p>
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <p className="text-sm text-white/50 font-mono">Loading your workspace...</p>
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col relative">
-      <GrainOverlay />
-
-      {/* ── NAV BAR ── */}
+    <div className="min-h-screen bg-black text-white">
       <NavBar />
 
-      <div className="relative z-10 flex-1 flex flex-col overflow-hidden max-w-6xl w-full mx-auto">
-        {/* ── COMPACT DROP ZONE ── */}
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-3.5rem)] w-full max-w-[1400px] flex-col overflow-hidden px-6 pb-8 pt-8 lg:px-16">
+        <motion.div
+          initial={fadeUp.initial}
+          animate={fadeUp.animate}
+          transition={{ duration: 0.5 }}
+          className="mb-8 grid gap-6 lg:grid-cols-[1.15fr_0.85fr]"
+        >
+          <div className="space-y-4">
+            <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-[#ff5a36]/80">
+              Upload
+            </p>
+            <h1 className="max-w-3xl text-[clamp(2.5rem,5vw,4rem)] font-extrabold tracking-[-0.04em] leading-[0.92] text-white text-balance">
+              Upload your RFP.
+            </h1>
+            <p className="max-w-2xl text-base leading-relaxed text-white/50">
+              Drop a file below and we'll score it in about a minute.
+              Your past analyses are listed underneath so you can pick up where you left off.
+            </p>
+          </div>
+
+          <div className="grid gap-px bg-white/[0.06] sm:grid-cols-3 lg:grid-cols-1">
+            {[
+              ["Formats", "PDF and DOCX files, up to 20 MB."],
+              ["Privacy", "Your uploads and results are private to your account."],
+              ["Processing", "Analysis usually takes around 7 minutes depending on document length."],
+            ].map(([label, copy]) => (
+              <div
+                key={label}
+                className="bg-black border border-white/[0.06] p-5"
+              >
+                <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#ff5a36]/70">{label}</p>
+                <p className="mt-3 text-sm leading-relaxed text-white/40">{copy}</p>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1, duration: 0.4 }}
-          className="px-6 pt-6 pb-4"
+          className="pb-6"
         >
           <motion.div
             ref={dropZoneRef}
@@ -271,25 +310,21 @@ export default function UploadPage() {
             }
             animate={{
               borderColor: isDragging
-                ? "hsl(var(--primary))"
+                ? "rgba(255, 90, 54, 0.6)"
                 : cursorNear
-                  ? "hsl(var(--foreground) / 0.25)"
-                  : "hsl(var(--foreground) / 0.1)",
+                  ? "rgba(255, 255, 255, 0.15)"
+                  : "rgba(255, 255, 255, 0.08)",
             }}
             transition={{ type: "spring", stiffness: 300, damping: 25 }}
             className={`
-              relative border border-dashed cursor-pointer
-              flex items-center justify-center gap-5 px-8 py-8
+              relative flex cursor-pointer items-center justify-center gap-5 overflow-hidden
+              border border-dashed border-white/[0.08] bg-[#050505] px-8 py-10
               transition-shadow duration-300
-              ${isDragging ? "shadow-[0_0_40px_hsl(var(--primary)/0.12)] bg-primary/[0.02]" : ""}
+              ${isDragging ? "shadow-[0_0_40px_rgba(255,90,54,0.15)] bg-[#ff5a36]/[0.03]" : ""}
               ${uploadMutation.isPending ? "pointer-events-none" : ""}
             `}
           >
-            {/* Corner registration marks */}
-            <span className="corner-mark corner-mark-tl" style={{ color: isDragging ? "hsl(var(--primary))" : undefined }}>+</span>
-            <span className="corner-mark corner-mark-tr" style={{ color: isDragging ? "hsl(var(--primary))" : undefined }}>+</span>
-            <span className="corner-mark corner-mark-bl" style={{ color: isDragging ? "hsl(var(--primary))" : undefined }}>+</span>
-            <span className="corner-mark corner-mark-br" style={{ color: isDragging ? "hsl(var(--primary))" : undefined }}>+</span>
+            <div className="absolute inset-0 bg-[linear-gradient(120deg,transparent,rgba(255,255,255,0.03),transparent)] opacity-60" />
 
             <input
               ref={fileInputRef}
@@ -314,13 +349,13 @@ export default function UploadPage() {
                       <circle
                         cx="32" cy="32" r="28"
                         fill="none"
-                        stroke="hsl(var(--foreground) / 0.1)"
+                        stroke="rgba(255,255,255,0.1)"
                         strokeWidth="2.5"
                       />
                       <motion.circle
                         cx="32" cy="32" r="28"
                         fill="none"
-                        stroke="hsl(var(--primary))"
+                        stroke="#ff5a36"
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeDasharray={2 * Math.PI * 28}
@@ -329,9 +364,9 @@ export default function UploadPage() {
                         transition={{ duration: 3, ease: "linear" }}
                       />
                     </svg>
-                    <FileText className="absolute inset-0 m-auto h-4 w-4 text-primary" />
+                    <FileText className="absolute inset-0 m-auto h-4 w-4 text-[#ff5a36]" />
                   </div>
-                  <p className="text-sm font-medium text-foreground">Uploading...</p>
+                  <p className="text-sm font-medium text-white/80">Uploading...</p>
                 </motion.div>
               ) : (
                 <motion.div
@@ -339,20 +374,21 @@ export default function UploadPage() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="flex items-center gap-5"
+                  className="relative z-10 flex w-full items-center gap-5"
                 >
                   <motion.div
                     animate={{ y: [0, -3, 0] }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    className="flex h-14 w-14 items-center justify-center border border-white/[0.08] bg-black"
                   >
-                    <ArrowUp className="h-5 w-5 text-muted-foreground/50" />
+                    <ArrowUp className="h-5 w-5 text-[#ff5a36]" />
                   </motion.div>
                   <div>
-                    <p className="text-sm font-medium text-foreground">
+                    <p className="text-lg font-bold tracking-tight text-white">
                       Drop your RFP document
                     </p>
-                    <p className="text-[10px] text-muted-foreground font-mono mt-0.5 tracking-wide">
-                      PDF or DOCX &middot; up to 20 MB
+                    <p className="mt-1 font-mono text-[11px] tracking-[0.15em] text-white/40">
+                      PDF or DOCX &middot; max 20 MB
                     </p>
                   </div>
                   <motion.button
@@ -363,7 +399,7 @@ export default function UploadPage() {
                     }}
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.98 }}
-                    className="ml-auto px-4 py-2 text-xs font-medium border border-foreground/15 bg-card text-foreground hover:border-foreground/40 transition-colors"
+                    className="ml-auto border border-white/[0.08] bg-black px-5 py-2.5 text-xs font-bold text-white transition-colors hover:border-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
                   >
                     Browse files
                   </motion.button>
@@ -374,25 +410,28 @@ export default function UploadPage() {
         </motion.div>
 
         {/* ── FILE LIST ── */}
-        <div className="flex-1 overflow-auto px-6 pb-6">
+        <div className="flex-1 overflow-auto border border-white/[0.06] bg-[#050505] px-6 pb-6">
           {/* Section header */}
-          <div className="flex items-center justify-between py-3 border-b border-foreground/10">
-            <span className="font-mono text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+          <div className="flex items-center justify-between border-b border-white/[0.06] py-4">
+            <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/50">
               Recent Analyses{analysisCount > 0 ? ` (${analysisCount})` : ""}
+            </span>
+            <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/30">
+              Only visible to you
             </span>
           </div>
 
           {isLoading ? (
-            <div className="divide-y divide-border">
+            <div className="divide-y divide-white/[0.04]">
               {[1, 2, 3].map((i) => (
                 <div key={i} className="flex items-center gap-4 px-6 py-3">
-                  <div className="h-4 w-4 bg-muted animate-pulse rounded-sm" />
+                  <div className="h-4 w-4 bg-white/[0.05] animate-pulse" />
                   <div className="flex-1">
-                    <div className="h-4 w-48 bg-muted animate-pulse rounded-sm mb-1" />
-                    <div className="h-2.5 w-20 bg-muted animate-pulse rounded-sm" />
+                    <div className="h-4 w-48 bg-white/[0.05] animate-pulse mb-1" />
+                    <div className="h-2.5 w-20 bg-white/[0.05] animate-pulse" />
                   </div>
-                  <div className="h-5 w-8 bg-muted animate-pulse rounded-sm" />
-                  <div className="h-4 w-16 bg-muted animate-pulse rounded-sm" />
+                  <div className="h-5 w-8 bg-white/[0.05] animate-pulse" />
+                  <div className="h-4 w-16 bg-white/[0.05] animate-pulse" />
                 </div>
               ))}
             </div>
@@ -404,11 +443,11 @@ export default function UploadPage() {
               transition={{ delay: 0.2 }}
               className="flex flex-col items-center justify-center py-20"
             >
-              <p className="text-[clamp(28px,4vw,40px)] font-light tracking-tight text-foreground/15 leading-tight">
+              <p className="text-[clamp(28px,4vw,40px)] font-light leading-tight tracking-tight text-white/15">
                 No analyses yet
               </p>
-              <p className="text-sm text-muted-foreground/40 mt-2 flex items-center gap-1.5">
-                Drop an RFP above to begin
+              <p className="mt-2 flex items-center gap-1.5 text-sm text-white/30">
+                Upload a file to get started
                 <motion.span
                   animate={{ y: [0, -3, 0] }}
                   transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
@@ -418,7 +457,7 @@ export default function UploadPage() {
               </p>
             </motion.div>
           ) : (
-            <div className="divide-y divide-border/50">
+            <div>
               {analyses.map((analysis, index) => (
                 <FileRow
                   key={analysis.id}

@@ -120,13 +120,13 @@ export function CommandStrip({
 
   return (
     <motion.div
-      className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-[var(--glass-border)] rounded-xl overflow-hidden bg-[var(--glass-bg)] backdrop-blur-[var(--glass-blur)]"
+      className="grid grid-cols-1 md:grid-cols-3 gap-0 border border-white/[0.06] overflow-hidden bg-[#050505]"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4 }}
     >
       {/* ── Cell 1: Client ── */}
-      <div className="px-5 py-3.5 md:border-r border-b md:border-b-0 border-[var(--glass-border)]">
+      <div className="px-5 py-3.5 md:border-r border-b md:border-b-0 border-white/[0.06]">
         <p className="metric-label mb-1">Client</p>
         <p
           className="text-sm font-semibold tracking-tight leading-snug break-words line-clamp-1"
@@ -141,7 +141,7 @@ export function CommandStrip({
       </div>
 
       {/* ── Cell 2: Deadline ── */}
-      <div className="px-5 py-3.5 md:border-r border-b md:border-b-0 border-[var(--glass-border)]">
+      <div className="px-5 py-3.5 md:border-r border-b md:border-b-0 border-white/[0.06]">
         <p className="metric-label mb-1" style={{ color: "hsl(var(--primary) / 0.7)" }}>
           Deadline
         </p>

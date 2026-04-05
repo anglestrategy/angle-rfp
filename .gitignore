@@ -9,3 +9,7 @@ node_modules.broken*
 .vite
 node_modules/.vite-client
 *.log
+tmp-client-build
+landing-*-debug.png
+.remember/
+.superpowers/

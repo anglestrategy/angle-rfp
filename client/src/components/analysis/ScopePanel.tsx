@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { humanize } from "@/lib/format-evidence";
 import {
   CollapsibleSection,
@@ -62,12 +61,12 @@ export function ScopePanel({
 }: ScopePanelProps) {
   if (!hasScope) {
     return (
-      <Card>
-        <CardContent className="pt-4 pb-4" data-testid="section-scope">
+      <div className="border border-white/[0.06] bg-[#050505]">
+        <div className="pt-4 pb-4 px-5" data-testid="section-scope">
           <p className="section-heading">SCOPE ANALYSIS</p>
           <p className="text-sm text-muted-foreground italic">Scope analysis data not available</p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
@@ -82,16 +81,16 @@ export function ScopePanel({
   const hasCategories = scopeCategories && scopeCategories.length > 0;
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4" data-testid="section-scope">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5" data-testid="section-scope">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Scope Analysis</p>
           <span className="font-mono text-lg font-bold text-primary">{agencyServicePct}%</span>
         </div>
 
-        {/* Summary bar chart — animated with rounded ends and glow */}
+        {/* Summary bar chart — animated with sharp ends */}
         {total > 0 ? (
-          <div className="h-3 rounded-full overflow-hidden flex bg-foreground/[0.04]">
+          <div className="h-3 overflow-hidden flex bg-foreground/[0.04]">
             <motion.div
               className="bg-emerald-500"
               style={{ boxShadow: "0 0 8px rgba(34,197,94,0.3)" }}
@@ -116,21 +115,21 @@ export function ScopePanel({
             />
           </div>
         ) : (
-          <div className="h-3 rounded-full bg-foreground/[0.04]" />
+          <div className="h-3 bg-foreground/[0.04]" />
         )}
 
-        {/* Legend — glass pills */}
+        {/* Legend — sharp badges */}
         <div className="flex items-center gap-3 mt-3">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-xs font-bold text-emerald-600">Full: {fullMatches}</span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 border border-emerald-500/20 bg-emerald-500/10">
+            <span className="h-1.5 w-1.5 bg-emerald-500" />
+            <span className="text-xs font-bold text-emerald-500">Full: {fullMatches}</span>
           </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10">
-            <span className="h-2 w-2 rounded-full bg-amber-500" />
-            <span className="text-xs font-bold text-amber-600">Partial: {partialMatches}</span>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 border border-amber-500/20 bg-amber-500/10">
+            <span className="h-1.5 w-1.5 bg-amber-500" />
+            <span className="text-xs font-bold text-amber-500">Partial: {partialMatches}</span>
           </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10">
-            <span className="h-2 w-2 rounded-full bg-red-500" />
+          <div className="flex items-center gap-1.5 px-2.5 py-1 border border-red-500/20 bg-red-500/10">
+            <span className="h-1.5 w-1.5 bg-red-500" />
             <span className="text-xs font-bold text-red-500">Gap: {gaps}</span>
           </div>
         </div>
@@ -193,7 +192,7 @@ export function ScopePanel({
                                     variants={staggerItemLeft}
                                     className="flex items-center gap-3 py-1.5 border-b border-foreground/8 last:border-0 row-hover rounded-md"
                                   >
-                                    <span className={cn("h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0", cfg.badge)}>
+                                    <span className={cn("h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0", cfg.badge)}>
                                       {cfg.symbol}
                                     </span>
                                     <span className="text-sm flex-1">{item.scopeItem || "Unnamed item"}</span>
@@ -245,7 +244,7 @@ export function ScopePanel({
                             variants={staggerItemLeft}
                             className="flex items-center gap-3 py-1.5 border-b border-foreground/8 last:border-0 row-hover rounded-md"
                           >
-                            <span className={cn("h-5 w-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0", cfg.badge)}>
+                            <span className={cn("h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0", cfg.badge)}>
                               {cfg.symbol}
                             </span>
                             <span className="text-sm font-medium flex-1">{item.scopeItem || "Unnamed item"}</span>
@@ -289,7 +288,7 @@ export function ScopePanel({
             </div>
           );
         })()}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -18,6 +18,7 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   fullName: text("full_name"),
   password: text("password").notNull(),
+  emailVerifiedAt: timestamp("email_verified_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -29,9 +30,121 @@ export const insertUserSchema = createInsertSchema(users).pick({
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+export const workspaces = pgTable("workspaces", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  primaryDomain: text("primary_domain").notNull().unique(),
+  onboardingStatus: text("onboarding_status").notNull().default("not_started"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Workspace = typeof workspaces.$inferSelect;
+
+export const workspaceMemberships = pgTable("workspace_memberships", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  role: text("role").notNull().default("member"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type WorkspaceMembership = typeof workspaceMemberships.$inferSelect;
+
+export const workspaceDomains = pgTable("workspace_domains", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  domain: text("domain").notNull().unique(),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  status: text("status").notNull().default("verified"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type WorkspaceDomain = typeof workspaceDomains.$inferSelect;
+
+export const agencyProfiles = pgTable("agency_profiles", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  calibration: jsonb("calibration").notNull().default({}),
+  status: text("status").notNull().default("not_started"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type AgencyProfile = typeof agencyProfiles.$inferSelect;
+
+export const workspaceCredentials = pgTable("workspace_credentials", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  sectors: jsonb("sectors").notNull().default([]),
+  services: jsonb("services").notNull().default([]),
+  formats: jsonb("formats").notNull().default([]),
+  caseStudyText: text("case_study_text").notNull(),
+  tags: jsonb("tags").notNull().default([]),
+  status: text("status").notNull().default("approved"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type WorkspaceCredential = typeof workspaceCredentials.$inferSelect;
+
+export const clientMemory = pgTable("client_memory", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  normalizedClientKey: text("normalized_client_key").notNull(),
+  qualityRating: text("quality_rating").notNull().default("unknown"),
+  badFitFlag: boolean("bad_fit_flag").notNull().default(false),
+  notes: text("notes"),
+  lastTouchedAt: timestamp("last_touched_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type ClientMemory = typeof clientMemory.$inferSelect;
+
+export const workspacePreferencesHistory = pgTable("workspace_preferences_history", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  calibrationSnapshot: jsonb("calibration_snapshot").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type WorkspacePreferencesHistory = typeof workspacePreferencesHistory.$inferSelect;
+
+export const emailVerificationTokens = pgTable("email_verification_tokens", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type EmailVerificationToken = typeof emailVerificationTokens.$inferSelect;
+
 export const rfpAnalyses = pgTable("rfp_analyses", {
   id: serial("id").primaryKey(),
   userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  workspaceId: varchar("workspace_id").references(() => workspaces.id, {
+    onDelete: "set null",
+  }),
   fileName: text("file_name").notNull(),
   fileSize: integer("file_size").notNull(),
   analysisVersion: text("analysis_version").notNull().default("live-v1"),
@@ -65,6 +178,57 @@ export const insertRfpAnalysisSchema = createInsertSchema(rfpAnalyses).omit({
 
 export type InsertRfpAnalysis = z.infer<typeof insertRfpAnalysisSchema>;
 export type RfpAnalysis = typeof rfpAnalyses.$inferSelect;
+
+export const credentialSuggestions = pgTable("credential_suggestions", {
+  id: serial("id").primaryKey(),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  sourceAnalysisId: integer("source_analysis_id").references(() => rfpAnalyses.id, {
+    onDelete: "set null",
+  }),
+  sourceNote: text("source_note"),
+  extractedSummary: text("extracted_summary").notNull(),
+  proposedTags: jsonb("proposed_tags").notNull().default([]),
+  approvalStatus: text("approval_status").notNull().default("draft"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type CredentialSuggestion = typeof credentialSuggestions.$inferSelect;
+
+export const pursuitDecisions = pgTable("pursuit_decisions", {
+  id: serial("id").primaryKey(),
+  analysisId: integer("analysis_id")
+    .notNull()
+    .references(() => rfpAnalyses.id, { onDelete: "cascade" }),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  userId: varchar("user_id").references(() => users.id, { onDelete: "set null" }),
+  systemRecommendation: text("system_recommendation").notNull(),
+  userDecision: text("user_decision").notNull(),
+  overrideReason: text("override_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type PursuitDecision = typeof pursuitDecisions.$inferSelect;
+
+export const pursuitOutcomes = pgTable("pursuit_outcomes", {
+  id: serial("id").primaryKey(),
+  analysisId: integer("analysis_id")
+    .notNull()
+    .references(() => rfpAnalyses.id, { onDelete: "cascade" }),
+  workspaceId: varchar("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  outcome: text("outcome").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type PursuitOutcome = typeof pursuitOutcomes.$inferSelect;
 
 export const analysisPayloads = pgTable("analysis_payloads", {
   id: serial("id").primaryKey(),

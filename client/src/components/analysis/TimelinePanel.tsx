@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { staggerFast, staggerItem } from "@/lib/motion";
 
@@ -162,20 +161,20 @@ export function TimelinePanel({
 
   if (!hasAnything) {
     return (
-      <Card>
-        <CardContent className="pt-4 pb-4">
+      <div className="border border-white/[0.06] bg-[#050505]">
+        <div className="pt-4 pb-4 px-5">
           <div className="mb-3">
             <p className="panel-heading">Key Dates</p>
           </div>
           <p className="text-sm text-muted-foreground italic">No key dates identified</p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Key Dates</p>
           {overallDuration && (
@@ -189,7 +188,7 @@ export function TimelinePanel({
         {hasSub && (
           <div className="mb-5">
             <div className="flex items-center gap-2 mb-3">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">
+              <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border border-primary/30 bg-primary/10 text-primary">
                 RFP Process
               </span>
             </div>
@@ -200,7 +199,7 @@ export function TimelinePanel({
                 <span className="font-mono text-xs font-bold text-primary shrink-0 w-32 text-right">
                   {shortenDate(submissionDeadline)}
                 </span>
-                <span className="h-2 w-2 rounded-full bg-primary shrink-0 transition-transform duration-150 group-hover:scale-150" />
+                <span className="h-2 w-2 bg-primary shrink-0 transition-transform duration-150 group-hover:scale-150" />
                 <span className="text-sm font-medium">Proposal Submission Deadline</span>
               </div>
             )}
@@ -225,7 +224,7 @@ export function TimelinePanel({
                   <span className="font-mono text-xs font-bold shrink-0 w-32 text-right">
                     {shortenDate(dateStr)}
                   </span>
-                  <span className="h-2 w-2 rounded-full bg-primary/40 shrink-0 transition-transform duration-150 group-hover:scale-150" />
+                  <span className="h-2 w-2 bg-primary/40 shrink-0 transition-transform duration-150 group-hover:scale-150" />
                   <span className="text-sm text-muted-foreground">{desc}</span>
                 </motion.div>
               );
@@ -237,7 +236,7 @@ export function TimelinePanel({
         {(hasProj || startDate || endDate) && (
           <div>
             <div className="flex items-center gap-2 mb-3">
-              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-foreground/[0.08] text-foreground">
+              <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider border border-white/[0.08] bg-white/[0.04] text-white/60">
                 Project
               </span>
               {startDate && endDate && (
@@ -267,7 +266,7 @@ export function TimelinePanel({
                   )}>
                     {shortenDate(dateStr)}
                   </span>
-                  <span className="h-2 w-2 rounded-full bg-foreground/30 shrink-0 transition-transform duration-150 group-hover:scale-150" />
+                  <span className="h-2 w-2 bg-foreground/30 shrink-0 transition-transform duration-150 group-hover:scale-150" />
                   {showDesc && (
                     <span className="text-sm text-muted-foreground">{desc}</span>
                   )}
@@ -276,7 +275,7 @@ export function TimelinePanel({
             })}
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

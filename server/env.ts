@@ -8,6 +8,9 @@ const envSchema = z.object({
     .string()
     .min(1, "AI_INTEGRATIONS_ANTHROPIC_API_KEY is required"),
   SESSION_SECRET: z.string().optional(),
+  APP_BASE_URL: z.string().url().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

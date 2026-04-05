@@ -8,8 +8,9 @@ import {
 } from "@shared/models/analysis";
 import { storage } from "./storage";
 import { getAnalysisFeatureFlags } from "./services/analysisFlags";
-import { requireAuth } from "./auth";
+import { requireAuth, requireWorkspaceRole } from "./auth";
 import type { ClientResearchResult } from "./services/clientResearch";
+import { buildCalibrationContext, normalizeClientKey } from "./services/workspaceCalibration";
 
 let uploadMiddlewarePromise: Promise<any> | null = null;
 
@@ -48,6 +49,15 @@ async function loadFinancialScoringServices() {
 
 async function loadPdfServices() {
   return import("./lib/generate-pdf");
+}
+
+async function loadWorkspaceCalibrationContext(workspaceId: string | null | undefined) {
+  if (!workspaceId) return undefined;
+  return buildCalibrationContext({
+    profile: await storage.getAgencyProfileForWorkspace(workspaceId),
+    credentials: await storage.listWorkspaceCredentials(workspaceId),
+    clientMemory: await storage.listClientMemory(workspaceId),
+  });
 }
 
 function extractCoreExtraction(analysis: RfpAnalysis): any {
@@ -256,10 +266,11 @@ async function runLegacyRescore(analysis: RfpAnalysis) {
   } catch {
     clientResult = buildFallbackClientProfile(documentText, coreExtraction);
   }
+  const calibrationContext = await loadWorkspaceCalibrationContext(analysis.workspaceId);
 
   const scoreResult =
     scopeResult && clientResult
-      ? calculateFinancialScore(coreExtraction, scopeResult, clientResult, redFlags)
+      ? calculateFinancialScore(coreExtraction, scopeResult, clientResult, redFlags, calibrationContext)
       : null;
 
   await storage.updateAnalysis(analysis.id, {
@@ -355,6 +366,13 @@ async function loadAnalysisWithStages(id: number) {
     liveRunId ? listRunStages(Number(liveRunId)) : Promise.resolve([]),
     shadowRunId ? listRunStages(Number(shadowRunId)) : Promise.resolve([]),
   ]);
+  const calibrationContext = await loadWorkspaceCalibrationContext(analysis.workspaceId);
+  const pursuitDecision = analysis.workspaceId
+    ? await storage.getPursuitDecision(analysis.id, analysis.workspaceId)
+    : undefined;
+  const pursuitOutcome = analysis.workspaceId
+    ? await storage.getPursuitOutcome(analysis.id, analysis.workspaceId)
+    : undefined;
 
   return {
     ...analysis,
@@ -366,6 +384,11 @@ async function loadAnalysisWithStages(id: number) {
     comparisonSummary: shadowStatusView.comparisonSummary,
     liveStages,
     shadowStages,
+    calibrationState: calibrationContext?.calibrationState || "default",
+    calibrationDrivers:
+      ((analysis.financialScore as any)?.calibrationDrivers as string[] | undefined) || [],
+    pursuitDecision,
+    pursuitOutcome,
   };
 }
 
@@ -373,6 +396,183 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express,
 ): Promise<Server> {
+  app.get("/api/workspace", requireAuth, async (req, res) => {
+    try {
+      const context = await storage.getWorkspaceContextForUser(req.authUser!.id);
+      if (!context) {
+        return res.status(404).json({ message: "Workspace not found" });
+      }
+
+      const [credentials, suggestions, clientNotes] = await Promise.all([
+        storage.listWorkspaceCredentials(context.workspace.id),
+        storage.listCredentialSuggestions(context.workspace.id),
+        storage.listClientMemory(context.workspace.id),
+      ]);
+
+      return res.json({
+        workspace: context.workspace,
+        membership: context.membership,
+        profile: context.profile,
+        credentials,
+        credentialSuggestions: suggestions,
+        clientMemory: clientNotes,
+        calibrationState:
+          context.profile?.status === "completed"
+            ? "full"
+            : context.profile?.status === "in_progress"
+              ? "partial"
+              : "default",
+      });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to fetch workspace" });
+    }
+  });
+
+  app.patch("/api/workspace/profile", requireAuth, requireWorkspaceRole("owner", "admin"), async (req, res) => {
+    try {
+      const calibration = typeof req.body === "object" && req.body ? req.body : {};
+      const meaningfulFields = Object.values(calibration).filter((value) => {
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === "string") return value.trim().length > 0;
+        return Boolean(value);
+      }).length;
+      const profile = await storage.updateAgencyProfile(
+        req.authUser!.workspaceId,
+        calibration,
+        meaningfulFields >= 5 ? "completed" : meaningfulFields > 0 ? "in_progress" : "not_started",
+      );
+      return res.json(profile);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to update workspace profile" });
+    }
+  });
+
+  app.get("/api/workspace/credentials", requireAuth, async (req, res) => {
+    try {
+      const [credentials, suggestions] = await Promise.all([
+        storage.listWorkspaceCredentials(req.authUser!.workspaceId),
+        storage.listCredentialSuggestions(req.authUser!.workspaceId),
+      ]);
+      return res.json({ credentials, suggestions });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to fetch credentials" });
+    }
+  });
+
+  app.post("/api/workspace/credentials", requireAuth, requireWorkspaceRole("owner", "admin"), async (req, res) => {
+    try {
+      const credential = await storage.createWorkspaceCredential(req.authUser!.workspaceId, {
+        title: String(req.body?.title || "").trim(),
+        caseStudyText: String(req.body?.caseStudyText || "").trim(),
+        sectors: Array.isArray(req.body?.sectors) ? req.body.sectors : [],
+        services: Array.isArray(req.body?.services) ? req.body.services : [],
+        formats: Array.isArray(req.body?.formats) ? req.body.formats : [],
+        tags: Array.isArray(req.body?.tags) ? req.body.tags : [],
+        status: "approved",
+      });
+      return res.status(201).json(credential);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to create credential" });
+    }
+  });
+
+  app.patch(
+    "/api/workspace/credentials/:id",
+    requireAuth,
+    requireWorkspaceRole("owner", "admin"),
+    async (req, res) => {
+    try {
+      const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Number.parseInt(rawId, 10);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid credential ID" });
+      }
+      const updated = await storage.updateWorkspaceCredential(id, req.authUser!.workspaceId, req.body || {});
+      if (!updated) {
+        return res.status(404).json({ message: "Credential not found" });
+      }
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to update credential" });
+    }
+  });
+
+  app.patch(
+    "/api/workspace/credential-suggestions/:id",
+    requireAuth,
+    requireWorkspaceRole("owner", "admin"),
+    async (req, res) => {
+    try {
+      const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Number.parseInt(rawId, 10);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid suggestion ID" });
+      }
+
+      const suggestions = await storage.listCredentialSuggestions(req.authUser!.workspaceId);
+      const suggestion = suggestions.find((item) => item.id === id);
+      if (!suggestion) {
+        return res.status(404).json({ message: "Credential suggestion not found" });
+      }
+
+      const approvalStatus = String(req.body?.approvalStatus || "").trim() || "approved";
+      const updated = await storage.updateCredentialSuggestion(id, req.authUser!.workspaceId, {
+        approvalStatus,
+      });
+
+      if (approvalStatus === "approved") {
+        await storage.createWorkspaceCredential(req.authUser!.workspaceId, {
+          title:
+            typeof req.body?.title === "string" && req.body.title.trim()
+              ? req.body.title.trim()
+              : `Suggested credential ${id}`,
+          caseStudyText: suggestion.extractedSummary,
+          services: Array.isArray(suggestion.proposedTags) ? suggestion.proposedTags : [],
+          tags: Array.isArray(suggestion.proposedTags) ? suggestion.proposedTags : [],
+          status: "approved",
+        });
+      }
+
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to update credential suggestion" });
+    }
+  });
+
+  app.get("/api/workspace/client-memory", requireAuth, async (req, res) => {
+    try {
+      const items = await storage.listClientMemory(req.authUser!.workspaceId);
+      return res.json(items);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to fetch client memory" });
+    }
+  });
+
+  app.patch(
+    "/api/workspace/client-memory/:id",
+    requireAuth,
+    requireWorkspaceRole("owner", "admin"),
+    async (req, res) => {
+    try {
+      const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Number.parseInt(rawId, 10);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid client memory ID" });
+      }
+      const updated = await storage.updateClientMemoryById(id, req.authUser!.workspaceId, {
+        qualityRating: req.body?.qualityRating,
+        badFitFlag: req.body?.badFitFlag,
+        notes: req.body?.notes,
+      });
+      if (!updated) {
+        return res.status(404).json({ message: "Client memory not found" });
+      }
+      return res.json(updated);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to update client memory" });
+    }
+  });
+
   app.post("/api/analyses/upload", requireAuth, async (req, res) => {
     try {
       const upload = await getUploadMiddleware();
@@ -400,6 +600,7 @@ export async function registerRoutes(
 
       const analysis = await storage.createAnalysis({
         userId: req.authUser!.id,
+        workspaceId: req.authUser!.workspaceId,
         fileName: sanitizeUploadedFileName(file.originalname || "uploaded-document"),
         fileSize: file.size,
         analysisVersion: "live-v1",
@@ -428,7 +629,7 @@ export async function registerRoutes(
 
   app.get("/api/analyses", requireAuth, async (req, res) => {
     try {
-      const analyses = await storage.getAllAnalysesForUser(req.authUser!.id);
+      const analyses = await storage.getAllAnalysesForWorkspace(req.authUser!.workspaceId);
       const result = analyses.map(({ documentText, ...rest }) => rest);
       return res.json(result);
     } catch (error: any) {
@@ -447,7 +648,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid analysis ID" });
       }
 
-      const owned = await storage.getAnalysisForUser(id, req.authUser!.id);
+      const owned = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
       if (!owned) {
         return res.status(404).json({ message: "Analysis not found" });
       }
@@ -474,7 +675,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid analysis ID" });
       }
 
-      const analysis = await storage.getAnalysisForUser(id, req.authUser!.id);
+      const analysis = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
       if (!analysis) {
         return res.status(404).json({ message: "Analysis not found" });
       }
@@ -485,6 +686,7 @@ export async function registerRoutes(
           ? makeHeuristicDocumentQuality(analysis)
           : null;
       const shadowStatusView = getShadowStatusView(analysis, meta);
+      const calibrationContext = await loadWorkspaceCalibrationContext(analysis.workspaceId);
 
       return res.json({
         status: analysis.status,
@@ -500,12 +702,97 @@ export async function registerRoutes(
         documentQuality,
         reviewReasons: shadowStatusView.reviewReasons,
         comparisonSummary: shadowStatusView.comparisonSummary,
+        calibrationState: calibrationContext?.calibrationState || "default",
       });
     } catch (error: any) {
       console.error("Error fetching analysis status:", error);
       return res.status(500).json({
         message: error.message || "Failed to fetch analysis status",
       });
+    }
+  });
+
+  app.post("/api/analyses/:id/decision", requireAuth, async (req, res) => {
+    try {
+      const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Number.parseInt(rawId, 10);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid analysis ID" });
+      }
+      const analysis = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+
+      const userDecision = String(req.body?.userDecision || "").trim();
+      const overrideReason = typeof req.body?.overrideReason === "string" ? req.body.overrideReason.trim() : "";
+      if (!userDecision) {
+        return res.status(400).json({ message: "User decision is required" });
+      }
+      if (analysis.recommendation && analysis.recommendation !== userDecision && !overrideReason) {
+        return res.status(400).json({ message: "Override reason is required when changing the system recommendation" });
+      }
+
+      const decision = await storage.createOrUpdatePursuitDecision({
+        analysisId: analysis.id,
+        workspaceId: req.authUser!.workspaceId,
+        userId: req.authUser!.id,
+        systemRecommendation: analysis.recommendation || "Unknown",
+        userDecision,
+        overrideReason: overrideReason || null,
+      });
+      return res.json(decision);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to store decision" });
+    }
+  });
+
+  app.post("/api/analyses/:id/outcome", requireAuth, async (req, res) => {
+    try {
+      const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = Number.parseInt(rawId, 10);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ message: "Invalid analysis ID" });
+      }
+      const analysis = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
+      if (!analysis) {
+        return res.status(404).json({ message: "Analysis not found" });
+      }
+
+      const outcome = String(req.body?.outcome || "").trim();
+      if (!outcome) {
+        return res.status(400).json({ message: "Outcome is required" });
+      }
+      const notes = typeof req.body?.notes === "string" ? req.body.notes.trim() : null;
+      const saved = await storage.createOrUpdatePursuitOutcome({
+        analysisId: analysis.id,
+        workspaceId: req.authUser!.workspaceId,
+        outcome,
+        notes,
+      });
+
+      const coreExtraction = extractCoreExtraction(analysis);
+      const clientName =
+        typeof coreExtraction?.clientName === "string" && coreExtraction.clientName.trim()
+          ? coreExtraction.clientName.trim()
+          : typeof (analysis.clientResearch as any)?.companyName === "string"
+            ? String((analysis.clientResearch as any).companyName)
+            : "";
+      if (clientName) {
+        await storage.upsertClientMemory(
+          req.authUser!.workspaceId,
+          normalizeClientKey(clientName),
+          {
+            notes,
+            qualityRating: outcome === "won" ? "strong" : outcome === "lost" ? "mixed" : "watch",
+            badFitFlag: outcome === "declined" || outcome === "no_submission",
+          },
+        );
+      }
+
+      return res.json(saved);
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Failed to store outcome" });
     }
   });
 
@@ -517,12 +804,12 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid analysis ID" });
       }
 
-      const analysis = await storage.getAnalysisForUser(id, req.authUser!.id);
+      const analysis = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
       if (!analysis) {
         return res.status(404).json({ message: "Analysis not found" });
       }
 
-      await storage.deleteAnalysisForUser(id, req.authUser!.id);
+      await storage.deleteAnalysisForWorkspace(id, req.authUser!.workspaceId);
       return res.status(204).send();
     } catch (error: any) {
       console.error("Error deleting analysis:", error);
@@ -540,7 +827,7 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid analysis ID" });
       }
 
-      const analysis = await storage.getAnalysisForUser(id, req.authUser!.id);
+      const analysis = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
       if (!analysis) {
         return res.status(404).json({ message: "Analysis not found" });
       }
@@ -584,7 +871,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Invalid analysis ID" });
       }
 
-      const analysis = await storage.getAnalysisForUser(id, req.authUser!.id);
+      const analysis = await storage.getAnalysisForWorkspace(id, req.authUser!.workspaceId);
       if (!analysis) {
         return res.status(404).json({ error: "Analysis not found" });
       }

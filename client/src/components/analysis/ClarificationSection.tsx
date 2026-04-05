@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   CollapsibleGroup,
   CollapsibleGroupSection,
@@ -28,9 +27,9 @@ interface ClarificationSectionProps {
 
 function importanceBadge(importance: string): string {
   const i = importance?.toLowerCase() || "";
-  if (i === "critical") return "bg-red-500/15 text-red-500";
-  if (i === "important") return "bg-amber-500/15 text-amber-600";
-  return "bg-foreground/[0.06] text-muted-foreground";
+  if (i === "critical") return "border-red-500/30 bg-red-500/15 text-red-500";
+  if (i === "important") return "border-amber-500/30 bg-amber-500/15 text-amber-500";
+  return "border-white/[0.06] bg-foreground/[0.06] text-muted-foreground";
 }
 
 export function ClarificationSection({
@@ -52,8 +51,8 @@ export function ClarificationSection({
   if (qCount > 0) defaultOpen.push("questions");
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Clarifications</p>
           <span className="font-mono text-[10px] text-muted-foreground/60">{totalItems} items</span>
@@ -74,7 +73,7 @@ export function ClarificationSection({
               <CollapsibleContent>
                 <motion.div data-lenis-prevent className="max-h-[360px] overflow-y-auto overscroll-contain" variants={staggerFast} initial="hidden" animate="visible">
                   {clarificationQuestions.map((q, i) => (
-                    <motion.div key={i} variants={staggerItemLeft} className="flex items-start gap-3 py-3 border-b border-foreground/8 last:border-0 row-hover rounded-md">
+                    <motion.div key={i} variants={staggerItemLeft} className="flex items-start gap-3 py-3 border-b border-foreground/8 last:border-0 row-hover">
                       <span className="font-mono text-[10px] text-muted-foreground w-5 text-right shrink-0 leading-relaxed mt-0.5">
                         {i + 1}
                       </span>
@@ -104,8 +103,8 @@ export function ClarificationSection({
                     const importance = typeof item === "string" ? "important" : item.importance || item.priority || "important";
                     const impact = typeof item === "object" ? item.impact : null;
                     return (
-                      <motion.div key={i} variants={staggerItemLeft} className="flex items-start gap-3 py-3 border-b border-foreground/8 last:border-0 row-hover rounded-md">
-                        <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 mt-0.5", importanceBadge(importance))}>
+                      <motion.div key={i} variants={staggerItemLeft} className="flex items-start gap-3 py-3 border-b border-foreground/8 last:border-0 row-hover">
+                        <span className={cn("px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 mt-0.5 border", importanceBadge(importance))}>
                           {importance}
                         </span>
                         <div className="min-w-0">
@@ -139,7 +138,7 @@ export function ClarificationSection({
                     const line2 = c.statement2 || c.reference2;
                     const resolution = c.suggestedResolution;
                     return (
-                      <motion.div key={i} variants={staggerItemLeft} className="border border-amber-500/20 rounded-xl p-4 bg-amber-500/[0.03]">
+                      <motion.div key={i} variants={staggerItemLeft} className="border border-amber-500/20 p-4 bg-amber-500/[0.03]">
                         <p className="text-sm font-bold">{title}</p>
                         <div className="space-y-1.5 mt-2">
                           {line1 && (
@@ -166,7 +165,7 @@ export function ClarificationSection({
             </CollapsibleGroupSection>
           )}
         </CollapsibleGroup>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

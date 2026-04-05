@@ -1,5 +1,6 @@
 import type { ScopeAnalysisResult } from "./serviceTaxonomy";
 import type { ClientResearchResult } from "./clientResearch";
+import type { AgencyCalibrationContext } from "./workspaceCalibration";
 import type {
   AnalysisEvidenceIndex,
   AnalysisEvidenceItem,
@@ -34,6 +35,43 @@ export interface FinancialScoreResult {
   qualityGateReason: string | null;
   recommendation: "Excellent" | "Good" | "Moderate" | "Low";
   rationale: string;
+  budgetAdequacy: {
+    status: "under_scoped" | "likely_viable" | "unclear";
+    disclosedBudget: string | null;
+    summary: string;
+  };
+  pitchCostEstimate: {
+    effortLevel: "low" | "moderate" | "high" | "intensive";
+    estimatedHoursRange: string;
+    summary: string;
+  };
+  agencyRiskFlags: Array<{
+    title: string;
+    severity: "low" | "medium" | "high";
+    category: "commercial" | "contractual" | "delivery" | "qualification";
+    summary: string;
+  }>;
+  submissionComplexity: {
+    level: "low" | "moderate" | "high";
+    requirementsCount: number;
+    summary: string;
+  };
+  credentialsMatch: {
+    status: "strong" | "partial" | "weak";
+    summary: string;
+  };
+  clientQualityNotes: {
+    signal: "high_potential" | "mixed" | "watch";
+    summary: string;
+    notes: string[];
+  };
+  saudiComplianceReadiness: {
+    status: "ready" | "watch" | "not_applicable";
+    summary: string;
+    signals: string[];
+  };
+  calibrationState: "default" | "partial" | "full";
+  calibrationDrivers: string[];
 }
 
 interface ShadowScoreContext {
@@ -417,11 +455,446 @@ function calculateIncompletePenalty(factors: ScoringFactor[]): number {
   return Math.round((1 - completeness) * 10);
 }
 
+function normalizeTerm(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function countSubmissionRequirements(submission: any): number {
+  if (!submission) return 0;
+  if (typeof submission === "string") return submission.trim() ? 1 : 0;
+  if (Array.isArray(submission)) {
+    return submission.reduce<number>(
+      (total, item) => total + countSubmissionRequirements(item),
+      0,
+    );
+  }
+  if (typeof submission === "object") {
+    return Object.values(submission).reduce<number>(
+      (total, value) => total + countSubmissionRequirements(value),
+      0,
+    );
+  }
+  return 0;
+}
+
+function estimateProjectComplexityUnits(
+  deliverableCount: number,
+  timelineMonths: number,
+  scopeMatchCount: number,
+  submissionRequirementsCount: number,
+  highRiskCount: number,
+): number {
+  return (
+    deliverableCount * 1.5 +
+    timelineMonths * 2 +
+    scopeMatchCount * 1.2 +
+    submissionRequirementsCount * 0.8 +
+    highRiskCount * 3
+  );
+}
+
+function buildBudgetAdequacy(
+  extractedData: any,
+  scopeAnalysis: ScopeAnalysisResult,
+  redFlags: any[],
+  calibrationContext?: AgencyCalibrationContext,
+): FinancialScoreResult["budgetAdequacy"] {
+  const core = extractedData?.coreExtraction ?? extractedData ?? {};
+  const deliverableCount = countDeliverables(core);
+  const timelineMonths = parseTimelineMonths(core?.timeline || core?.submissionRequirements?.timeline || "");
+  const submissionRequirementsCount = countSubmissionRequirements(core?.submissionRequirements);
+  const scopeMatchCount = Array.isArray(scopeAnalysis.matches) ? scopeAnalysis.matches.length : 0;
+  const budgetRaw =
+    typeof core?.budget?.totalBudget === "string" && core.budget.totalBudget.trim()
+      ? core.budget.totalBudget.trim()
+      : null;
+  const budgetAmount = parseBudgetAmount(budgetRaw);
+  const calibratedBudgetFloor = parseBudgetAmount(calibrationContext?.calibration?.minimumBudget || "");
+  const complexityUnits = estimateProjectComplexityUnits(
+    deliverableCount,
+    timelineMonths,
+    scopeMatchCount,
+    submissionRequirementsCount,
+    countHighSeverityRisks(redFlags),
+  );
+  const estimatedFloor = Math.max(
+    25_000 + complexityUnits * 4_000,
+    calibratedBudgetFloor || 0,
+  );
+
+  if (!budgetAmount) {
+    return {
+      status: "unclear",
+      disclosedBudget: budgetRaw,
+      summary:
+        "No reliable budget is disclosed. Treat pricing viability as unclear until the team confirms commercial range.",
+    };
+  }
+
+  if (budgetAmount < estimatedFloor * 0.8) {
+    return {
+      status: "under_scoped",
+      disclosedBudget: budgetRaw,
+      summary:
+        "The disclosed budget looks light relative to scope, timeline, and submission load. Commercial fit needs review before committing pitch effort.",
+    };
+  }
+
+  if (budgetAmount >= estimatedFloor * 1.05) {
+    return {
+      status: "likely_viable",
+      disclosedBudget: budgetRaw,
+      summary:
+        "The disclosed budget looks broadly workable for the current scope. Validate exclusions and change-control terms before treating it as healthy.",
+    };
+  }
+
+  return {
+    status: "unclear",
+    disclosedBudget: budgetRaw,
+    summary:
+      "The budget is present, but it sits close to the likely delivery floor. This needs commercial judgment rather than an automatic green light.",
+  };
+}
+
+function buildPitchCostEstimate(
+  extractedData: any,
+  scopeAnalysis: ScopeAnalysisResult,
+  redFlags: any[],
+  calibrationContext?: AgencyCalibrationContext,
+): FinancialScoreResult["pitchCostEstimate"] {
+  const core = extractedData?.coreExtraction ?? extractedData ?? {};
+  const deliverableCount = countDeliverables(core);
+  const timelineMonths = parseTimelineMonths(core?.timeline || "");
+  const submissionRequirementsCount = countSubmissionRequirements(core?.submissionRequirements);
+  const scopeMatchCount = Array.isArray(scopeAnalysis.matches) ? scopeAnalysis.matches.length : 0;
+  const highRiskCount = countHighSeverityRisks(redFlags);
+  const estimatedHours =
+    20 +
+    deliverableCount * 4 +
+    timelineMonths * 8 +
+    submissionRequirementsCount * 2 +
+    scopeMatchCount * 2 +
+    highRiskCount * 10;
+  const tolerance = calibrationContext?.calibration?.pitchEffortTolerance || "moderate";
+  const toleranceMultiplier = tolerance === "low" ? 1.15 : tolerance === "high" ? 0.9 : 1;
+  const adjustedHours = estimatedHours * toleranceMultiplier;
+  const lower = Math.max(24, Math.round(adjustedHours * 0.85));
+  const upper = Math.round(adjustedHours * 1.2);
+
+  let effortLevel: FinancialScoreResult["pitchCostEstimate"]["effortLevel"];
+  if (adjustedHours < 70) effortLevel = "low";
+  else if (adjustedHours < 130) effortLevel = "moderate";
+  else if (adjustedHours < 220) effortLevel = "high";
+  else effortLevel = "intensive";
+
+  return {
+    effortLevel,
+    estimatedHoursRange: `${lower}-${upper} hrs`,
+    summary:
+      effortLevel === "intensive"
+        ? "This pursuit looks expensive before delivery even begins. Leadership should make the bid/no-bid call deliberately."
+        : effortLevel === "high"
+          ? "This will take meaningful pitch effort across strategy, creative, and commercial review."
+          : effortLevel === "moderate"
+            ? "This looks like a manageable pursuit, but still needs coordinated review before committing."
+            : "This looks relatively light to qualify, assuming no hidden compliance or procurement attachments appear later.",
+  };
+}
+
+function buildAgencyRiskFlags(
+  extractedData: any,
+  redFlags: any[],
+  calibrationContext?: AgencyCalibrationContext,
+): FinancialScoreResult["agencyRiskFlags"] {
+  const core = extractedData?.coreExtraction ?? extractedData ?? {};
+  const signals = new Map<string, FinancialScoreResult["agencyRiskFlags"][number]>();
+  const contractText = JSON.stringify(core?.contractTerms || {}).toLowerCase();
+  const combinedText = JSON.stringify(core).toLowerCase();
+  const redLines = (calibrationContext?.calibration?.riskRedLines || []).map((item) =>
+    item.toLowerCase(),
+  );
+
+  const addSignal = (
+    key: string,
+    value: FinancialScoreResult["agencyRiskFlags"][number],
+  ) => {
+    if (!signals.has(key)) signals.set(key, value);
+  };
+
+  for (const flag of redFlags || []) {
+    const title = String(flag?.title || flag?.flag || "Agency risk");
+    const severityRaw = String(flag?.severity || flag?.level || "").toLowerCase();
+    const severity =
+      severityRaw === "critical" || severityRaw === "high"
+        ? "high"
+        : severityRaw === "medium"
+          ? "medium"
+          : "low";
+    const normalized = title.toLowerCase();
+
+    let category: FinancialScoreResult["agencyRiskFlags"][number]["category"] = "qualification";
+    if (/timeline|schedule|deadline|rush|compressed/.test(normalized)) category = "delivery";
+    else if (/budget|fee|pricing|payment|cost/.test(normalized)) category = "commercial";
+    else if (/contract|ip|revision|rights|exclusiv|liability/.test(normalized)) category = "contractual";
+
+    addSignal(title, {
+      title,
+      severity,
+      category,
+      summary:
+        typeof flag?.description === "string" && flag.description.trim()
+          ? flag.description.trim()
+          : `Agency-relevant ${category} risk identified during qualification.`,
+    });
+  }
+
+  if (!parseBudgetAmount(core?.budget?.totalBudget)) {
+    addSignal("Budget not disclosed", {
+      title: "Budget not disclosed",
+      severity: "high",
+      category: "commercial",
+      summary:
+        "No clear budget is stated. That raises the risk of wasting pitch effort on an underfunded opportunity.",
+    });
+  }
+
+  if (/unlimited revision|revision.*undefined|revisions?.*unlimited/.test(contractText)) {
+    addSignal("Unlimited revisions exposure", {
+      title: "Unlimited revisions exposure",
+      severity: "high",
+      category: "contractual",
+      summary:
+        "The contract language suggests revision cycles may be open-ended, which can damage delivery economics quickly.",
+    });
+  }
+
+  if (/intellectual property|ip ownership|work product.*owned by client|all rights/.test(contractText)) {
+    addSignal("IP ownership overreach", {
+      title: "IP ownership overreach",
+      severity: "medium",
+      category: "contractual",
+      summary:
+        "Rights and ownership language should be reviewed carefully to avoid broad transfer beyond the practical scope of work.",
+    });
+  }
+
+  if (/exclusive|exclusivity|conflict/.test(contractText)) {
+    addSignal("Exclusivity conflict", {
+      title: "Exclusivity conflict",
+      severity: "medium",
+      category: "contractual",
+      summary:
+        "There are signals of exclusivity or conflict restrictions that may limit other client work.",
+    });
+  }
+
+  if (/spec work|sample campaign|creative concepts|pitch deck|required before award/.test(combinedText)) {
+    addSignal("Spec work demand", {
+      title: "Spec work demand",
+      severity: "medium",
+      category: "qualification",
+      summary:
+        "The submission appears to require unpaid creative effort before award, which increases pursuit cost materially.",
+    });
+  }
+
+  for (const redLine of redLines) {
+    if (!redLine) continue;
+    if (combinedText.includes(redLine)) {
+      addSignal(`Agency red line: ${redLine}`, {
+        title: `Agency red line: ${redLine}`,
+        severity: "high",
+        category: "qualification",
+        summary:
+          "This RFP touches an agency-specific red line from workspace calibration and should be reviewed before resources are committed.",
+      });
+    }
+  }
+
+  return Array.from(signals.values()).slice(0, 6);
+}
+
+function buildSubmissionComplexity(extractedData: any): FinancialScoreResult["submissionComplexity"] {
+  const core = extractedData?.coreExtraction ?? extractedData ?? {};
+  const requirementsCount = countSubmissionRequirements(core?.submissionRequirements);
+  let level: FinancialScoreResult["submissionComplexity"]["level"];
+  if (requirementsCount >= 12) level = "high";
+  else if (requirementsCount >= 5) level = "moderate";
+  else level = "low";
+
+  return {
+    level,
+    requirementsCount,
+    summary:
+      level === "high"
+        ? "Submission requirements look heavy. Expect more internal coordination, approvals, and packaging work than a normal pitch."
+        : level === "moderate"
+          ? "Submission complexity is manageable, but not lightweight. Plan for checklist discipline and internal review."
+          : "Submission requirements look relatively simple, which lowers pursuit overhead.",
+  };
+}
+
+function buildCredentialsMatch(
+  scopeAnalysis: ScopeAnalysisResult,
+  calibrationContext?: AgencyCalibrationContext,
+): FinancialScoreResult["credentialsMatch"] {
+  const pct = scopeAnalysis.agencyServicePercentage || 0;
+  const matches = Array.isArray(scopeAnalysis.matches) ? scopeAnalysis.matches.length : 0;
+  const categories = Object.values(scopeAnalysis.categoryBreakdown || {}).filter(
+    (value) => value.full > 0 || value.partial > 0,
+  ).length;
+  const approvedCredentials = (calibrationContext?.credentials || []).filter(
+    (credential) => credential.status === "approved",
+  );
+  const matchedServices = new Set(
+    (scopeAnalysis.matches || [])
+      .map((match) => normalizeTerm(String(match?.matchedService || "")))
+      .filter(Boolean),
+  );
+  const matchingCredentials = approvedCredentials.filter((credential) => {
+    const services = Array.isArray(credential.services) ? credential.services : [];
+    const tags = Array.isArray(credential.tags) ? credential.tags : [];
+    const terms = [...services, ...tags].map((term) => normalizeTerm(String(term)));
+    return terms.some((term) => matchedServices.has(term));
+  });
+
+  if (pct >= 70 && matches >= 3 && matchingCredentials.length > 0) {
+    return {
+      status: "strong",
+      summary: `The scope maps well to your core services across ${categories} delivery categories, and ${matchingCredentials.length} approved credential${matchingCredentials.length === 1 ? "" : "s"} look reusable here.`,
+    };
+  }
+
+  if (pct >= 40 && matches >= 2) {
+    return {
+      status: "partial",
+      summary:
+        matchingCredentials.length > 0
+          ? `There is enough overlap to pitch credibly, but the team will need to be selective about how it packages ${matchingCredentials.length} relevant credential${matchingCredentials.length === 1 ? "" : "s"}.`
+          : "There is enough service overlap to pitch credibly, but the workspace still needs a stronger approved credentials library for this type of opportunity.",
+    };
+  }
+
+  return {
+    status: "weak",
+    summary:
+      "The current scope does not map strongly to the agency service profile. This looks harder to support with convincing credentials.",
+  };
+}
+
+function buildClientQualityNotes(
+  clientResearch: ClientResearchResult,
+  calibrationContext?: AgencyCalibrationContext,
+): FinancialScoreResult["clientQualityNotes"] {
+  const notes: string[] = [];
+  const normalizedClient = normalizeTerm(clientResearch.companyName);
+  const clientMemoryEntry = (calibrationContext?.clientMemory || []).find(
+    (entry) => normalizeTerm(entry.normalizedClientKey) === normalizedClient,
+  );
+
+  if (clientResearch.entityType === "government" || clientResearch.entityType === "semi_government") {
+    notes.push("Buyer likely has layered approvals and tighter procurement discipline.");
+  }
+
+  if (clientResearch.estimatedSize === "large" || clientResearch.estimatedSize === "enterprise") {
+    notes.push("Client scale suggests meaningful upside if the opportunity is commercially sound.");
+  }
+
+  if (
+    clientResearch.socialActivityLevel === "active" ||
+    clientResearch.socialActivityLevel === "very_active" ||
+    clientResearch.contentPublishingLevel === "active" ||
+    clientResearch.contentPublishingLevel === "very_active"
+  ) {
+    notes.push("Digital activity implies the client is likely to value ongoing output cadence and reporting discipline.");
+  }
+
+  if (clientResearch.sourceType === "document_only_inference") {
+    notes.push("Client profile is still mostly inferred from the RFP itself, so leadership should treat it as directional.");
+  }
+
+  if (clientMemoryEntry?.badFitFlag) {
+    notes.push("Workspace memory marks this client as a historical bad-fit or cautionary account.");
+  } else if (clientMemoryEntry?.qualityRating && clientMemoryEntry.qualityRating !== "unknown") {
+    notes.push(`Workspace memory rates this client as ${clientMemoryEntry.qualityRating}.`);
+  }
+
+  let signal: FinancialScoreResult["clientQualityNotes"]["signal"];
+  if (clientMemoryEntry?.badFitFlag) {
+    signal = "watch";
+  } else if (
+    (clientResearch.estimatedSize === "large" || clientResearch.estimatedSize === "enterprise") &&
+    clientResearch.sourceType !== "document_only_inference"
+  ) {
+    signal = "high_potential";
+  } else if (clientResearch.sourceType === "document_only_inference") {
+    signal = "watch";
+  } else {
+    signal = "mixed";
+  }
+
+  const summary =
+    signal === "high_potential"
+      ? "Client signals look commercially attractive, but the team should still validate procurement behavior and decision speed."
+      : signal === "watch"
+        ? "Client quality is still too inferred. Use the recommendation as a qualification input, not a substitute for judgment."
+        : "Client signals are mixed. There is potential here, but not enough to ignore commercial discipline.";
+
+  return { signal, summary, notes: notes.slice(0, 4) };
+}
+
+function buildSaudiComplianceReadiness(
+  extractedData: any,
+  clientResearch: ClientResearchResult,
+): FinancialScoreResult["saudiComplianceReadiness"] {
+  const serialized = JSON.stringify(extractedData).toLowerCase();
+  const signals: string[] = [];
+
+  if (/etimad|اعتماد/.test(serialized)) signals.push("Etimad procurement signal detected.");
+  if (/saudization|saudi national|نطاقات/.test(serialized)) signals.push("Saudization or local staffing requirement detected.");
+  if (/local content|lcgpa|المحتوى المحلي/.test(serialized)) signals.push("Local-content scoring language detected.");
+  if (/arabic|bilingual|arabic version|العربية/.test(serialized)) signals.push("Arabic or bilingual submission requirement detected.");
+  if (clientResearch.geographicReach === "national" || clientResearch.geographicReach === "regional") {
+    signals.push("Regional market context suggests GCC procurement expectations may matter.");
+  }
+
+  if (signals.length >= 3) {
+    return {
+      status: "ready",
+      summary:
+        "Saudi-specific procurement signals are present and identifiable, which means the team can review compliance readiness early instead of late in the bid cycle.",
+      signals,
+    };
+  }
+
+  if (signals.length > 0) {
+    return {
+      status: "watch",
+      summary:
+        "There are some Saudi or GCC procurement cues, but not enough to treat this as a full compliance-heavy pursuit yet.",
+      signals,
+    };
+  }
+
+  return {
+    status: "not_applicable",
+    summary:
+      "No strong Saudi-specific procurement requirements were detected in the current extraction.",
+    signals,
+  };
+}
+
 export function calculateFinancialScore(
   extractedData: any,
   scopeAnalysis: ScopeAnalysisResult,
   clientResearch: ClientResearchResult,
-  redFlags: any[]
+  redFlags: any[],
+  calibrationContext?: AgencyCalibrationContext,
 ): FinancialScoreResult {
   const factors: ScoringFactor[] = [
     scoreScopeMagnitude(extractedData),
@@ -470,6 +943,30 @@ export function calculateFinancialScore(
   const sortedFactors = [...factors].sort((a, b) => b.actualScore - a.actualScore);
   const topDrivers = sortedFactors.slice(0, 2).map((f) => f.name);
   let rationale = `Top scoring drivers: ${topDrivers.join(" and ")}.`;
+  const budgetAdequacy = buildBudgetAdequacy(extractedData, scopeAnalysis, redFlags, calibrationContext);
+  const pitchCostEstimate = buildPitchCostEstimate(extractedData, scopeAnalysis, redFlags, calibrationContext);
+  const agencyRiskFlags = buildAgencyRiskFlags(extractedData, redFlags, calibrationContext);
+  const submissionComplexity = buildSubmissionComplexity(extractedData);
+  const credentialsMatch = buildCredentialsMatch(scopeAnalysis, calibrationContext);
+  const clientQualityNotes = buildClientQualityNotes(clientResearch, calibrationContext);
+  const saudiComplianceReadiness = buildSaudiComplianceReadiness(extractedData, clientResearch);
+  const calibrationDrivers = [
+    calibrationContext?.calibrationState && calibrationContext.calibrationState !== "default"
+      ? `Agency profile is ${calibrationContext.calibrationState}.`
+      : null,
+    calibrationContext?.calibration?.minimumBudget
+      ? `Minimum budget floor set at ${calibrationContext.calibration.minimumBudget}.`
+      : null,
+    calibrationContext?.calibration?.riskRedLines?.length
+      ? `${calibrationContext.calibration.riskRedLines.length} agency red line${calibrationContext.calibration.riskRedLines.length === 1 ? "" : "s"} applied.`
+      : null,
+    calibrationContext?.credentials?.filter((item) => item.status === "approved").length
+      ? `${calibrationContext.credentials.filter((item) => item.status === "approved").length} approved credential${calibrationContext.credentials.filter((item) => item.status === "approved").length === 1 ? "" : "s"} available.`
+      : null,
+    calibrationContext?.clientMemory?.length
+      ? `Workspace client memory contains ${calibrationContext.clientMemory.length} account note${calibrationContext.clientMemory.length === 1 ? "" : "s"}.`
+      : null,
+  ].filter((item): item is string => Boolean(item));
 
   if (redFlagPenalty > 0) {
     rationale += ` Red flag penalties applied: -${redFlagPenalty} points.`;
@@ -492,6 +989,15 @@ export function calculateFinancialScore(
     qualityGateReason,
     recommendation,
     rationale,
+    budgetAdequacy,
+    pitchCostEstimate,
+    agencyRiskFlags,
+    submissionComplexity,
+    credentialsMatch,
+    clientQualityNotes,
+    saudiComplianceReadiness,
+    calibrationState: calibrationContext?.calibrationState || "default",
+    calibrationDrivers,
   };
 }
 

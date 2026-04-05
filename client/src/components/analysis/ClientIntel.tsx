@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import { humanize } from "@/lib/format-evidence";
 import { staggerFast, staggerItemLeft } from "@/lib/motion";
 
@@ -58,14 +57,14 @@ export function ClientIntel({
 }: ClientIntelProps) {
   if (!hasData) {
     return (
-      <Card>
-        <CardContent className="pt-4 pb-4" data-testid="section-client-profile">
+      <div className="border border-white/[0.06] bg-[#050505]">
+        <div className="pt-4 pb-4 px-5" data-testid="section-client-profile">
           <p className="section-heading">CLIENT INTELLIGENCE</p>
           <p className="text-sm text-muted-foreground italic">
             Client intelligence data not available
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
@@ -125,23 +124,23 @@ export function ClientIntel({
     : [];
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4" data-testid="section-client-profile">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5" data-testid="section-client-profile">
         <div className="flex items-center justify-between mb-2">
           <p className="panel-heading">Client Intelligence</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="px-2.5 py-1 rounded-full bg-foreground/[0.04] text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground">
+          <span className="px-2.5 py-1 border border-white/[0.06] text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground">
             {sourceType}
           </span>
           {avgConfidence != null && (
-            <span className="px-2.5 py-1 rounded-full bg-primary/10 text-[10px] font-mono uppercase tracking-[0.08em] text-primary">
+            <span className="px-2.5 py-1 border border-primary/20 bg-primary/10 text-[10px] font-mono uppercase tracking-[0.08em] text-primary">
               {avgConfidence}% avg confidence
             </span>
           )}
           {sourceCount > 0 && (
-            <span className="px-2.5 py-1 rounded-full bg-emerald-500/10 text-[10px] font-mono uppercase tracking-[0.08em] text-emerald-600">
+            <span className="px-2.5 py-1 border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-mono uppercase tracking-[0.08em] text-emerald-500">
               {sourceCount} source{sourceCount === 1 ? "" : "s"}
             </span>
           )}
@@ -226,7 +225,7 @@ export function ClientIntel({
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block rounded-md border border-foreground/8 px-3 py-2 transition-colors hover:border-foreground/16 hover:bg-foreground/[0.02]"
+                  className="block border border-foreground/8 px-3 py-2 transition-colors hover:border-foreground/16 hover:bg-foreground/[0.02]"
                 >
                   <p className="text-sm font-medium text-foreground line-clamp-1">
                     {source.title || source.url}
@@ -247,7 +246,7 @@ export function ClientIntel({
               {displayedNotes.map((note: string, index: number) => (
                 <p
                   key={`${index}-${note.slice(0, 24)}`}
-                  className="rounded-md border border-foreground/8 px-3 py-2 text-sm leading-relaxed text-muted-foreground"
+                  className="border border-foreground/8 px-3 py-2 text-sm leading-relaxed text-muted-foreground"
                 >
                   {note}
                 </p>
@@ -255,7 +254,7 @@ export function ClientIntel({
             </div>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

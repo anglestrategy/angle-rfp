@@ -1,7 +1,7 @@
-import { Suspense, lazy, useState, useCallback, useEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Suspense, lazy, useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
-import { motion, AnimatePresence, useScroll, useTransform, useSpring } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   Trash2,
@@ -10,12 +10,8 @@ import {
   FileText,
   Download,
   AlertTriangle,
-  Moon,
-  Sun,
 } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
 import { useIsAuthenticated } from "@/hooks/use-auth";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -75,15 +71,6 @@ const ClarificationSection = lazy(() =>
 const ShadowComparePanel = lazy(() =>
   import("@/components/analysis/ShadowComparePanel").then((module) => ({ default: module.ShadowComparePanel })),
 );
-const GlassBackground = lazy(() =>
-  import("@/components/glass-background").then((module) => ({ default: module.GlassBackground })),
-);
-const AuroraOrbs = lazy(() =>
-  import("@/components/aurora-orbs").then((module) => ({ default: module.AuroraOrbs })),
-);
-const TiltCard = lazy(() =>
-  import("@/components/ui/tilt-card").then((module) => ({ default: module.TiltCard })),
-);
 const ShimmerBar = lazy(() =>
   import("@/components/ui/shimmer-bar").then((module) => ({ default: module.ShimmerBar })),
 );
@@ -102,7 +89,7 @@ type AnalysisWithRuns = RfpAnalysis & {
 
 function PageSectionFallback({ height = "min-h-[160px]" }: { height?: string }) {
   return (
-    <div className={`rounded-2xl border border-border/60 bg-card/70 p-4 ${height}`}>
+    <div className={`border border-white/[0.06] bg-[#050505] p-4 ${height}`}>
       <div className="space-y-3">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-20 w-full" />
@@ -494,30 +481,136 @@ function ProcessingView({
 function ErrorView({ message }: { message: string }) {
   const [, setLocation] = useLocation();
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen bg-black flex items-center justify-center">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-md w-full mx-4"
+        className="max-w-md w-full mx-4 border border-white/[0.08] bg-[#050505] p-10"
       >
-        <Card>
-          <CardContent className="p-8 text-center">
-            <div className="rounded-full bg-red-500/10 p-4 inline-block mb-4">
-              <AlertTriangle className="h-8 w-8 text-red-400" />
-            </div>
-            <h2 className="text-xl font-semibold mb-2">Analysis Failed</h2>
-            <p className="text-sm text-muted-foreground mb-6">{message}</p>
-            <div className="flex flex-col gap-2">
-              <Button onClick={() => setLocation("/")} data-testid="button-try-again">
-                Try Again
-              </Button>
-              <Button variant="ghost" onClick={() => setLocation("/")} data-testid="link-back-home">
-                Back to Home
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="mb-6 inline-flex border border-red-500/20 bg-red-500/10 p-3 text-red-400">
+          <AlertTriangle className="h-6 w-6" aria-hidden="true" />
+        </div>
+        <h2 className="text-xl font-bold tracking-tight text-white mb-2">Analysis Failed</h2>
+        <p className="text-sm text-white/40 leading-relaxed mb-8">{message}</p>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => setLocation("/upload")}
+            data-testid="button-try-again"
+            className="w-full bg-white text-black px-6 py-3 text-sm font-bold hover:bg-white/90 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
+          >
+            Try another file
+          </button>
+          <button
+            onClick={() => setLocation("/")}
+            data-testid="link-back-home"
+            className="w-full border border-white/[0.08] px-6 py-3 text-sm font-medium text-white/50 hover:text-white hover:border-white/20 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
+          >
+            Back to home
+          </button>
+        </div>
       </motion.div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────── */
+/*  Dashboard Side Navigation                            */
+/* ────────────────────────────────────────────────────── */
+
+interface NavSection {
+  id: string;
+  label: string;
+}
+
+// Zones map to full horizontal bands of the page — top to bottom.
+// The two-column grid (Scope/Risks/Scoring/etc.) is one single zone.
+const NAV_SECTIONS: NavSection[] = [
+  { id: "sec-brief",        label: "Brief" },
+  { id: "sec-metrics",      label: "Metrics" },
+  { id: "sec-deliverables", label: "Deliverables" },
+  { id: "sec-grid",         label: "Analysis" },
+];
+
+const HEADER_H = 56;
+
+function DashboardSideNav() {
+  const [activeId, setActiveId] = useState<string>("");
+  const [presentIds, setPresentIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      const present = NAV_SECTIONS
+        .filter((s) => !!document.getElementById(s.id))
+        .map((s) => s.id);
+      setPresentIds(present);
+      if (present.length > 0) setActiveId(present[0]);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  useEffect(() => {
+    if (presentIds.length === 0) return;
+
+    const getActive = () => {
+      const triggerY = window.scrollY + HEADER_H + 40;
+      let bestId = presentIds[0];
+      let bestTop = -Infinity;
+
+      presentIds.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const top = el.getBoundingClientRect().top + window.scrollY;
+        if (top <= triggerY && top > bestTop) {
+          bestTop = top;
+          bestId = id;
+        }
+      });
+
+      setActiveId(bestId);
+    };
+
+    getActive();
+    window.addEventListener("scroll", getActive, { passive: true });
+    return () => window.removeEventListener("scroll", getActive);
+  }, [presentIds]);
+
+  const scrollTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const y = el.getBoundingClientRect().top + window.scrollY - HEADER_H - 12;
+    window.scrollTo({ top: y, behavior: "smooth" });
+  };
+
+  const sectionsToShow = NAV_SECTIONS.filter((s) => presentIds.includes(s.id));
+  if (sectionsToShow.length === 0) return null;
+
+  return (
+    <div className="hidden xl:flex flex-col w-[152px] shrink-0 print:hidden">
+      <div className="sticky top-[56px] pt-5">
+        <p className="font-mono text-[9px] uppercase tracking-[0.18em] text-white/20 mb-3 px-3">
+          Analysis
+        </p>
+        <nav className="space-y-0.5">
+          {sectionsToShow.map((section) => {
+            const isActive = activeId === section.id;
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => scrollTo(section.id)}
+                className={[
+                  "w-full text-left px-3 py-[7px] text-[12px] transition-all duration-150 border-l-2",
+                  isActive
+                    ? "border-l-[#ff5a36] bg-white/[0.04] text-white font-medium"
+                    : "border-l-transparent text-white/30 hover:text-white/60 hover:bg-white/[0.02]",
+                ].join(" ")}
+              >
+                {section.label}
+              </button>
+            );
+          })}
+        </nav>
+      </div>
     </div>
   );
 }
@@ -528,14 +621,19 @@ function ErrorView({ message }: { message: string }) {
 function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { theme, toggleTheme } = useTheme();
   const [deleteOpen, setDeleteOpen] = useState(false);
-
-  /* ── Scroll-linked parallax for background depth ── */
-  const { scrollY } = useScroll();
-  const bgY = useTransform(scrollY, [0, 1200], [0, -60]);
-  const bgScale = useTransform(scrollY, [0, 800], [1, 1.03]);
-  const grainOpacity = useTransform(scrollY, [0, 600], [0.015, 0.008]);
+  const [decisionValue, setDecisionValue] = useState<string>(
+    (analysis as any)?.pursuitDecision?.userDecision || "",
+  );
+  const [decisionReason, setDecisionReason] = useState<string>(
+    (analysis as any)?.pursuitDecision?.overrideReason || "",
+  );
+  const [outcomeValue, setOutcomeValue] = useState<string>(
+    (analysis as any)?.pursuitOutcome?.outcome || "",
+  );
+  const [outcomeNotes, setOutcomeNotes] = useState<string>(
+    (analysis as any)?.pursuitOutcome?.notes || "",
+  );
 
   const handleDelete = useCallback(async () => {
     try {
@@ -549,6 +647,38 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
     setDeleteOpen(false);
   }, [analysis.id, setLocation, toast]);
 
+  const saveDecision = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/analyses/${analysis.id}/decision`, {
+        userDecision: decisionValue,
+        overrideReason: decisionReason || null,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/analyses", String(analysis.id), "complete"] });
+      toast({ title: "Decision saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save decision", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const saveOutcome = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/analyses/${analysis.id}/outcome`, {
+        outcome: outcomeValue,
+        notes: outcomeNotes || null,
+      });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/analyses", String(analysis.id), "complete"] });
+      toast({ title: "Outcome saved" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Failed to save outcome", description: error.message, variant: "destructive" });
+    },
+  });
+
   /* ── Data extraction ── */
   const extracted = (analysis.extractedData as any) ?? {};
   const core = extracted?.coreExtraction ?? {};
@@ -557,6 +687,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
   const financial = (analysis.financialScore as any) ?? {};
   const redFlags = (analysis.redFlags as any) ?? {};
   const shadowOutputs = (analysis.shadowOutputs as ShadowOutputs | null) ?? null;
+  const pursuitDecision = (analysis as any)?.pursuitDecision ?? null;
+  const pursuitOutcome = (analysis as any)?.pursuitOutcome ?? null;
   const comparisonSummary =
     (analysis.comparisonSummary as ShadowComparisonSummary | null) ??
     shadowOutputs?.comparisonSummary ??
@@ -564,6 +696,15 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
   const completeness = extracted?.completenessAssessment ?? {};
   const score = analysis.overallScore ?? 0;
   const recommendation = analysis.recommendation || "N/A";
+  const calibrationState =
+    (analysis as any)?.calibrationState ||
+    financial?.calibrationState ||
+    "default";
+  const calibrationDrivers = Array.isArray(financial?.calibrationDrivers)
+    ? financial.calibrationDrivers
+    : Array.isArray((analysis as any)?.calibrationDrivers)
+      ? (analysis as any).calibrationDrivers
+      : [];
   const showShadowAdmin =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("shadow") === "1";
@@ -708,78 +849,38 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
   };
 
   return (
-    <div className="min-h-screen print:min-h-0 relative">
-      {/* ── Atmospheric grain texture (parallax) ── */}
-      <motion.svg
-        className="fixed inset-0 w-full h-full z-0 pointer-events-none print:hidden"
-        style={{ opacity: grainOpacity }}
-      >
+    <div className="min-h-screen print:min-h-0 relative bg-black text-white">
+      {/* ── Subtle grain texture ── */}
+      <svg className="hidden" aria-hidden="true">
         <filter id="dashboard-grain">
           <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
         </filter>
-        <rect width="100%" height="100%" filter="url(#dashboard-grain)" />
-      </motion.svg>
+      </svg>
+      <div
+        className="fixed inset-0 pointer-events-none z-0 opacity-[0.025] print:hidden"
+        style={{ filter: "url(#dashboard-grain)" }}
+      />
 
-      {/* ── Warm gradient overlay (light mode only, parallax) ── */}
-      {theme === "light" && (
-        <motion.div
-          className="fixed inset-0 z-0 pointer-events-none print:hidden"
-          style={{
-            background: "radial-gradient(ellipse at 10% 0%, hsl(14 75% 60% / 0.03) 0%, transparent 60%)",
-            y: bgY,
-            scale: bgScale,
-          }}
-        />
-      )}
-
-      {/* ── Japanese gradient background (dark mode) ── */}
-      {theme === "dark" && (
-        <Suspense fallback={null}>
-          <GlassBackground />
-        </Suspense>
-      )}
-
-      {/* ── Aurora orbs — atmospheric warm gradient drift (dark mode) ── */}
-      {theme === "dark" && (
-        <Suspense fallback={null}>
-          <AuroraOrbs />
-        </Suspense>
-      )}
-
-      {/* ── Sticky Header — Glass nav ── */}
-      <div className="sticky top-0 z-50 bg-[var(--glass-bg)] backdrop-blur-xl border-b border-[var(--glass-border)] shadow-sm print:hidden">
+      {/* ── Sticky Header ── */}
+      <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-sm border-b border-white/[0.06] print:hidden">
         <div className="max-w-[1600px] mx-auto px-6 lg:px-12 py-2.5 flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 min-w-0">
-            <motion.div whileHover={{ x: -3, scale: 1.08 }} whileTap={{ scale: 0.9 }} transition={{ type: "spring", stiffness: 500, damping: 25 }}>
+            <motion.div whileHover={{ x: -3 }} whileTap={{ scale: 0.95 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}>
               <Button variant="ghost" size="icon" onClick={() => setLocation("/")} data-testid="button-back">
                 <ArrowLeft />
               </Button>
             </motion.div>
-            <span className="text-sm text-muted-foreground">RFP Analysis</span>
-            <span className="text-sm text-muted-foreground">/</span>
+            <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/30">RFP Analysis</span>
+            <span className="text-white/20">/</span>
             <span className="text-sm font-medium truncate max-w-[200px] md:max-w-[400px]">
               {analysis.fileName}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <motion.div whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.92 }} transition={{ type: "spring", stiffness: 500, damping: 25 }}>
-              <Button variant="ghost" size="icon" onClick={toggleTheme} aria-label="Toggle theme">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={theme}
-                    initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
-                    animate={{ rotate: 0, opacity: 1, scale: 1 }}
-                    exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
-                    transition={{ duration: 0.25 }}
-                  >
-                    {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-                  </motion.div>
-                </AnimatePresence>
-              </Button>
-            </motion.div>
-            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.96 }} transition={{ type: "spring", stiffness: 500, damping: 25 }}>
-              <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={pdfLoading} className="gap-2">
-                {pdfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            <motion.div whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} transition={{ type: "spring", stiffness: 400, damping: 25 }}>
+              <Button variant="outline" size="sm" onClick={handleExportPDF} disabled={pdfLoading} className="gap-2 font-mono text-[11px] uppercase tracking-[0.12em]">
+                {pdfLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
                 {pdfLoading ? "Generating..." : "Export PDF"}
               </Button>
             </motion.div>
@@ -807,14 +908,21 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
       </div>
 
       {/* ── Main Content ── */}
-      <div
-        className="max-w-[1600px] mx-auto px-6 lg:px-12 pt-4 pb-8"
-        style={theme === "dark" ? { perspective: "1200px" } : undefined}
-      >
+      <div className="max-w-[1600px] mx-auto px-6 lg:px-12 pt-4 pb-8">
+        {/* ── Two-column: side nav + content ── */}
+        <div className="flex gap-0 xl:gap-6">
+
+          {/* ── Side nav (xl+ only) ── */}
+          <DashboardSideNav />
+
+          {/* ── Scrollable content ── */}
+          <div className="flex-1 min-w-0">
+
         {/* ═══════════════════════════════════════════════════
             ROW 1 — HERO: Brief (left) + Score (right)
             Single cohesive unit — editorial layout
         ═══════════════════════════════════════════════════ */}
+        <div id="sec-brief">
         <motion.div
           className="mb-3"
           variants={dashboardRow}
@@ -823,7 +931,6 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
         >
           <motion.div variants={dashboardCard}>
             <Suspense fallback={<PageSectionFallback height="min-h-[220px]" />}>
-              <TiltCard>
               <div className="flex items-stretch gap-6 lg:gap-8">
                 {/* Left: Executive brief — takes remaining space */}
                 <div className="flex-1 min-w-0">
@@ -837,11 +944,15 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                     budget={budgetStr}
                     fileName={analysis.fileName}
                     createdAt={analysis.createdAt}
+                    recommendation={recommendation}
+                    budgetAdequacy={financial?.budgetAdequacy}
+                    pitchCostEstimate={financial?.pitchCostEstimate}
+                    submissionComplexity={financial?.submissionComplexity}
                   />
                 </div>
 
                 {/* Right: Score — compact typographic accent */}
-                <div className="hidden lg:flex shrink-0 w-[140px] border-l border-[var(--glass-border)]">
+                <div className="hidden lg:flex shrink-0 w-[140px] border-l border-white/[0.06]">
                   <CommandStrip
                     score={score}
                     recommendation={recommendation}
@@ -854,14 +965,15 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   />
                 </div>
               </div>
-            </TiltCard>
             </Suspense>
           </motion.div>
         </motion.div>
+        </div>
 
         {/* ═══════════════════════════════════════════════════
             ROW 2 — METRICS STRIP: 3 compact KPI cards
         ═══════════════════════════════════════════════════ */}
+        <div id="sec-metrics">
         <motion.div
           className="mb-3"
           variants={fadeInUp}
@@ -906,10 +1018,12 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             </Suspense>
           </motion.div>
         )}
+        </div>{/* /sec-metrics */}
 
         {/* ═══════════════════════════════════════════════════
             ROW 3 — DELIVERABLES: Full-width for breathing room
         ═══════════════════════════════════════════════════ */}
+        <div id="sec-deliverables">
         {Array.isArray(phases) && phases.length > 0 && (
           <motion.div
             className="mb-3"
@@ -918,8 +1032,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             whileInView="visible"
             viewport={viewportOnce}
           >
-            <Card>
-              <CardContent className="pt-4 pb-4">
+            <div className="border border-white/[0.06] bg-[#050505]">
+              <div className="pt-4 pb-4 px-5">
                 <div className="flex items-center justify-between mb-3">
                   <p className="panel-heading">Deliverables</p>
                   <span className="font-mono text-[10px] text-muted-foreground/70">
@@ -931,7 +1045,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                     const phaseDeliverables = Array.isArray(phase.deliverables) ? phase.deliverables : [];
                     return (
                       <CollapsibleSection key={idx} value={`phase-${idx}`} className="border-b border-foreground/6">
-                        <CollapsibleTrigger className="py-2 row-hover rounded-md">
+                        <CollapsibleTrigger className="py-2 row-hover">
                           <div className="flex items-center gap-3 text-sm flex-1 mr-2">
                             <span className="font-mono text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 tabular-nums">
                               {idx + 1}
@@ -953,7 +1067,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                               const qty = typeof d === "object" ? d.quantity : null;
                               const fmt = typeof d === "object" ? d.format : null;
                               return (
-                                <div key={di} className="flex items-start gap-2 py-1 text-xs border-b border-foreground/6 last:border-0 row-hover rounded-md">
+                                <div key={di} className="flex items-start gap-2 py-1 text-xs border-b border-foreground/6 last:border-0 row-hover">
                                   <span className="font-mono text-[9px] text-muted-foreground/40 w-3 text-right shrink-0 tabular-nums pt-[1px]">{di + 1}</span>
                                   <span className="flex-1 leading-relaxed">{name}</span>
                                   {qty && qty > 1 && (
@@ -969,8 +1083,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                     );
                   })}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </motion.div>
         )}
 
@@ -985,8 +1099,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
               viewport={{ once: true, margin: "-40px" }}
               transition={{ duration: 0.4, delay: 0.08 }}
             >
-              <Card>
-                <CardContent className="pt-4 pb-4">
+              <div className="border border-white/[0.06] bg-[#050505]">
+                <div className="pt-4 pb-4 px-5">
                   <div className="flex items-center justify-between mb-3">
                     <p className="panel-heading">Deliverables</p>
                     <span className="font-mono text-[10px] text-muted-foreground/70">
@@ -995,20 +1109,22 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   </div>
                   <div className="space-y-0">
                     {flatDeliverables.map((d: any, i: number) => (
-                      <div key={i} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-foreground/6 last:border-0 row-hover rounded-md">
+                      <div key={i} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-foreground/6 last:border-0 row-hover">
                         <span className="font-mono text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 tabular-nums">{i + 1}</span>
                         <span className="leading-relaxed">{typeof d === "string" ? d : d.name || JSON.stringify(d)}</span>
                       </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             </motion.div>
           )}
+        </div>{/* /sec-deliverables */}
 
         {/* ═══════════════════════════════════════════════════
             ROW 4 — MAIN GRID: 7/5 two-column dashboard
         ═══════════════════════════════════════════════════ */}
+        <div id="sec-grid">
         <motion.div
           className="grid grid-cols-1 lg:grid-cols-12 gap-3"
           variants={dashboardRow}
@@ -1019,8 +1135,9 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
           {/* ── LEFT COLUMN (7 cols) ── */}
           <motion.div className="lg:col-span-7 space-y-3" variants={staggerContainer}>
             <motion.div variants={staggerItem}>
+              <div id="sec-scope">
               <Suspense fallback={<PageSectionFallback />}>
-                <TiltCard><ScopePanel
+                <ScopePanel
                   hasScope={hasScope}
                   fullMatches={fullMatches}
                   partialMatches={partialMatches}
@@ -1029,17 +1146,21 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   matches={scopeMatches}
                   scopeCategories={scopeCategories}
                   outputCounts={outputCounts}
-                /></TiltCard>
+                />
               </Suspense>
+              </div>
             </motion.div>
 
             <motion.div variants={staggerItem}>
+              <div id="sec-scoring">
               <Suspense fallback={<PageSectionFallback />}>
-                <TiltCard><ScoringBreakdown factors={factors} financial={financial} /></TiltCard>
+                <ScoringBreakdown factors={factors} financial={financial} />
               </Suspense>
+              </div>
             </motion.div>
 
             <motion.div variants={staggerItem}>
+              <div id="sec-timeline">
               <Suspense fallback={<PageSectionFallback />}>
                 <TimelinePanel
                   dates={dates}
@@ -1049,9 +1170,11 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   submissionDeadline={deadlineStr}
                 />
               </Suspense>
+              </div>
             </motion.div>
 
             <motion.div variants={staggerItem}>
+              <div id="sec-client">
               <Suspense fallback={<PageSectionFallback />}>
                 <ClientIntel
                   clientInfo={clientInfo}
@@ -1060,18 +1183,111 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   hasData={hasClient || hasExtracted}
                 />
               </Suspense>
+              </div>
             </motion.div>
           </motion.div>
 
           {/* ── RIGHT COLUMN (5 cols) ── */}
           <motion.div className="lg:col-span-5 flex flex-col gap-3" variants={staggerContainer}>
             <motion.div variants={staggerItemScale}>
-              <Suspense fallback={<PageSectionFallback />}>
-                <TiltCard><RiskRegister redFlagList={redFlagList} riskSummary={riskSummary} /></TiltCard>
-              </Suspense>
+              <div className="border border-white/[0.06] bg-[#050505] px-5 py-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="panel-heading">Agency Calibration</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Result is currently using <span className="text-white">{calibrationState}</span> calibration.
+                    </p>
+                  </div>
+                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#ff5a36]">
+                    {calibrationState}
+                  </span>
+                </div>
+
+                {calibrationDrivers.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {calibrationDrivers.map((driver: string, index: number) => (
+                      <p key={`${driver}-${index}`} className="text-[11px] leading-relaxed text-muted-foreground">
+                        {driver}
+                      </p>
+                    ))}
+                  </div>
+                )}
+
+                <div className="mt-4 border-t border-white/[0.06] pt-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                    Workspace decision
+                  </p>
+                  <div className="mt-2 grid gap-2">
+                    <select
+                      value={decisionValue}
+                      onChange={(event) => setDecisionValue(event.target.value)}
+                      className="border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
+                    >
+                      <option value="">Select decision</option>
+                      <option value="bid">Bid</option>
+                      <option value="no-bid">No-bid</option>
+                      <option value="bid-with-conditions">Bid with conditions</option>
+                    </select>
+                    <textarea
+                      value={decisionReason}
+                      onChange={(event) => setDecisionReason(event.target.value)}
+                      placeholder="Why override or accept the recommendation?"
+                      className="min-h-[88px] border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
+                    />
+                    <button
+                      onClick={() => saveDecision.mutate()}
+                      disabled={!decisionValue || saveDecision.isPending}
+                      className="bg-white px-4 py-2.5 text-sm font-bold text-black disabled:opacity-60"
+                    >
+                      {saveDecision.isPending ? "Saving..." : pursuitDecision ? "Update decision" : "Save decision"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-white/[0.06] pt-4">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
+                    Pursuit outcome
+                  </p>
+                  <div className="mt-2 grid gap-2">
+                    <select
+                      value={outcomeValue}
+                      onChange={(event) => setOutcomeValue(event.target.value)}
+                      className="border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
+                    >
+                      <option value="">Select outcome</option>
+                      <option value="won">Won</option>
+                      <option value="lost">Lost</option>
+                      <option value="declined">Declined</option>
+                      <option value="no_submission">No submission</option>
+                    </select>
+                    <textarea
+                      value={outcomeNotes}
+                      onChange={(event) => setOutcomeNotes(event.target.value)}
+                      placeholder="Anything the workspace should remember about this client or pursuit?"
+                      className="min-h-[88px] border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
+                    />
+                    <button
+                      onClick={() => saveOutcome.mutate()}
+                      disabled={!outcomeValue || saveOutcome.isPending}
+                      className="border border-white/[0.08] bg-black px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
+                    >
+                      {saveOutcome.isPending ? "Saving..." : pursuitOutcome ? "Update outcome" : "Save outcome"}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </motion.div>
 
             <motion.div variants={staggerItemScale}>
+              <div id="sec-risks">
+              <Suspense fallback={<PageSectionFallback />}>
+                <RiskRegister redFlagList={redFlagList} riskSummary={riskSummary} />
+              </Suspense>
+              </div>
+            </motion.div>
+
+            <motion.div variants={staggerItemScale}>
+              <div id="sec-clarifications">
               <Suspense fallback={<PageSectionFallback />}>
                 <ClarificationSection
                   clarificationQuestions={clarificationQuestions}
@@ -1079,117 +1295,127 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   contradictions={contradictions}
                 />
               </Suspense>
+              </div>
             </motion.div>
 
             <motion.div variants={staggerItemScale}>
+              <div id="sec-submission">
               <Suspense fallback={<PageSectionFallback />}>
                 <SubmissionPanel submission={submission} />
               </Suspense>
+              </div>
             </motion.div>
 
             <motion.div variants={staggerItemScale}>
+              <div id="sec-contract">
               <Suspense fallback={<PageSectionFallback />}>
                 <ContractTermsPanel contractTerms={contractTerms} />
               </Suspense>
+              </div>
             </motion.div>
 
             {/* Evaluation Criteria */}
             {Array.isArray(evalCriteria) && evalCriteria.length > 0 && (
-              <motion.div variants={staggerItemScale}><Card>
-                <CardContent className="pt-4 pb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="panel-heading">Evaluation Criteria</p>
-                  </div>
-                  <div className="space-y-1">
-                    {evalCriteria.map((crit: any, i: number) => {
-                      const name =
-                        typeof crit === "string"
-                          ? crit
-                          : crit.criterion || crit.name || `Criterion ${i + 1}`;
-                      const weight = typeof crit === "object" ? crit.weight : null;
-                      const desc = typeof crit === "object" ? crit.description : null;
-                      return (
-                        <div key={i} className="row-hover rounded-md px-3 py-1.5 -mx-3">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <span className="text-xs font-medium">{name}</span>
+              <motion.div variants={staggerItemScale}>
+                <div className="border border-white/[0.06] bg-[#050505]">
+                  <div className="pt-4 pb-4 px-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="panel-heading">Evaluation Criteria</p>
+                    </div>
+                    <div className="space-y-1">
+                      {evalCriteria.map((crit: any, i: number) => {
+                        const name =
+                          typeof crit === "string"
+                            ? crit
+                            : crit.criterion || crit.name || `Criterion ${i + 1}`;
+                        const weight = typeof crit === "object" ? crit.weight : null;
+                        const desc = typeof crit === "object" ? crit.description : null;
+                        return (
+                          <div key={i} className="row-hover px-3 py-1.5 -mx-3">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span className="text-xs font-medium">{name}</span>
+                              {weight && (
+                                <span className="text-xs font-mono tabular-nums font-semibold">
+                                  {weight}<span className="text-muted-foreground/50 text-[10px]">%</span>
+                                </span>
+                              )}
+                            </div>
                             {weight && (
-                              <span className="text-xs font-mono tabular-nums font-semibold">
-                                {weight}<span className="text-muted-foreground/50 text-[10px]">%</span>
-                              </span>
+                              <ShimmerBar
+                                value={Math.min(weight, 100)}
+                                delay={i * 0.03}
+                                height="h-1"
+                                className="mt-1"
+                                showGlow={false}
+                              />
                             )}
+                            {desc && <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>}
                           </div>
-                          {weight && (
-                            <ShimmerBar
-                              value={Math.min(weight, 100)}
-                              delay={i * 0.03}
-                              height="h-1"
-                              className="mt-1"
-                              showGlow={false}
-                            />
-                          )}
-                          {desc && <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </CardContent>
-              </Card></motion.div>
+                </div>
+              </motion.div>
             )}
 
             {/* Team Requirements */}
             {(teamReqs?.keyRoles?.length > 0 ||
               teamReqs?.certifications?.length > 0 ||
               teamReqs?.localContentRequirements) && (
-              <motion.div variants={staggerItemScale}><Card>
-                <CardContent className="pt-4 pb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="panel-heading">Team Requirements</p>
-                </div>
-                {Array.isArray(teamReqs.keyRoles) && teamReqs.keyRoles.length > 0 && (
-                  <div className="mb-3">
-                    <p className="swiss-data-label mb-2">Key Roles</p>
-                    <div className="space-y-1">
-                      {teamReqs.keyRoles.map((role: any, i: number) => (
-                        <div key={i} className="row-hover rounded-md px-3 py-1.5 -mx-3">
-                          <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-xs font-medium">{role.role}</p>
-                            {role.experienceYears && (
-                              <span className="font-mono text-[9px] text-muted-foreground/60 shrink-0">
-                                {role.experienceYears}+ yr
-                              </span>
-                            )}
-                          </div>
-                          {role.qualifications && (
-                            <p className="text-[10px] text-muted-foreground/70 leading-relaxed mt-0.5">{role.qualifications}</p>
-                          )}
+              <motion.div variants={staggerItemScale}>
+                <div className="border border-white/[0.06] bg-[#050505]">
+                  <div className="pt-4 pb-4 px-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="panel-heading">Team Requirements</p>
+                    </div>
+                    {Array.isArray(teamReqs.keyRoles) && teamReqs.keyRoles.length > 0 && (
+                      <div className="mb-3">
+                        <p className="swiss-data-label mb-2">Key Roles</p>
+                        <div className="space-y-1">
+                          {teamReqs.keyRoles.map((role: any, i: number) => (
+                            <div key={i} className="row-hover px-3 py-1.5 -mx-3">
+                              <div className="flex items-baseline justify-between gap-2">
+                                <p className="text-xs font-medium">{role.role}</p>
+                                {role.experienceYears && (
+                                  <span className="font-mono text-[9px] text-muted-foreground/60 shrink-0">
+                                    {role.experienceYears}+ yr
+                                  </span>
+                                )}
+                              </div>
+                              {role.qualifications && (
+                                <p className="text-[10px] text-muted-foreground/70 leading-relaxed mt-0.5">{role.qualifications}</p>
+                              )}
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      </div>
+                    )}
+                    {Array.isArray(teamReqs.certifications) && teamReqs.certifications.length > 0 && (
+                      <div className="mb-2">
+                        <p className="swiss-data-label mb-2">Certifications</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {teamReqs.certifications.map((cert: string, i: number) => (
+                            <Badge key={i} variant="outline" className="text-[9px] no-default-hover-elevate">
+                              {cert}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {teamReqs.localContentRequirements && (
+                      <div>
+                        <p className="swiss-data-label mb-1">Local Content</p>
+                        <p className="text-xs">{teamReqs.localContentRequirements}</p>
+                      </div>
+                    )}
                   </div>
-                )}
-                {Array.isArray(teamReqs.certifications) && teamReqs.certifications.length > 0 && (
-                  <div className="mb-2">
-                    <p className="swiss-data-label mb-2">Certifications</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {teamReqs.certifications.map((cert: string, i: number) => (
-                        <Badge key={i} variant="outline" className="text-[9px] no-default-hover-elevate">
-                          {cert}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {teamReqs.localContentRequirements && (
-                  <div>
-                    <p className="swiss-data-label mb-1">Local Content</p>
-                    <p className="text-xs">{teamReqs.localContentRequirements}</p>
-                  </div>
-                )}
-                </CardContent>
-              </Card></motion.div>
+                </div>
+              </motion.div>
             )}
           </motion.div>
         </motion.div>
+        </div>{/* /sec-grid */}
 
         {/* Evidence Trail — collapsed at bottom */}
         <motion.div
@@ -1234,6 +1460,9 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             </CollapsibleSection>
           </div>
         </motion.div>
+
+          </div>{/* /flex-1 scrollable content */}
+        </div>{/* /flex row with side nav */}
       </div>
 
       <style>{`

@@ -1,6 +1,5 @@
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   CollapsibleGroup,
   CollapsibleGroupSection,
@@ -69,8 +68,8 @@ export function ContractTermsPanel({
   if (visibleTerms.length === 0 && otherTerms.length === 0) return null;
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Contract Terms</p>
           <span className="font-mono text-[10px] text-muted-foreground/60">
@@ -84,11 +83,11 @@ export function ContractTermsPanel({
             const isWarn = term.warn && val !== "Not specified";
             return (
               <CollapsibleGroupSection key={term.key} value={term.key} className="border-b border-foreground/8">
-                <CollapsibleTrigger className="py-2.5 px-1 text-sm hover:no-underline row-hover rounded-md">
+                <CollapsibleTrigger className="py-2.5 px-1 text-sm hover:no-underline row-hover">
                   <div className="flex items-center gap-2.5">
                     <span className={cn(
-                      "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0",
-                      isWarn ? "bg-primary/15 text-primary" : "bg-foreground/[0.06] text-muted-foreground"
+                      "px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0 border",
+                      isWarn ? "border-primary/30 bg-primary/15 text-primary" : "border-white/[0.06] bg-foreground/[0.06] text-muted-foreground"
                     )}>
                       {isWarn ? "WARN" : "STD"}
                     </span>
@@ -123,7 +122,7 @@ export function ContractTermsPanel({
                       term.content ||
                       "";
                     return (
-                      <motion.div key={idx} variants={staggerItemLeft} className="py-2 border-b border-foreground/8 last:border-0 row-hover rounded-md">
+                      <motion.div key={idx} variants={staggerItemLeft} className="py-2 border-b border-foreground/8 last:border-0 row-hover">
                         <p className="swiss-data-label">
                           {typeof termName === "string"
                             ? humanize(termName)
@@ -140,7 +139,7 @@ export function ContractTermsPanel({
             </CollapsibleSection>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -24,6 +24,7 @@ import {
 } from "./analysisRunStore";
 import { calculateFinancialScore } from "./financialScoring";
 import { aiScopeMatching, matchScopeToServices } from "./serviceTaxonomy";
+import { buildCalibrationContext } from "./workspaceCalibration";
 import type {
   AnalysisDocumentChunk,
   AnalysisDocumentQuality,
@@ -118,6 +119,31 @@ function flattenDeliverables(pass1Result: any): string[] {
   }
 
   return Array.from(new Set(result));
+}
+
+function buildCredentialSuggestionSummary(pass1Result: any, scopeResult: any): string {
+  const projectTitle =
+    typeof pass1Result?.projectTitle === "string" && pass1Result.projectTitle.trim()
+      ? pass1Result.projectTitle.trim()
+      : "Untitled RFP";
+  const industry =
+    typeof pass1Result?.industry === "string" && pass1Result.industry.trim()
+      ? pass1Result.industry.trim()
+      : "general";
+  const deliverables = flattenDeliverables(pass1Result).slice(0, 4);
+  const services = Array.isArray(scopeResult?.matches)
+    ? scopeResult.matches
+        .map((match: any) => String(match?.matchedService || "").trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+
+  const deliverablesSummary =
+    deliverables.length > 0 ? `Deliverables included ${deliverables.join(", ")}.` : "";
+  const servicesSummary =
+    services.length > 0 ? `Reusable service proof may exist for ${services.join(", ")}.` : "";
+
+  return `${projectTitle} in ${industry}. ${deliverablesSummary} ${servicesSummary}`.trim();
 }
 
 function buildFallbackClientProfile(
@@ -748,11 +774,21 @@ export async function runLiveAnalysis(input: {
     let scoreResult = null;
     let scoringEnvelope: AnalysisStageEnvelope;
     try {
+      const analysisRecord = await storage.getAnalysis(input.analysisId);
+      const workspaceId = analysisRecord?.workspaceId || null;
+      const calibrationContext = workspaceId
+        ? buildCalibrationContext({
+            profile: await storage.getAgencyProfileForWorkspace(workspaceId),
+            credentials: await storage.listWorkspaceCredentials(workspaceId),
+            clientMemory: await storage.listClientMemory(workspaceId),
+          })
+        : undefined;
       scoreResult = calculateFinancialScore(
         pass1Result,
         scopeResult,
         clientResult,
         riskStage.value?.redFlags || [],
+        calibrationContext,
       );
       scoringEnvelope = buildManualStageEnvelope({
         stageKey: "financial_scoring",
@@ -786,6 +822,20 @@ export async function runLiveAnalysis(input: {
       status: "complete",
       currentPass: 4,
     });
+
+    const completedAnalysis = await storage.getAnalysis(input.analysisId);
+    if (completedAnalysis?.workspaceId) {
+      await storage.createCredentialSuggestion(completedAnalysis.workspaceId, {
+        sourceAnalysisId: input.analysisId,
+        extractedSummary: buildCredentialSuggestionSummary(pass1Result, scopeResult),
+        proposedTags: Array.isArray(scopeResult?.matches)
+          ? scopeResult.matches
+              .map((match: any) => String(match?.matchedService || "").trim())
+              .filter(Boolean)
+              .slice(0, 5)
+          : [],
+      });
+    }
 
     let reviewReasons: string[] = documentModel.documentQuality.parseWarnings;
 

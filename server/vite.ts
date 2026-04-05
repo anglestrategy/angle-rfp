@@ -9,6 +9,7 @@ const require = createRequire(path.resolve(process.cwd(), "package.json"));
 
 export async function setupVite(server: Server, app: Express) {
   const viteModule: any = require("vite");
+  const react: any = require("@vitejs/plugin-react");
   const viteLogger = viteModule.createLogger();
   const serverOptions = {
     middlewareMode: true,
@@ -19,6 +20,10 @@ export async function setupVite(server: Server, app: Express) {
   const vite = await viteModule.createServer({
     configFile: false,
     root: path.resolve(process.cwd(), "client"),
+    plugins: [react()],
+    css: {
+      postcss: process.cwd(),
+    },
     resolve: {
       alias: {
         "@": path.resolve(process.cwd(), "client", "src"),

@@ -8,6 +8,11 @@ const isReplitDev =
 
 export default defineConfig({
   cacheDir: path.resolve(import.meta.dirname, "node_modules/.vite-client"),
+  // Force PostCSS discovery from the repo root; Vite's default search
+  // from `client/` intermittently fails in this workspace.
+  css: {
+    postcss: path.resolve(import.meta.dirname),
+  },
   plugins: [
     react(),
     ...(isReplitDev

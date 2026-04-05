@@ -41,6 +41,17 @@ Required:
 - `SESSION_SECRET`
 - `NODE_ENV=production`
 
+Required for public email verification:
+
+- `APP_BASE_URL`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+
+Required for hosted PDF export on Render:
+
+- `PUPPETEER_CACHE_DIR=/opt/render/project/.cache/puppeteer`
+- `PUPPETEER_BROWSER=chrome`
+
 Recommended production defaults:
 
 - `FEATURE_ANALYSIS_WORKER=false`
@@ -63,8 +74,30 @@ This repo includes a starter [render.yaml](./render.yaml) blueprint. The intende
 
 1. Push this repo to `release/public-v1`
 2. Point Render staging at that branch
-3. Verify sign in, upload, analysis, PDF export, and delete
-4. Promote only after staging passes
+3. Use the working build command:
+
+```bash
+npm ci && npx puppeteer browsers install chrome && npm run db:push && npm run build
+```
+
+4. Verify sign in, upload, analysis, PDF export, and delete
+5. Configure real email verification before public signup:
+   - `APP_BASE_URL`
+   - `RESEND_API_KEY`
+   - `EMAIL_FROM`
+6. Promote only after staging passes
+
+## Email verification
+
+Local development falls back to a verification preview URL so you can complete sign-up without an email provider.
+
+Production should use real email delivery. Configure:
+
+- `APP_BASE_URL` to the public app origin
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+
+With those set, verification links are delivered by email and the app uses a sent-state verification screen instead of the local preview shortcut.
 
 ## Database changes
 

@@ -1,5 +1,4 @@
 import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   CollapsibleGroup,
   CollapsibleGroupSection,
@@ -48,14 +47,14 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
   if (!hasContent) return null;
 
   return (
-    <Card>
-      <CardContent className="pt-4 pb-4">
+    <div className="border border-white/[0.06] bg-[#050505]">
+      <div className="pt-4 pb-4 px-5">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Submission Requirements</p>
         </div>
 
         {deadline && (
-          <div className="border-l-2 border-l-primary pl-3 py-2 mb-4 bg-primary/5 rounded-r-lg">
+          <div className="border-l-2 border-l-primary pl-3 py-2 mb-4 bg-primary/5">
             <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60 mb-0.5">Deadline</p>
             <p className="text-sm font-semibold text-primary">
               {String(deadline)}
@@ -66,13 +65,13 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
         {(format || method) && (
           <div className="grid grid-cols-1 gap-2 mb-4">
             {format && (
-              <div className="px-3 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/6">
+              <div className="px-3 py-2 bg-foreground/[0.03] border border-foreground/6">
                 <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60 mb-0.5">Format</p>
                 <p className="text-xs leading-relaxed">{String(format)}</p>
               </div>
             )}
             {method && (
-              <div className="px-3 py-2 rounded-lg bg-foreground/[0.03] border border-foreground/6">
+              <div className="px-3 py-2 bg-foreground/[0.03] border border-foreground/6">
                 <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60 mb-0.5">Method</p>
                 <p className="text-xs leading-relaxed">{String(method)}</p>
               </div>
@@ -114,7 +113,7 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
                           ? doc
                           : doc.name || doc.document || doc.title || String(doc);
                       return (
-                        <motion.div key={idx} variants={staggerItemLeft} className="flex items-start gap-2.5 py-1.5 border-b border-foreground/6 last:border-0 row-hover rounded-md">
+                        <motion.div key={idx} variants={staggerItemLeft} className="flex items-start gap-2.5 py-1.5 border-b border-foreground/6 last:border-0 row-hover">
                           <span className="font-mono text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 tabular-nums pt-[2px]">
                             {idx + 1}
                           </span>
@@ -148,8 +147,8 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
                             inst.text ||
                             String(inst);
                       return (
-                        <motion.div key={idx} variants={staggerItemLeft} className="flex items-start gap-2.5 py-1.5 border-b border-foreground/6 last:border-0 row-hover rounded-md">
-                          <span className="w-1 h-1 rounded-full bg-amber-500 shrink-0 mt-[6px]" />
+                        <motion.div key={idx} variants={staggerItemLeft} className="flex items-start gap-2.5 py-1.5 border-b border-foreground/6 last:border-0 row-hover">
+                          <span className="w-1 h-1 bg-amber-500 shrink-0 mt-[6px]" />
                           <span className="text-xs leading-relaxed">{instText}</span>
                         </motion.div>
                       );
@@ -160,7 +159,7 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
             )}
           </CollapsibleGroup>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
