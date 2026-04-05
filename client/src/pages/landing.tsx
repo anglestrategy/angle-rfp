@@ -521,12 +521,6 @@ export default function LandingPage() {
                 >
                   Start qualifying RFPs
                 </Link>
-                <Link
-                  href="#workflow"
-                  className="inline-flex items-center gap-2 text-white/40 hover:text-white/70 transition-colors text-sm font-bold uppercase tracking-widest font-mono focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-                >
-                  See how it works <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                </Link>
               </motion.div>
             </AnimatedSection>
 

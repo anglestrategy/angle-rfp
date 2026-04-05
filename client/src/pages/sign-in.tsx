@@ -240,10 +240,6 @@ export default function SignInPage() {
                     </span>
                   </Link>
                 </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-white/25 font-mono text-[11px] uppercase tracking-[0.12em]">Forgot your password?</span>
-                  <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-white/25">Contact support</span>
-                </div>
               </div>
             </motion.div>
           </div>
