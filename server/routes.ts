@@ -429,7 +429,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/workspace/profile", requireAuth, requireWorkspaceRole("owner", "admin"), async (req, res) => {
+  app.patch("/api/workspace/profile", requireAuth, async (req, res) => {
     try {
       const calibration = typeof req.body === "object" && req.body ? req.body : {};
       const meaningfulFields = Object.values(calibration).filter((value) => {
@@ -448,6 +448,78 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/workspace/onboarding-chat", requireAuth, async (req, res) => {
+    try {
+      const { messages } = req.body;
+      if (!Array.isArray(messages)) {
+        return res.status(400).json({ message: "messages array is required" });
+      }
+
+      const profile = await storage.getAgencyProfileForWorkspace(req.authUser!.workspaceId);
+      const currentCalibration = (profile?.calibration || {}) as Record<string, unknown>;
+
+      const Anthropic = (await import("@anthropic-ai/sdk")).default;
+      const anthropic = new Anthropic({
+        apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
+      });
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 1024,
+        system: `You are a friendly onboarding assistant for ANGLE/RFP, a bid qualification tool for agencies. Your job is to have a brief, natural conversation to understand what this agency does so the tool can score RFPs against their actual capabilities.
+
+You need to gather these fields through conversation (do NOT ask for all at once — ask 1-2 questions at a time):
+- coreServices: what the agency primarily delivers (e.g., branding, campaigns, media buying, PR)
+- preferredSectors: industries they work in (e.g., government, tourism, sports, tech)
+- minimumBudget: smallest project they'd pursue (SAR amount)
+- teamSize: rough headcount
+- pitchEffortTolerance: how much pitch effort they'll invest (low/moderate/high)
+- saudiComplianceSensitivity: how much Saudi/GCC compliance matters (low/moderate/high)
+- riskRedLines: commercial terms they always reject (e.g., unlimited revisions, no budget disclosed)
+- preferredClientTypes: types of clients they prefer (e.g., semi-government, brands, startups)
+
+Guidelines:
+- Be conversational and warm, not robotic
+- Ask follow-up questions if answers are vague
+- After 4-6 exchanges, when you have enough info, respond with a JSON block containing the calibration
+- Keep questions short — one or two sentences max
+- If the user seems unsure, offer examples to help them choose
+- For services, be specific: don't just accept "marketing" — probe for which parts (strategy? creative? media? production? social?)
+
+Current calibration data (may be empty): ${JSON.stringify(currentCalibration)}
+
+When you have gathered enough information, end your message with a fenced JSON block like:
+\`\`\`calibration
+{"coreServices": [...], "preferredSectors": [...], ...}
+\`\`\`
+
+Only include the calibration block when you're confident you have enough info. The user will see a "Save" button when calibration is ready.`,
+        messages: messages.map((m: any) => ({
+          role: m.role === "user" ? "user" as const : "assistant" as const,
+          content: String(m.content),
+        })),
+      });
+
+      const block = response.content[0];
+      const text = block.type === "text" ? block.text : "";
+
+      // Extract calibration JSON if present
+      const calibrationMatch = text.match(/```calibration\s*([\s\S]*?)```/);
+      let calibration = null;
+      let displayText = text;
+      if (calibrationMatch) {
+        try {
+          calibration = JSON.parse(calibrationMatch[1].trim());
+          displayText = text.replace(/```calibration[\s\S]*?```/, "").trim();
+        } catch { /* ignore parse errors */ }
+      }
+
+      return res.json({ reply: displayText, calibration });
+    } catch (error: any) {
+      return res.status(500).json({ message: error.message || "Onboarding chat failed" });
+    }
+  });
+
   app.get("/api/workspace/credentials", requireAuth, async (req, res) => {
     try {
       const [credentials, suggestions] = await Promise.all([
@@ -460,7 +532,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/workspace/credentials", requireAuth, requireWorkspaceRole("owner", "admin"), async (req, res) => {
+  app.post("/api/workspace/credentials", requireAuth, async (req, res) => {
     try {
       const credential = await storage.createWorkspaceCredential(req.authUser!.workspaceId, {
         title: String(req.body?.title || "").trim(),

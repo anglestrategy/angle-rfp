@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight, Building2, CheckCircle2, FolderKanban, LibraryBig, Users2 } from "lucide-react";
+import { ArrowRight, Building2, CheckCircle2, FolderKanban, LibraryBig, Loader2, MessageCircle, Send, Users2 } from "lucide-react";
 import { NavBar } from "@/components/nav-bar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -47,6 +47,130 @@ function parseCsv(value: string) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibration: any) => void }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [pendingCalibration, setPendingCalibration] = useState<any>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const hasStarted = useRef(false);
+
+  const chat = useMutation({
+    mutationFn: async (allMessages: ChatMessage[]) => {
+      const res = await apiRequest("POST", "/api/workspace/onboarding-chat", { messages: allMessages });
+      return res.json() as Promise<{ reply: string; calibration: any }>;
+    },
+    onSuccess: (data, allMessages) => {
+      const updated = [...allMessages, { role: "assistant" as const, content: data.reply }];
+      setMessages(updated);
+      if (data.calibration) setPendingCalibration(data.calibration);
+    },
+  });
+
+  // Auto-start the conversation
+  useEffect(() => {
+    if (hasStarted.current) return;
+    hasStarted.current = true;
+    const initial: ChatMessage[] = [{ role: "user", content: "Hi, I'd like to set up my agency profile." }];
+    setMessages(initial);
+    chat.mutate(initial);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages, chat.isPending]);
+
+  const send = useCallback(() => {
+    const text = input.trim();
+    if (!text || chat.isPending) return;
+    setInput("");
+    setPendingCalibration(null);
+    const updated = [...messages, { role: "user" as const, content: text }];
+    setMessages(updated);
+    chat.mutate(updated);
+  }, [input, messages, chat]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="border border-white/[0.08] bg-[#050505] overflow-hidden"
+    >
+      <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-3">
+        <MessageCircle className="h-4 w-4 text-[#ff5a36]" />
+        <div>
+          <p className="text-sm font-semibold">Set up your agency profile</p>
+          <p className="text-[11px] text-white/40">Answer a few questions so we can score RFPs for your team.</p>
+        </div>
+      </div>
+
+      <div ref={scrollRef} className="h-[360px] overflow-y-auto px-5 py-4 space-y-3">
+        {messages.filter((m) => !(m.role === "user" && m.content === "Hi, I'd like to set up my agency profile.")).map((msg, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+          >
+            <div
+              className={`max-w-[85%] px-4 py-2.5 text-sm leading-relaxed ${
+                msg.role === "user"
+                  ? "bg-white/[0.08] text-white"
+                  : "bg-[#ff5a36]/[0.08] text-white/90 border border-[#ff5a36]/10"
+              }`}
+            >
+              {msg.content}
+            </div>
+          </motion.div>
+        ))}
+        {chat.isPending && (
+          <div className="flex justify-start">
+            <div className="px-4 py-2.5 bg-[#ff5a36]/[0.08] border border-[#ff5a36]/10">
+              <Loader2 className="h-4 w-4 animate-spin text-white/40" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="px-5 py-3 border-t border-white/[0.06]">
+        {pendingCalibration ? (
+          <div className="flex items-center gap-3">
+            <p className="text-[11px] text-emerald-400 font-mono uppercase tracking-wide flex-1">Profile ready to save</p>
+            <button
+              onClick={() => onCalibrationReady(pendingCalibration)}
+              className="bg-white px-5 py-2.5 text-sm font-bold text-black hover:bg-white/90 transition-colors"
+            >
+              Save profile
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && send()}
+              disabled={chat.isPending}
+              placeholder="Type your answer..."
+              className="flex-1 bg-black border border-white/[0.08] px-4 py-2.5 text-sm disabled:opacity-50"
+            />
+            <button
+              onClick={send}
+              disabled={!input.trim() || chat.isPending}
+              className="border border-white/[0.08] px-3 py-2.5 text-white/60 hover:text-white transition-colors disabled:opacity-30"
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
 }
 
 export default function WorkspacePage() {
@@ -144,6 +268,30 @@ export default function WorkspacePage() {
     },
   });
 
+  const [showChat, setShowChat] = useState(false);
+  const isCalibrated = data?.calibrationState === "full" || data?.calibrationState === "partial";
+
+  const handleCalibrationFromChat = useCallback(async (calibration: any) => {
+    try {
+      await apiRequest("PATCH", "/api/workspace/profile", calibration);
+      await queryClient.invalidateQueries({ queryKey: ["/api/workspace"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      setShowChat(false);
+      // Sync form state
+      setForm((prev) => ({
+        ...prev,
+        ...calibration,
+        coreServices: Array.isArray(calibration.coreServices) ? calibration.coreServices : prev.coreServices,
+        preferredSectors: Array.isArray(calibration.preferredSectors) ? calibration.preferredSectors : prev.preferredSectors,
+        riskRedLines: Array.isArray(calibration.riskRedLines) ? calibration.riskRedLines : prev.riskRedLines,
+        preferredClientTypes: Array.isArray(calibration.preferredClientTypes) ? calibration.preferredClientTypes : prev.preferredClientTypes,
+      }));
+      toast({ title: "Agency profile saved" });
+    } catch (error: any) {
+      toast({ title: "Failed to save profile", description: error.message, variant: "destructive" });
+    }
+  }, [toast]);
+
   const readinessSummary = useMemo(() => {
     const completedSignals = [
       form.coreServices.length > 0,
@@ -154,8 +302,8 @@ export default function WorkspacePage() {
     ].filter(Boolean).length;
     return `${completedSignals}/5 calibration signals set`;
   }, [form]);
-  const canManageWorkspace =
-    data?.membership?.role === "owner" || data?.membership?.role === "admin";
+  // All workspace members can edit for now — revisit when role-based permissions are needed
+  const canManageWorkspace = Boolean(data?.membership?.role);
 
   if (isLoading || workspaceLoading || (!isAuthenticated && !user)) {
     return (
@@ -202,13 +350,28 @@ export default function WorkspacePage() {
 
         <div className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]">
           <div className="space-y-3">
+            {(!isCalibrated && !showChat) || showChat ? (
+              <OnboardingChat onCalibrationReady={handleCalibrationFromChat} />
+            ) : null}
+
             <section className="border border-white/[0.08] bg-[#050505] p-6">
-              <div className="flex items-center gap-3">
-                <Building2 className="h-4 w-4 text-[#ff5a36]" />
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Your agency profile</p>
-                  <h2 className="text-lg font-semibold">What matters to your team</h2>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <Building2 className="h-4 w-4 text-[#ff5a36]" />
+                  <div>
+                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Your agency profile</p>
+                    <h2 className="text-lg font-semibold">What matters to your team</h2>
+                  </div>
                 </div>
+                {isCalibrated && !showChat && (
+                  <button
+                    onClick={() => setShowChat(true)}
+                    className="inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-wide text-white/40 hover:text-white/70 transition-colors"
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" />
+                    Re-run setup
+                  </button>
+                )}
               </div>
 
               <fieldset disabled={!canManageWorkspace} className="mt-6 grid gap-4 md:grid-cols-2 disabled:opacity-60">
