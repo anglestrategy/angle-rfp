@@ -11,6 +11,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc --noEmit -p client/tsconfig.json && tsc --noEmit -p server/tsconfig.json",
     "db:push": "drizzle-kit push",
+    "db:migrate": "node --experimental-strip-types script/run-migrations.ts",
     "shadow:backfill": "tsx script/backfill-shadow.ts",
     "baseline:snapshot": "tsx script/snapshot-baselines.ts",
     "baseline:compare": "tsx script/compare-shadow-baselines.ts",
