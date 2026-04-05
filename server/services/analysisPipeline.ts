@@ -121,7 +121,7 @@ function flattenDeliverables(pass1Result: any): string[] {
   return Array.from(new Set(result));
 }
 
-function buildCredentialSuggestionSummary(pass1Result: any, scopeResult: any): string {
+export function buildCredentialSuggestionSummary(pass1Result: any, scopeResult: any): string {
   const projectTitle =
     typeof pass1Result?.projectTitle === "string" && pass1Result.projectTitle.trim()
       ? pass1Result.projectTitle.trim()
@@ -823,19 +823,9 @@ export async function runLiveAnalysis(input: {
       currentPass: 4,
     });
 
-    const completedAnalysis = await storage.getAnalysis(input.analysisId);
-    if (completedAnalysis?.workspaceId) {
-      await storage.createCredentialSuggestion(completedAnalysis.workspaceId, {
-        sourceAnalysisId: input.analysisId,
-        extractedSummary: buildCredentialSuggestionSummary(pass1Result, scopeResult),
-        proposedTags: Array.isArray(scopeResult?.matches)
-          ? scopeResult.matches
-              .map((match: any) => String(match?.matchedService || "").trim())
-              .filter(Boolean)
-              .slice(0, 5)
-          : [],
-      });
-    }
+    // Credential suggestions are now created when a pursuit outcome is
+    // recorded as "won" (see POST /api/analyses/:id/outcome in routes.ts)
+    // rather than on every upload.
 
     let reviewReasons: string[] = documentModel.documentQuality.parseWarnings;
 

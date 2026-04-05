@@ -11,6 +11,7 @@ import { getAnalysisFeatureFlags } from "./services/analysisFlags";
 import { requireAuth, requireWorkspaceRole } from "./auth";
 import type { ClientResearchResult } from "./services/clientResearch";
 import { buildCalibrationContext, normalizeClientKey } from "./services/workspaceCalibration";
+import { buildCredentialSuggestionSummary } from "./services/analysisPipeline";
 
 let uploadMiddlewarePromise: Promise<any> | null = null;
 
@@ -788,6 +789,27 @@ export async function registerRoutes(
             badFitFlag: outcome === "declined" || outcome === "no_submission",
           },
         );
+      }
+
+      if (outcome === "won" && analysis.workspaceId) {
+        const scopeAnalysis = analysis.scopeAnalysis as any;
+        const extractedData = analysis.extractedData as any;
+        const summary = buildCredentialSuggestionSummary(
+          extractedData?.coreExtraction ?? extractedData,
+          scopeAnalysis,
+        );
+        if (summary) {
+          await storage.createCredentialSuggestion(analysis.workspaceId, {
+            sourceAnalysisId: analysis.id,
+            extractedSummary: summary,
+            proposedTags: Array.isArray(scopeAnalysis?.matches)
+              ? scopeAnalysis.matches
+                  .map((match: any) => String(match?.matchedService || "").trim())
+                  .filter(Boolean)
+                  .slice(0, 5)
+              : [],
+          });
+        }
       }
 
       return res.json(saved);

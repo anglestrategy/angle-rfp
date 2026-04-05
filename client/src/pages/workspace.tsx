@@ -179,7 +179,7 @@ export default function WorkspacePage() {
                 {data?.workspace?.name || workspace?.name}
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/50">
-                Calibrate the product for your agency before the team starts making bid decisions from it.
+                Set your agency's preferences so every RFP analysis is scored against what actually matters to your team.
               </p>
             </div>
             <div className="flex items-center gap-4">
@@ -206,8 +206,8 @@ export default function WorkspacePage() {
               <div className="flex items-center gap-3">
                 <Building2 className="h-4 w-4 text-[#ff5a36]" />
                 <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Calibration profile</p>
-                  <h2 className="text-lg font-semibold">Agency fit and commercial rules</h2>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Your agency profile</p>
+                  <h2 className="text-lg font-semibold">What matters to your team</h2>
                 </div>
               </div>
 
@@ -237,7 +237,7 @@ export default function WorkspacePage() {
                   </select>
                 </label>
                 <label className="space-y-2">
-                  <span className="text-sm text-white/70">Saudi/GCC compliance sensitivity</span>
+                  <span className="text-sm text-white/70">Saudi/GCC compliance importance</span>
                   <select value={form.saudiComplianceSensitivity} onChange={(e) => setForm((current) => ({ ...current, saudiComplianceSensitivity: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed">
                     <option value="low">Low</option>
                     <option value="moderate">Moderate</option>
@@ -245,7 +245,7 @@ export default function WorkspacePage() {
                   </select>
                 </label>
                 <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm text-white/70">Agency red lines</span>
+                  <span className="text-sm text-white/70">Deal-breakers</span>
                   <input value={form.riskRedLines.join(", ")} onChange={(e) => setForm((current) => ({ ...current, riskRedLines: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Unlimited revisions, exclusivity, no budget disclosed" />
                 </label>
                 <label className="space-y-2 md:col-span-2">
@@ -275,8 +275,8 @@ export default function WorkspacePage() {
               <div className="flex items-center gap-3">
                 <LibraryBig className="h-4 w-4 text-[#ff5a36]" />
                 <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Credentials library</p>
-                  <h2 className="text-lg font-semibold">Approved case studies and proof points</h2>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Past work</p>
+                  <h2 className="text-lg font-semibold">Case studies your team can reference</h2>
                 </div>
               </div>
 
@@ -323,10 +323,9 @@ export default function WorkspacePage() {
                 </div>
               </div>
               <div className="mt-5 space-y-3 text-sm text-white/60">
-                <p>Calibration state: <span className="text-white">{data?.calibrationState || onboarding?.calibrationState || "default"}</span></p>
-                <p>Onboarding status: <span className="text-white">{data?.workspace?.onboardingStatus || workspace?.onboardingStatus || "not_started"}</span></p>
-                <p>Workspace role: <span className="text-white">{data?.membership?.role || workspace?.role || "member"}</span></p>
-                <p>Workspace owner flow is domain-based. Any verified teammate with the same business domain will join this workspace automatically.</p>
+                <p>Your role: <span className="text-white capitalize">{data?.membership?.role || workspace?.role || "member"}</span></p>
+                <p>Profile: <span className="text-white">{(data?.calibrationState || onboarding?.calibrationState) === "full" ? "Complete" : (data?.calibrationState || onboarding?.calibrationState) === "partial" ? "Partially set up" : "Not set up yet"}</span></p>
+                <p className="text-white/40">Anyone with a <span className="text-white/60">@{data?.workspace?.primaryDomain || workspace?.slug}</span> email who signs up will automatically join this workspace.</p>
               </div>
             </section>
 
@@ -334,8 +333,8 @@ export default function WorkspacePage() {
               <div className="flex items-center gap-3">
                 <FolderKanban className="h-4 w-4 text-[#ff5a36]" />
                 <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Memory</p>
-                  <h2 className="text-lg font-semibold">Client notes and draft suggestions</h2>
+                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Client history</p>
+                  <h2 className="text-lg font-semibold">What your team knows about past clients</h2>
                 </div>
               </div>
 
@@ -352,31 +351,31 @@ export default function WorkspacePage() {
                   ))
                 ) : (
                   <p className="text-sm text-white/45">
-                    Client memory will populate as the team logs pursuit outcomes.
+                    No client notes yet. Record a bid outcome on an analysis to start building your team's memory.
                   </p>
                 )}
               </div>
 
-              {(data?.credentialSuggestions || []).length > 0 && (
+              {(data?.credentialSuggestions || []).filter((s) => s.approvalStatus !== "approved").length > 0 && (
                 <div className="mt-6 border-t border-white/[0.06] pt-4">
                   <div className="flex items-center gap-2 text-sm text-white">
                     <CheckCircle2 className="h-4 w-4 text-[#ff5a36]" />
-                    Draft credential suggestions
+                    Add to your case studies
                   </div>
+                  <p className="mt-1 text-[11px] text-white/40">
+                    These were extracted from RFPs you marked as won. Approve to add them to your credentials.
+                  </p>
                   <div className="mt-3 space-y-2">
-                    {data?.credentialSuggestions.map((suggestion) => (
+                    {data?.credentialSuggestions.filter((s) => s.approvalStatus !== "approved").map((suggestion) => (
                       <div key={suggestion.id} className="border border-white/[0.06] bg-black/40 px-4 py-3">
                         <p className="text-sm leading-relaxed">{suggestion.extractedSummary}</p>
-                        <div className="mt-3 flex items-center justify-between gap-3">
-                          <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-white/35">
-                            {suggestion.approvalStatus}
-                          </p>
+                        <div className="mt-3 flex justify-end">
                           <button
                             onClick={() => approveSuggestion.mutate(suggestion)}
-                            disabled={approveSuggestion.isPending || suggestion.approvalStatus === "approved" || !canManageWorkspace}
+                            disabled={approveSuggestion.isPending || !canManageWorkspace}
                             className="border border-white/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-white disabled:opacity-40"
                           >
-                            Approve
+                            Add to case studies
                           </button>
                         </div>
                       </div>
