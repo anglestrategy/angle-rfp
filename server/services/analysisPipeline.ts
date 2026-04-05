@@ -669,6 +669,20 @@ export async function runLiveAnalysis(input: {
       completenessAssessment: completenessStage.value,
     };
 
+    // Load calibration context early so scope matching can use the agency's core services
+    const preAnalysisRecord = await storage.getAnalysis(input.analysisId);
+    const preWorkspaceId = preAnalysisRecord?.workspaceId || null;
+    const calibrationContext = preWorkspaceId
+      ? buildCalibrationContext({
+          profile: await storage.getAgencyProfileForWorkspace(preWorkspaceId),
+          credentials: await storage.listWorkspaceCredentials(preWorkspaceId),
+          clientMemory: await storage.listClientMemory(preWorkspaceId),
+        })
+      : undefined;
+    const agencyCoreServices = calibrationContext?.calibration?.coreServices?.length
+      ? calibrationContext.calibration.coreServices
+      : undefined;
+
     const scopeStartedAt = new Date().toISOString();
     const scopeStartedMs = Date.now();
     let scopeEnvelope: AnalysisStageEnvelope;
@@ -686,7 +700,7 @@ export async function runLiveAnalysis(input: {
             : "";
 
       try {
-        scopeResult = await aiScopeMatching(flatDeliverables, scopeText);
+        scopeResult = await aiScopeMatching(flatDeliverables, scopeText, agencyCoreServices);
         scopeEnvelope = buildManualStageEnvelope({
           stageKey: "scope_matching",
           label: "Scope matching",
@@ -777,15 +791,6 @@ export async function runLiveAnalysis(input: {
     let scoreResult = null;
     let scoringEnvelope: AnalysisStageEnvelope;
     try {
-      const analysisRecord = await storage.getAnalysis(input.analysisId);
-      const workspaceId = analysisRecord?.workspaceId || null;
-      const calibrationContext = workspaceId
-        ? buildCalibrationContext({
-            profile: await storage.getAgencyProfileForWorkspace(workspaceId),
-            credentials: await storage.listWorkspaceCredentials(workspaceId),
-            clientMemory: await storage.listClientMemory(workspaceId),
-          })
-        : undefined;
       scoreResult = calculateFinancialScore(
         pass1Result,
         scopeResult,

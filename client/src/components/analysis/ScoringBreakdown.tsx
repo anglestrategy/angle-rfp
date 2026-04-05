@@ -238,66 +238,6 @@ export function ScoringBreakdown({ factors, financial }: ScoringBreakdownProps) 
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-2 mt-4">
-          <div className="border border-white/[0.06] bg-black/40 px-3 py-3">
-            <p className="panel-heading mb-2">Agency Risk Flags</p>
-            {riskFlags.length > 0 ? (
-              <div className="space-y-2">
-                {riskFlags.map((flag, index) => (
-                  <div key={`${flag.title}-${index}`} className="border border-white/[0.05] bg-[#050505] px-3 py-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">{flag.title || "Agency risk"}</span>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#ff5a36]">
-                        {flag.severity || "watch"}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                      {flag.summary || "Agency-relevant qualification risk."}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground italic">
-                No agency-specific risk framing available.
-              </p>
-            )}
-          </div>
-
-          <div className="space-y-3">
-            <div className="border border-white/[0.06] bg-black/40 px-3 py-3">
-              <p className="panel-heading mb-2">Client Quality</p>
-              <p className="text-sm leading-relaxed">
-                {financial.clientQualityNotes?.summary || "Client quality notes are not available yet."}
-              </p>
-              {clientNotes.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {clientNotes.map((note, index) => (
-                    <p key={`${note}-${index}`} className="text-[11px] leading-relaxed text-muted-foreground">
-                      {note}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="border border-white/[0.06] bg-black/40 px-3 py-3">
-              <p className="panel-heading mb-2">Saudi Readiness</p>
-              <p className="text-sm leading-relaxed">
-                {financial.saudiComplianceReadiness?.summary || "Saudi-specific procurement cues were not assessed."}
-              </p>
-              {saudiSignals.length > 0 && (
-                <div className="mt-2 space-y-1">
-                  {saudiSignals.map((signal, index) => (
-                    <p key={`${signal}-${index}`} className="text-[11px] leading-relaxed text-muted-foreground">
-                      {signal}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );

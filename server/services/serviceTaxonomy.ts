@@ -229,7 +229,7 @@ function countOutputType(deliverables: string[], keywords: string[]): number {
   return count;
 }
 
-export async function aiScopeMatching(deliverables: string[], scopeText: string): Promise<ScopeAnalysisResult> {
+export async function aiScopeMatching(deliverables: string[], scopeText: string, agencyCoreServices?: string[]): Promise<ScopeAnalysisResult> {
   const Anthropic = (await import("@anthropic-ai/sdk")).default;
   const pRetry = (await import("p-retry")).default;
 
@@ -250,7 +250,7 @@ export async function aiScopeMatching(deliverables: string[], scopeText: string)
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 8192,
-      system: `You are an expert at matching project deliverables to agency service categories. Given a numbered list of deliverables from an RFP and a service taxonomy, map EACH deliverable to the best matching service.
+      system: `You are an expert at assessing whether an agency can deliver RFP deliverables. Given a numbered list of deliverables from an RFP, a service taxonomy, and the agency's own core services, determine which deliverables this specific agency can handle.
 
 You MUST respond with ONLY valid JSON matching this schema:
 {
@@ -275,22 +275,24 @@ You MUST respond with ONLY valid JSON matching this schema:
 CRITICAL RULES:
 - You MUST create EXACTLY one match entry per deliverable in the DELIVERABLES list — no more, no less
 - DO NOT add extra items from the scope context. Only match the numbered deliverables.
-- "full" match: The deliverable clearly maps to this service (confidence > 0.7)
-- "partial" match: The deliverable is related but not a perfect fit (confidence 0.3-0.7)
-- "gap": No matching service in the taxonomy (confidence < 0.3)
-- For outputCounts, extract and SUM quantities from the deliverable descriptions (e.g., "10 social media posts" = 10 content pieces, "5 video edits" = 5 videos, "6 designs" = 6 design assets)
-- Consider semantic meaning, not just keyword matching (e.g., "brand localization" maps to content localization and brand strategy)
-- A single deliverable can be a partial match to multiple services — choose the BEST single match`,
+- "full" match: The deliverable falls within the AGENCY'S CORE SERVICES and the agency can confidently deliver it
+- "partial" match: The deliverable is adjacent to the agency's services — they could stretch to cover it or subcontract it
+- "gap": The deliverable is OUTSIDE what this agency does — they would need to partner, subcontract, or decline this part of the scope
+- IMPORTANT: If the agency's core services are provided, use them as the PRIMARY basis for matching. A deliverable that exists in the taxonomy but is NOT part of what the agency does should be marked as "gap" or "partial", not "full"
+- If no agency core services are provided, fall back to matching against the full taxonomy
+- For outputCounts, extract and SUM quantities from the deliverable descriptions
+- Consider semantic meaning, not just keyword matching`,
       messages: [{
         role: "user",
-        content: `Map these deliverables to the agency service taxonomy.
+        content: `Assess whether this agency can deliver each RFP deliverable.
 
+${agencyCoreServices && agencyCoreServices.length > 0 ? `AGENCY'S CORE SERVICES (what this agency actually does):\n${agencyCoreServices.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nAnything not covered by these core services should be marked as "gap" or "partial" at most.\n` : ""}
 DELIVERABLES:
 ${deliverables.map((d, i) => `${i + 1}. ${d}`).join("\n")}
 
 ${scopeText ? `SCOPE CONTEXT:\n${scopeText.slice(0, 3000)}` : ""}
 
-SERVICE TAXONOMY:
+SERVICE TAXONOMY (reference for categorization):
 ${JSON.stringify(taxonomySummary, null, 2)}`
       }],
     });
