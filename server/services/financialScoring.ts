@@ -928,11 +928,13 @@ export function calculateFinancialScore(
     qualityGateReason = "Insufficient scope items (fewer than 2 identifiable deliverables)";
   } else if (scopeAnalysis.agencyServicePercentage < 10) {
     qualityGateTriggered = true;
-    qualityGateReason = "Agency service match below 10% threshold";
+    qualityGateReason = "Low agency service match — most of this RFP falls outside your core capabilities";
   }
 
   let totalScore = qualityGateTriggered ? Math.min(rawScore, 49) : rawScore;
-  totalScore = Math.max(0, Math.min(100, totalScore));
+  // Floor at 5 — even a poor-fit RFP should show a non-zero score to indicate
+  // the analysis ran successfully. A score of 0 looks like a system error.
+  totalScore = Math.max(5, Math.min(100, totalScore));
 
   let recommendation: "Excellent" | "Good" | "Moderate" | "Low";
   if (totalScore >= 85) recommendation = "Excellent";
