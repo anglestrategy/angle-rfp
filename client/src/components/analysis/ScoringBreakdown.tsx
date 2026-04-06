@@ -219,24 +219,6 @@ export function ScoringBreakdown({ factors, financial }: ScoringBreakdownProps) 
           </p>
         )}
 
-        <div className="border-t border-foreground/8 mt-4 pt-4">
-          <p className="panel-heading mb-3">Qualification Lens</p>
-          <div className="grid gap-2 md:grid-cols-2">
-            {qualificationCards.map((card) => (
-              <div key={card.label} className="border border-white/[0.06] bg-black/40 px-3 py-3">
-                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-                  {card.label}
-                </p>
-                <p className="mt-1 text-sm font-semibold">{card.value}</p>
-                {card.detail && (
-                  <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-                    {card.detail}
-                  </p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
 
       </div>
     </div>

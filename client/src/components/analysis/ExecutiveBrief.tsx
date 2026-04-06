@@ -61,46 +61,6 @@ export function ExecutiveBrief({
       })()
     : null;
 
-  const insightTiles = [
-    {
-      label: "Bid posture",
-      value: recommendation || "Pending",
-      detail: rationale || "Primary recommendation generated from scope, risk, and commercial signals.",
-    },
-    {
-      label: "Budget adequacy",
-      value:
-        budgetAdequacy?.status === "likely_viable"
-          ? "Likely viable"
-          : budgetAdequacy?.status === "under_scoped"
-            ? "Under-scoped"
-            : "Unclear",
-      detail:
-        budgetAdequacy?.summary ||
-        "Budget viability has not been resolved yet.",
-    },
-    {
-      label: "Pursuit cost",
-      value:
-        pitchCostEstimate?.estimatedHoursRange ||
-        pitchCostEstimate?.effortLevel ||
-        "Not estimated",
-      detail:
-        pitchCostEstimate?.summary ||
-        "Estimated effort required to qualify and prepare the bid.",
-    },
-    {
-      label: "Submission load",
-      value:
-        submissionComplexity?.level
-          ? `${submissionComplexity.level}${typeof submissionComplexity.requirementsCount === "number" ? ` · ${submissionComplexity.requirementsCount} reqs` : ""}`
-          : "Not assessed",
-      detail:
-        submissionComplexity?.summary ||
-        "Submission complexity has not been assessed yet.",
-    },
-  ];
-
   return (
     <div className="h-full flex flex-col justify-center py-2">
       {/* Status line */}
@@ -118,14 +78,14 @@ export function ExecutiveBrief({
         </span>
       </div>
 
-      {/* Title — clean, no decorative bars */}
+      {/* Title */}
       {hasTitle && (
         <h1 className="text-xl md:text-2xl lg:text-[1.7rem] font-extrabold tracking-tight leading-[1.2] mb-1">
           <span className="line-clamp-2">{projectTitle}</span>
         </h1>
       )}
 
-      {/* Summary — collapsed by default, expandable */}
+      {/* Summary */}
       {summaryText && (
         <div className="mt-1.5">
           <p
@@ -148,23 +108,6 @@ export function ExecutiveBrief({
           )}
         </div>
       )}
-
-      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-        {insightTiles.map((tile) => (
-          <div
-            key={tile.label}
-            className="border border-white/[0.06] bg-[#050505] px-3 py-3"
-          >
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-              {tile.label}
-            </p>
-            <p className="mt-1 text-sm font-semibold leading-tight">{tile.value}</p>
-            <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
-              {tile.detail}
-            </p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
