@@ -528,10 +528,10 @@ export default function LandingPage() {
           <AnimatedSection>
             <div className="max-w-[1400px] mx-auto grid grid-cols-2 md:grid-cols-4">
               {[
-                { value: "1",   unit: " brief",      label: "to start" },
-                { value: "~7",  unit: " min",        label: "qualification pass" },
-                { value: "6",   unit: " lenses",     label: "budget to risk" },
-                { value: "Bid", unit: " / No-Bid",   label: "decision output" },
+                { value: "1",   unit: " upload",     label: "drop the RFP" },
+                { value: "~7",  unit: " min",        label: "full analysis" },
+                { value: "20+", unit: " signals",    label: "scope, risk, fit" },
+                { value: "Bid", unit: " / Pass",     label: "clear recommendation" },
               ].map(({ value, unit, label }, i) => (
                 <motion.div
                   key={label}
