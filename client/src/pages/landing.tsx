@@ -400,17 +400,6 @@ export default function LandingPage() {
           angle<span className="text-white/35">/rfp</span>
         </Link>
 
-        <nav aria-label="Main navigation" className="hidden md:flex items-center gap-10 text-[11px] font-mono text-white/40 uppercase tracking-[0.15em]">
-          {NAV_LINKS.map(({ label, href }) => (
-            <a
-              key={label}
-              href={href}
-              className="hover:text-white/80 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
 
         <div className="flex items-center gap-4 md:gap-6 text-sm font-medium">
           <Link
@@ -674,30 +663,9 @@ export default function LandingPage() {
       </main>
 
       {/* ── Footer ── */}
-      <footer className="border-t border-white/[0.06] bg-black py-14" aria-label="Site footer">
-        <div className="max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-16 flex flex-col md:flex-row items-center justify-between gap-7">
-          <Link
-            href="/"
-            className="font-bold text-xl tracking-tight text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-            aria-label="angle/rfp home"
-          >
-            angle<span className="text-white/35">/rfp</span>
-          </Link>
-          <nav aria-label="Footer navigation" className="flex items-center gap-8 text-[11px] font-bold font-mono text-white/30 uppercase tracking-[0.15em] flex-wrap justify-center">
-            {NAV_LINKS.map(({ label, href }) => (
-              <a
-                key={label}
-                href={href}
-                className="hover:text-white/60 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-              >
-                {label}
-              </a>
-            ))}
-          </nav>
-        </div>
-        <div className="max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-16 mt-10 text-[11px] text-white/20 flex flex-col sm:flex-row justify-between gap-4 font-mono tracking-wide uppercase">
-          <div>&copy; {new Date().getFullYear()} Angle Strategy. All rights reserved.</div>
-          <div>angle/rfp by Angle Strategy</div>
+      <footer className="border-t border-white/[0.06] bg-black py-8" aria-label="Site footer">
+        <div className="max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-16 text-center text-[11px] text-white/20 font-mono tracking-wide">
+          &copy; {new Date().getFullYear()} Angle Strategy
         </div>
       </footer>
     </div>
