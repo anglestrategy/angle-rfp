@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
 /* ── Thin scrollbar for sidebar panels ── */
 .scrollbar-thin {
   scrollbar-width: thin;

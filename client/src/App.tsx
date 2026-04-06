@@ -42,8 +42,15 @@ function Router() {
   return (
     <Suspense
       fallback={
-        <div className="min-h-[40vh] flex items-center justify-center text-sm text-muted-foreground">
-          Loading page...
+        <div className="min-h-screen bg-black flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="text-lg font-bold tracking-tight text-white/80">
+              angle<span className="text-white/25">/rfp</span>
+            </div>
+            <div className="h-[2px] w-24 bg-white/[0.06] overflow-hidden rounded-full">
+              <div className="h-full w-8 bg-[#ff5a36]/60 rounded-full animate-[shimmer_1.2s_ease-in-out_infinite]" />
+            </div>
+          </div>
         </div>
       }
     >
