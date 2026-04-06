@@ -609,66 +609,6 @@ export default function LandingPage() {
                 </motion.div>
               </AnimatedSection>
 
-              {/* Row 2 — Recommendation engine (5 cols) + Executive brief (4 cols) + Platform (3 cols) */}
-              <AnimatedSection className="md:col-span-5">
-                <motion.div variants={FADE_UP} custom={2} className="h-full">
-                  <BentoCard glow="feature" className="h-full">
-                    <MonoLabel>Risk analysis</MonoLabel>
-                    <h3 className="text-xl sm:text-2xl font-bold text-white text-balance">
-                      Agency risks ranked by commercial impact.
-                    </h3>
-                    <p className="mt-3 text-[15px] leading-relaxed text-white/50">
-                      Unlimited revisions, under-scoped budgets, exclusivity issues, and timeline pressure are framed for agency decision-making.
-                    </p>
-                    <div className="mt-auto space-y-2 pt-6">
-                      {[
-                        { label: "Severity", value: "HIGH — Aggressive parallel timeline" },
-                        { label: "Clause ref", value: "Project Duration, page 22" },
-                      ].map(({ label, value }) => (
-                        <div key={label} className="border border-white/[0.06] bg-[#050505] px-4 py-3">
-                          <div className="font-mono text-[11px] uppercase tracking-widest text-white/40">{label}</div>
-                          <div className="mt-1 text-[13px] text-white/70">{value}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </BentoCard>
-                </motion.div>
-              </AnimatedSection>
-
-              <AnimatedSection className="md:col-span-4">
-                <motion.div variants={FADE_UP} custom={3} className="h-full">
-                  <BentoCard glow="none" className="h-full bg-[#050505]">
-                    <MonoLabel>Executive brief</MonoLabel>
-                    <h3 className="text-xl sm:text-2xl font-bold text-white text-balance">
-                      A short internal brief leadership can act on.
-                    </h3>
-                    <p className="mt-3 text-[15px] leading-relaxed text-white/50">
-                      Recommendation, budget adequacy, pursuit cost, and key risks in one exportable briefing pack.
-                    </p>
-                    <BriefPanel />
-                  </BentoCard>
-                </motion.div>
-              </AnimatedSection>
-
-              <AnimatedSection className="md:col-span-3">
-                <motion.div variants={FADE_UP} custom={4} className="h-full">
-                  <BentoCard glow="none" className="h-full flex flex-col justify-between">
-                    <div>
-                      <MonoLabel>Built for the beachhead</MonoLabel>
-                      <h3 className="text-xl font-bold leading-tight text-white text-balance">
-                        Saudi creative, branding, and integrated agencies deciding what to chase next.
-                      </h3>
-                    </div>
-                    <Link
-                      href="/sign-up"
-                      className="mt-8 inline-flex items-center gap-2 font-mono text-[13px] font-bold uppercase tracking-widest text-[#ff5a36] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-                    >
-                      Get started <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-                    </Link>
-                  </BentoCard>
-                </motion.div>
-              </AnimatedSection>
-
               {/* Row 3 — Delivery view (full width) */}
               <AnimatedSection className="md:col-span-12">
                 <motion.div variants={FADE_UP} custom={5} className="h-full">
