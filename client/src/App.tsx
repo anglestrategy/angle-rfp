@@ -23,7 +23,7 @@ const SignInPage = lazy(() => import("@/pages/sign-in"));
 const SignUpPage = lazy(() => import("@/pages/sign-up"));
 const PricingPage = lazy(() => import("@/pages/pricing"));
 const WorkspacePage = lazy(() => import("@/pages/workspace"));
-const VerifyEmailPage = lazy(() => import("@/pages/verify-email"));
+// const VerifyEmailPage = lazy(() => import("@/pages/verify-email"));
 const NotFound = lazy(() => import("@/pages/not-found"));
 
 /**
@@ -53,7 +53,7 @@ function Router() {
         <Route path="/analysis/:id" component={AnalysisPage} />
         <Route path="/sign-in" component={SignInPage} />
         <Route path="/sign-up" component={SignUpPage} />
-        <Route path="/verify-email" component={VerifyEmailPage} />
+        {/* <Route path="/verify-email" component={VerifyEmailPage} /> */}
         <Route path="/workspace" component={WorkspacePage} />
         {/* <Route path="/pricing" component={PricingPage} /> */}
         <Route component={NotFound} />

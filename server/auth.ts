@@ -7,12 +7,12 @@ import { z } from "zod";
 import { pool } from "./db";
 import { getSessionSecret } from "./env";
 import { storage } from "./storage";
-import { sendVerificationEmail } from "./services/verificationEmail";
 
 declare module "express-session" {
   interface SessionData {
     userId?: string;
     activeWorkspaceId?: string;
+    oauthState?: string;
   }
 }
 
@@ -34,15 +34,6 @@ declare global {
   }
 }
 
-const authSchema = z.object({
-  email: z.string().trim().email().max(255),
-  password: z.string().min(8).max(255),
-});
-
-const registerSchema = authSchema.extend({
-  fullName: z.string().trim().min(2).max(255),
-});
-
 const BUSINESS_EMAIL_BLOCKLIST = new Set([
   "gmail.com",
   "googlemail.com",
@@ -57,30 +48,10 @@ const BUSINESS_EMAIL_BLOCKLIST = new Set([
   "ymail.com",
   "proton.me",
   "protonmail.com",
+  "tutanota.com",
+  "zoho.com",
   "aol.com",
 ]);
-
-function scryptAsync(password: string, salt: string) {
-  return new Promise<Buffer>((resolve, reject) => {
-    crypto.scrypt(password, salt, 64, (error, derivedKey) => {
-      if (error) reject(error);
-      else resolve(derivedKey as Buffer);
-    });
-  });
-}
-
-export async function hashPassword(password: string) {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const derived = await scryptAsync(password, salt);
-  return `${salt}:${derived.toString("hex")}`;
-}
-
-export async function verifyPassword(password: string, hash: string) {
-  const [salt, stored] = hash.split(":");
-  if (!salt || !stored) return false;
-  const derived = await scryptAsync(password, salt);
-  return crypto.timingSafeEqual(Buffer.from(stored, "hex"), derived);
-}
 
 function extractDomain(email: string) {
   return email.toLowerCase().split("@")[1] ?? "";
@@ -121,11 +92,6 @@ function sanitizeWorkspace(context: {
   };
 }
 
-async function issueVerification(email: string, userId: string, fullName?: string | null) {
-  const token = await storage.createEmailVerificationToken(userId, email);
-  return sendVerificationEmail({ email, fullName, token });
-}
-
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.authUser) {
     return res.status(401).json({ message: "Authentication required" });
@@ -138,15 +104,22 @@ export function requireWorkspaceRole(...allowedRoles: string[]) {
     if (!req.authUser) {
       return res.status(401).json({ message: "Authentication required" });
     }
-
     if (!allowedRoles.includes(req.authUser.workspaceRole)) {
-      return res.status(403).json({
-        message: "You do not have permission to manage this workspace setting",
-      });
+      return res.status(403).json({ message: "Insufficient permissions" });
     }
-
     return next();
   };
+}
+
+function getGoogleOAuthConfig() {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  const baseUrl = process.env.APP_BASE_URL?.trim();
+  if (!clientId || !clientSecret) return null;
+  const redirectUri = baseUrl
+    ? `${baseUrl.replace(/\/+$/, "")}/api/auth/google/callback`
+    : "http://127.0.0.1:5000/api/auth/google/callback";
+  return { clientId, clientSecret, redirectUri };
 }
 
 export async function attachAuth(app: Express) {
@@ -223,49 +196,13 @@ export async function attachAuth(app: Express) {
     }
   });
 
-  app.get("/api/auth/verify-email", async (req, res) => {
-    try {
-      const token = typeof req.query.token === "string" ? req.query.token : "";
-      if (!token) {
-        return res.status(400).json({ message: "Verification token is required" });
-      }
-
-      const user = await storage.consumeEmailVerificationToken(token);
-      if (!user) {
-        return res.status(400).json({ message: "Verification link is invalid or expired" });
-      }
-
-      const workspaceContext = await storage.createOrJoinWorkspaceForUser(user);
-      req.session.userId = user.id;
-      req.session.activeWorkspaceId = workspaceContext.workspace.id;
-
-      return res.status(200).json({
-        verified: true,
-        user: sanitizeUser(user),
-        workspace: sanitizeWorkspace({
-          workspaceId: workspaceContext.workspace.id,
-          workspaceName: workspaceContext.workspace.name,
-          workspaceSlug: workspaceContext.workspace.slug,
-          workspaceRole: workspaceContext.membership.role,
-          onboardingStatus: workspaceContext.workspace.onboardingStatus,
-        }),
-        redirectTo:
-          workspaceContext.workspace.onboardingStatus === "completed"
-            ? "/upload"
-            : "/workspace",
-      });
-    } catch (error: any) {
-      return res.status(500).json({ message: error.message || "Failed to verify email" });
-    }
-  });
-
   app.get("/api/auth/me", async (req, res) => {
     if (!req.authUser) return res.json({ user: null, workspace: null, onboarding: null });
-      const context = await storage.getWorkspaceContextForUser(req.authUser.id);
-      return res.json({
-        user: sanitizeUser(req.authUser),
-        workspace: sanitizeWorkspace(req.authUser),
-        onboarding: {
+    const context = await storage.getWorkspaceContextForUser(req.authUser.id);
+    return res.json({
+      user: sanitizeUser(req.authUser),
+      workspace: sanitizeWorkspace(req.authUser),
+      onboarding: {
         status: context?.workspace.onboardingStatus ?? req.authUser.onboardingStatus,
         calibrationState:
           context?.profile?.status === "completed"
@@ -277,137 +214,141 @@ export async function attachAuth(app: Express) {
     });
   });
 
-  const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    limit: 10,
-    standardHeaders: "draft-7",
-    legacyHeaders: false,
-    message: { message: "Too many attempts. Please try again in a few minutes." },
-  });
+  // ── Google OAuth ──────────────────────────────────────────────────────────
 
-  const verifyLimiter = rateLimit({
+  const oauthLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    limit: 5,
+    limit: 20,
     standardHeaders: "draft-7",
     legacyHeaders: false,
-    message: { message: "Too many verification requests. Please try again later." },
+    message: { message: "Too many sign-in attempts. Please try again in a few minutes." },
   });
 
-  app.post("/api/auth/sign-up", authLimiter, async (req, res) => {
-    try {
-      const input = registerSchema.parse(req.body);
-      const email = input.email.toLowerCase();
-      if (!isBusinessEmail(email)) {
-        return res.status(400).json({
-          message: "Use your business email to create or join an agency workspace.",
-        });
-      }
-
-      const existing = await storage.getUserByUsername(email);
-      if (existing) {
-        return res.status(409).json({ message: "An account with this email already exists" });
-      }
-
-      const user = await storage.createUser({
-        username: email,
-        password: await hashPassword(input.password),
-        fullName: input.fullName,
-      });
-      const delivery = await issueVerification(email, user.id, user.fullName);
-      return res.status(201).json({
-        verificationRequired: true,
-        email,
-        verificationDelivery: delivery.delivery,
-        verificationPreviewUrl: delivery.verificationPreviewUrl,
-        redirectTo: delivery.redirectTo,
-      });
-    } catch (error: any) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: error.issues[0]?.message || "Invalid sign-up data" });
-      }
-      return res.status(500).json({ message: error.message || "Failed to create account" });
+  app.get("/api/auth/google", oauthLimiter, (req, res) => {
+    const config = getGoogleOAuthConfig();
+    if (!config) {
+      return res.status(503).json({ message: "Google sign-in is not configured" });
     }
+
+    const state = crypto.randomBytes(24).toString("hex");
+    req.session.oauthState = state;
+
+    const params = new URLSearchParams({
+      client_id: config.clientId,
+      redirect_uri: config.redirectUri,
+      response_type: "code",
+      scope: "openid email profile",
+      access_type: "online",
+      prompt: "select_account",
+      state,
+    });
+
+    return res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
   });
 
-  app.post("/api/auth/sign-in", authLimiter, async (req, res) => {
+  app.get("/api/auth/google/callback", async (req, res) => {
+    const config = getGoogleOAuthConfig();
+    if (!config) {
+      return res.redirect("/sign-in?error=oauth_not_configured");
+    }
+
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const state = typeof req.query.state === "string" ? req.query.state : "";
+    const error = typeof req.query.error === "string" ? req.query.error : "";
+
+    if (error) {
+      return res.redirect(`/sign-in?error=${encodeURIComponent(error)}`);
+    }
+
+    if (!code || !state || state !== req.session.oauthState) {
+      return res.redirect("/sign-in?error=invalid_state");
+    }
+    req.session.oauthState = undefined;
+
     try {
-      const input = authSchema.parse(req.body);
-      const email = input.email.toLowerCase();
-      const user = await storage.getUserByUsername(email);
-      if (!user || !(await verifyPassword(input.password, user.password))) {
-        return res.status(401).json({ message: "Invalid email or password" });
+      // Exchange code for tokens
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
+          redirect_uri: config.redirectUri,
+          grant_type: "authorization_code",
+        }),
+      });
+
+      if (!tokenRes.ok) {
+        const detail = await tokenRes.text();
+        console.error("[auth] Google token exchange failed:", detail);
+        return res.redirect("/sign-in?error=token_exchange_failed");
       }
 
-      if (!user.emailVerifiedAt) {
-        const delivery = await issueVerification(email, user.id, user.fullName);
-        return res.status(403).json({
-          message: "Email verification required",
-          verificationRequired: true,
-          email,
-          verificationDelivery: delivery.delivery,
-          verificationPreviewUrl: delivery.verificationPreviewUrl,
-          redirectTo: delivery.redirectTo,
+      const tokens = (await tokenRes.json()) as { id_token?: string; access_token?: string };
+
+      // Get user info
+      const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+      });
+
+      if (!userInfoRes.ok) {
+        return res.redirect("/sign-in?error=userinfo_failed");
+      }
+
+      const profile = (await userInfoRes.json()) as {
+        email?: string;
+        name?: string;
+        verified_email?: boolean;
+        hd?: string; // hosted domain for Google Workspace
+      };
+
+      const email = profile.email?.toLowerCase().trim();
+      if (!email) {
+        return res.redirect("/sign-in?error=no_email");
+      }
+
+      if (!isBusinessEmail(email)) {
+        return res.redirect("/sign-in?error=personal_email");
+      }
+
+      // Find or create user
+      let user = await storage.getUserByUsername(email);
+      if (!user) {
+        const placeholderPassword = crypto.randomBytes(32).toString("hex");
+        user = await storage.createUser({
+          username: email,
+          password: placeholderPassword,
+          fullName: profile.name || null,
         });
+        // Auto-verify OAuth users since Google already verified the email
+        await storage.markUserEmailVerified(user.id);
+        user = (await storage.getUser(user.id))!;
+      } else if (!user.emailVerifiedAt) {
+        // Auto-verify existing users who sign in via OAuth
+        await storage.markUserEmailVerified(user.id);
+        user = (await storage.getUser(user.id))!;
       }
 
-      const context = (await storage.getWorkspaceContextForUser(user.id)) || (await storage.createOrJoinWorkspaceForUser(user));
+      // Set up workspace and session
+      const context =
+        (await storage.getWorkspaceContextForUser(user.id)) ||
+        (await storage.createOrJoinWorkspaceForUser(user));
+
       req.session.userId = user.id;
       req.session.activeWorkspaceId = context.workspace.id;
-      return res.status(200).json({
-        user: sanitizeUser(user),
-        workspace: sanitizeWorkspace({
-          workspaceId: context.workspace.id,
-          workspaceName: context.workspace.name,
-          workspaceSlug: context.workspace.slug,
-          workspaceRole: context.membership.role,
-          onboardingStatus: context.workspace.onboardingStatus,
-        }),
-        redirectTo: context.workspace.onboardingStatus === "completed" ? "/upload" : "/workspace",
-      });
-    } catch (error: any) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: error.issues[0]?.message || "Invalid sign-in data" });
-      }
-      return res.status(500).json({ message: error.message || "Failed to sign in" });
+
+      const redirectTo =
+        context.workspace.onboardingStatus === "completed" ? "/upload" : "/workspace";
+
+      return res.redirect(redirectTo);
+    } catch (err: any) {
+      console.error("[auth] Google OAuth error:", err);
+      return res.redirect("/sign-in?error=oauth_failed");
     }
   });
 
-  app.post("/api/auth/resend-verification", verifyLimiter, async (req, res) => {
-    try {
-      const email = z.string().trim().email().parse(req.body?.email).toLowerCase();
-      if (!isBusinessEmail(email)) {
-        return res.status(200).json({
-          verificationRequired: true,
-          email,
-          verificationDelivery: "email",
-          redirectTo: `/verify-email?sent=1&email=${encodeURIComponent(email)}`,
-        });
-      }
-
-      const user = await storage.getUserByUsername(email);
-      if (!user || user.emailVerifiedAt) {
-        return res.status(200).json({
-          verificationRequired: false,
-          email,
-          redirectTo: "/sign-in",
-        });
-      }
-
-      const delivery = await issueVerification(email, user.id, user.fullName);
-      return res.status(200).json({
-        verificationRequired: true,
-        email,
-        verificationDelivery: delivery.delivery,
-        verificationPreviewUrl: delivery.verificationPreviewUrl,
-        redirectTo: delivery.redirectTo,
-      });
-    } catch (error: any) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: error.issues[0]?.message || "Invalid email address" });
-      }
-      return res.status(500).json({ message: error.message || "Failed to resend verification email" });
-    }
-  });
+  // ── Sign out ──────────────────────────────────────────────────────────────
 
   app.post("/api/auth/sign-out", (req, res) => {
     req.session.destroy((error) => {
