@@ -18,8 +18,8 @@ export function NavBar() {
     >
       {/* Left: wordmark */}
       <Link href="/">
-        <span className="cursor-pointer font-bold text-lg tracking-tight text-white">
-          ANGLE<span className="text-white/35">/RFP</span>
+        <span className="cursor-pointer font-bold text-lg tracking-tight text-white font-sans">
+          angle<span className="text-white/35">/rfp</span>
         </span>
       </Link>
 

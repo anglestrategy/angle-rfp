@@ -226,12 +226,12 @@ function ProcessingView({
   // Tab title update (Bruno Simon pattern)
   useEffect(() => {
     if (status === "complete") {
-      document.title = "Complete ✓ | angle/RFP";
+      document.title = "Complete ✓ | angle/rfp";
     } else {
-      document.title = `Analyzing... ${progressPercent}% | angle/RFP`;
+      document.title = `Analyzing... ${progressPercent}% | angle/rfp`;
     }
     return () => {
-      document.title = "angle/RFP";
+      document.title = "angle/rfp";
     };
   }, [status, progressPercent]);
 

@@ -300,7 +300,7 @@ export default function PricingPage() {
 
         {/* Footer credit */}
         <p className="font-mono text-[11px] text-white/20 mt-16 text-center tracking-[0.15em] uppercase">
-          ANGLE/RFP &middot; Bid qualification for creative agencies
+          angle/rfp &middot; Bid qualification for creative agencies
         </p>
       </div>
     </div>

@@ -311,7 +311,7 @@ function HeroProductMock() {
             <div className="h-2.5 w-2.5 rounded-full bg-white/10" />
             <div className="h-2.5 w-2.5 rounded-full bg-white/10" />
           </div>
-          <div className="ml-3 font-mono text-[11px] text-white/30">ANGLE/RFP — Sports Brand Campaign RFP</div>
+          <div className="ml-3 font-mono text-[11px] text-white/30">angle/rfp — Sports Brand Campaign RFP</div>
         </div>
         {/* Dashboard mock */}
         <div className="grid grid-cols-12 gap-px bg-white/[0.04] p-px">
@@ -395,9 +395,9 @@ export default function LandingPage() {
         <Link
           href="/"
           className="font-bold text-lg tracking-tight text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-          aria-label="ANGLE/RFP home"
+          aria-label="angle/rfp home"
         >
-          ANGLE<span className="text-white/35">/RFP</span>
+          angle<span className="text-white/35">/rfp</span>
         </Link>
 
         <nav aria-label="Main navigation" className="hidden md:flex items-center gap-10 text-[11px] font-mono text-white/40 uppercase tracking-[0.15em]">
@@ -448,7 +448,7 @@ export default function LandingPage() {
         >
           <div className="flex items-center justify-between mb-12">
             <span className="font-bold text-lg tracking-tight">
-              ANGLE<span className="text-white/35">/RFP</span>
+              angle<span className="text-white/35">/rfp</span>
             </span>
             <button
               className="text-white/60 hover:text-white transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#ff5a36]"
@@ -511,7 +511,7 @@ export default function LandingPage() {
                 variants={FADE_UP}
                 custom={1}
               >
-                Upload an RFP. ANGLE turns it into a go / no-go brief with
+                Upload an RFP. angle turns it into a go / no-go brief with
                 commercial risks, deadline pressure, and agency-fit judgment in minutes.
               </motion.p>
               <motion.div className="flex flex-wrap items-center gap-5" variants={FADE_UP} custom={2}>
@@ -586,7 +586,7 @@ export default function LandingPage() {
                       Know whether to pursue before the pitch team starts working.
                     </h3>
                     <p className="mt-3 text-[15px] leading-relaxed text-white/50 max-w-sm">
-                      Upload the brief. ANGLE scores agency fit, surfaces commercial and contractual issues,
+                      Upload the brief. angle scores agency fit, surfaces commercial and contractual issues,
                       and gives leadership a clear bid / no-bid read.
                     </p>
                     <FitScorePanel />
@@ -739,9 +739,9 @@ export default function LandingPage() {
           <Link
             href="/"
             className="font-bold text-xl tracking-tight text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ff5a36]"
-            aria-label="ANGLE/RFP home"
+            aria-label="angle/rfp home"
           >
-            ANGLE<span className="text-white/35">/RFP</span>
+            angle<span className="text-white/35">/rfp</span>
           </Link>
           <nav aria-label="Footer navigation" className="flex items-center gap-8 text-[11px] font-bold font-mono text-white/30 uppercase tracking-[0.15em] flex-wrap justify-center">
             {NAV_LINKS.map(({ label, href }) => (
@@ -757,7 +757,7 @@ export default function LandingPage() {
         </div>
         <div className="max-w-[1400px] mx-auto px-6 sm:px-8 lg:px-16 mt-10 text-[11px] text-white/20 flex flex-col sm:flex-row justify-between gap-4 font-mono tracking-wide uppercase">
           <div>&copy; {new Date().getFullYear()} Angle Strategy. All rights reserved.</div>
-          <div>ANGLE/RFP by Angle Strategy</div>
+          <div>angle/rfp by Angle Strategy</div>
         </div>
       </footer>
     </div>

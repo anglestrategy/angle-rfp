@@ -136,7 +136,7 @@ export default function UploadPage() {
       for (const file of files) {
         formData.append("files", file);
       }
-      document.title = `Uploading ${files.length > 1 ? `${files.length} files` : ""}... | angle/RFP`;
+      document.title = `Uploading ${files.length > 1 ? `${files.length} files` : ""}... | angle/rfp`;
       const res = await fetch("/api/analyses/upload", {
         method: "POST",
         body: formData,
@@ -149,14 +149,14 @@ export default function UploadPage() {
       return res.json();
     },
     onSuccess: (data) => {
-      document.title = "angle/RFP";
+      document.title = "angle/rfp";
       queryClient.invalidateQueries({ queryKey: ["/api/analyses"] });
       if (data.id) {
         setLocation(`/analysis/${data.id}`);
       }
     },
     onError: (error: Error) => {
-      document.title = "angle/RFP";
+      document.title = "angle/rfp";
       toast({
         title: "Upload failed",
         description: error.message,

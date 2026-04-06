@@ -74,7 +74,7 @@ export default function SignUpPage() {
             >
               <Link href="/">
                 <span className="cursor-pointer font-bold text-xl tracking-tight text-white">
-                  ANGLE<span className="text-white/35">/RFP</span>
+                  angle<span className="text-white/35">/rfp</span>
                 </span>
               </Link>
               <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
@@ -122,7 +122,7 @@ export default function SignUpPage() {
           <div className="flex items-center justify-between px-6 py-5 lg:hidden">
             <Link href="/">
               <span className="cursor-pointer font-bold text-lg tracking-tight text-white">
-                ANGLE<span className="text-white/35">/RFP</span>
+                angle<span className="text-white/35">/rfp</span>
               </span>
             </Link>
             <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/40">
