@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { motion } from "framer-motion";
-import { ArrowRight, Building2, CheckCircle2, FolderKanban, LibraryBig, Loader2, MessageCircle, Send, Users2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { ArrowRight, CheckCircle2, Loader2, MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { NavBar } from "@/components/nav-bar";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -51,12 +51,11 @@ function parseCsv(value: string) {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibration: any) => void }) {
+function OnboardingChat({ onCalibrationReady, onClose }: { onCalibrationReady: (calibration: any) => void; onClose: () => void }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pendingCalibration, setPendingCalibration] = useState<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const hasStarted = useRef(false);
 
   const chat = useMutation({
@@ -71,7 +70,6 @@ function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibrati
     },
   });
 
-  // Auto-start the conversation
   useEffect(() => {
     if (hasStarted.current) return;
     hasStarted.current = true;
@@ -80,7 +78,6 @@ function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibrati
     chat.mutate(initial);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, chat.isPending]);
@@ -99,17 +96,20 @@ function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibrati
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
       className="border border-white/[0.08] bg-[#050505] overflow-hidden"
     >
-      <div className="px-5 py-4 border-b border-white/[0.06] flex items-center gap-3">
-        <MessageCircle className="h-4 w-4 text-[#ff5a36]" />
-        <div>
-          <p className="text-sm font-semibold">Set up your agency profile</p>
-          <p className="text-[11px] text-white/40">Answer a few questions so we can score RFPs for your team.</p>
+      <div className="px-5 py-3.5 border-b border-white/[0.06] flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Sparkles className="h-4 w-4 text-[#ff5a36]" />
+          <p className="text-sm font-semibold">AI Setup Assistant</p>
         </div>
+        <button onClick={onClose} className="text-white/30 hover:text-white/60 transition-colors">
+          <X className="h-4 w-4" />
+        </button>
       </div>
 
-      <div ref={scrollRef} className="h-[360px] overflow-y-auto px-5 py-4 space-y-3">
+      <div ref={scrollRef} className="h-[300px] overflow-y-auto px-5 py-4 space-y-3">
         {messages.filter((m) => !(m.role === "user" && m.content === "Hi, I'd like to set up my agency profile.")).map((msg, i) => (
           <motion.div
             key={i}
@@ -121,7 +121,7 @@ function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibrati
               className={`max-w-[85%] px-4 py-2.5 text-sm leading-relaxed ${
                 msg.role === "user"
                   ? "bg-white/[0.08] text-white"
-                  : "bg-[#ff5a36]/[0.08] text-white/90 border border-[#ff5a36]/10"
+                  : "bg-[#ff5a36]/[0.06] text-white/90 border border-[#ff5a36]/10"
               }`}
             >
               {msg.content}
@@ -130,7 +130,7 @@ function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibrati
         ))}
         {chat.isPending && (
           <div className="flex justify-start">
-            <div className="px-4 py-2.5 bg-[#ff5a36]/[0.08] border border-[#ff5a36]/10">
+            <div className="px-4 py-2.5 bg-[#ff5a36]/[0.06] border border-[#ff5a36]/10">
               <Loader2 className="h-4 w-4 animate-spin text-white/40" />
             </div>
           </div>
@@ -140,18 +140,18 @@ function OnboardingChat({ onCalibrationReady }: { onCalibrationReady: (calibrati
       <div className="px-5 py-3 border-t border-white/[0.06]">
         {pendingCalibration ? (
           <div className="flex items-center gap-3">
-            <p className="text-[11px] text-emerald-400 font-mono uppercase tracking-wide flex-1">Profile ready to save</p>
+            <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+            <p className="text-[11px] text-emerald-400/80 flex-1">Ready — this will fill in the fields below.</p>
             <button
               onClick={() => onCalibrationReady(pendingCalibration)}
-              className="bg-white px-5 py-2.5 text-sm font-bold text-black hover:bg-white/90 transition-colors"
+              className="bg-white px-5 py-2 text-sm font-bold text-black hover:bg-white/90 transition-colors"
             >
-              Save profile
+              Apply to profile
             </button>
           </div>
         ) : (
           <div className="flex gap-2">
             <input
-              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
@@ -178,13 +178,7 @@ export default function WorkspacePage() {
   const { toast } = useToast();
   const { user, workspace, onboarding, isAuthenticated, isLoading } = useIsAuthenticated();
   const [form, setForm] = useState(calibrationDefaults);
-  const [credentialDraft, setCredentialDraft] = useState({
-    title: "",
-    caseStudyText: "",
-    services: "",
-    sectors: "",
-    tags: "",
-  });
+  const [showChat, setShowChat] = useState(false);
 
   const { data, isLoading: workspaceLoading } = useQuery<WorkspaceResponse>({
     queryKey: ["/api/workspace"],
@@ -192,9 +186,7 @@ export default function WorkspacePage() {
   });
 
   useEffect(() => {
-    if (!isLoading && !user) {
-      setLocation("/sign-in");
-    }
+    if (!isLoading && !user) setLocation("/sign-in");
   }, [isLoading, setLocation, user]);
 
   useEffect(() => {
@@ -219,56 +211,13 @@ export default function WorkspacePage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/workspace"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-      toast({ title: "Workspace profile saved" });
+      toast({ title: "Profile saved" });
     },
     onError: (error: Error) => {
       toast({ title: "Failed to save profile", description: error.message, variant: "destructive" });
     },
   });
 
-  const addCredential = useMutation({
-    mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/workspace/credentials", {
-        title: credentialDraft.title,
-        caseStudyText: credentialDraft.caseStudyText,
-        services: parseCsv(credentialDraft.services),
-        sectors: parseCsv(credentialDraft.sectors),
-        tags: parseCsv(credentialDraft.tags),
-      });
-      return response.json();
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/workspace"] });
-      setCredentialDraft({ title: "", caseStudyText: "", services: "", sectors: "", tags: "" });
-      toast({ title: "Credential added" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to add credential", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const approveSuggestion = useMutation({
-    mutationFn: async (suggestion: any) => {
-      const response = await apiRequest(
-        "PATCH",
-        `/api/workspace/credential-suggestions/${suggestion.id}`,
-        {
-          approvalStatus: "approved",
-          title: suggestion.extractedSummary.split(".")[0]?.slice(0, 80) || `Suggested credential ${suggestion.id}`,
-        },
-      );
-      return response.json();
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["/api/workspace"] });
-      toast({ title: "Suggestion approved into credentials" });
-    },
-    onError: (error: Error) => {
-      toast({ title: "Failed to approve suggestion", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const [showChat, setShowChat] = useState(false);
   const isCalibrated = data?.calibrationState === "full" || data?.calibrationState === "partial";
 
   const handleCalibrationFromChat = useCallback(async (calibration: any) => {
@@ -277,7 +226,6 @@ export default function WorkspacePage() {
       await queryClient.invalidateQueries({ queryKey: ["/api/workspace"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
       setShowChat(false);
-      // Sync form state
       setForm((prev) => ({
         ...prev,
         ...calibration,
@@ -286,24 +234,21 @@ export default function WorkspacePage() {
         riskRedLines: Array.isArray(calibration.riskRedLines) ? calibration.riskRedLines : prev.riskRedLines,
         preferredClientTypes: Array.isArray(calibration.preferredClientTypes) ? calibration.preferredClientTypes : prev.preferredClientTypes,
       }));
-      toast({ title: "Agency profile saved" });
+      toast({ title: "Profile updated from AI assistant" });
     } catch (error: any) {
       toast({ title: "Failed to save profile", description: error.message, variant: "destructive" });
     }
   }, [toast]);
 
-  const readinessSummary = useMemo(() => {
-    const completedSignals = [
+  const completedCount = useMemo(() => {
+    return [
       form.coreServices.length > 0,
       form.preferredSectors.length > 0,
       Boolean(form.minimumBudget),
       form.riskRedLines.length > 0,
       Boolean(form.teamSize),
     ].filter(Boolean).length;
-    return `${completedSignals}/5 calibration signals set`;
   }, [form]);
-  // All workspace members can edit for now — revisit when role-based permissions are needed
-  const canManageWorkspace = Boolean(data?.membership?.role);
 
   if (isLoading || workspaceLoading || (!isAuthenticated && !user)) {
     return (
@@ -316,238 +261,130 @@ export default function WorkspacePage() {
   return (
     <div className="min-h-screen bg-black text-white">
       <NavBar />
-      <div className="mx-auto max-w-[1400px] px-6 py-8 lg:px-16">
+      <div className="mx-auto max-w-[800px] px-6 py-8 lg:px-8">
+        {/* Header */}
         <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
-          <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#ff5a36]/70">
-            Agency workspace
-          </p>
-          <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">
+              <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-[#ff5a36]/70">
                 {data?.workspace?.name || workspace?.name}
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/50">
-                Set your agency's preferences so every RFP analysis is scored against what actually matters to your team.
+              </p>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight">Agency profile</h1>
+              <p className="mt-1.5 text-sm text-white/45">
+                These preferences shape how every RFP is scored for your team.
               </p>
             </div>
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setLocation("/upload")}
-                className="inline-flex items-center gap-2 border border-white/[0.08] bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-white/90"
-              >
-                Continue to analyses
-                <ArrowRight className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setLocation("/upload")}
-                className="text-sm text-white/40 hover:text-white/70 font-mono tracking-wide transition-colors"
-              >
-                Skip for now
-              </button>
-            </div>
+            <button
+              onClick={() => setLocation("/upload")}
+              className="inline-flex items-center gap-2 bg-white px-5 py-2.5 text-sm font-bold text-black transition-colors hover:bg-white/90"
+            >
+              Go to analyses
+              <ArrowRight className="h-4 w-4" />
+            </button>
           </div>
         </motion.div>
 
-        <div className="grid gap-3 lg:grid-cols-[1.3fr_0.7fr]">
-          <div className="space-y-3">
-            {(!isCalibrated && !showChat) || showChat ? (
-              <OnboardingChat onCalibrationReady={handleCalibrationFromChat} />
-            ) : null}
-
-            <section className="border border-white/[0.08] bg-[#050505] p-6">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <Building2 className="h-4 w-4 text-[#ff5a36]" />
-                  <div>
-                    <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Your agency profile</p>
-                    <h2 className="text-lg font-semibold">What matters to your team</h2>
-                  </div>
-                </div>
-                {isCalibrated && !showChat && (
-                  <button
-                    onClick={() => setShowChat(true)}
-                    className="inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-wide text-white/40 hover:text-white/70 transition-colors"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    Re-run setup
-                  </button>
-                )}
-              </div>
-
-              <fieldset disabled={!canManageWorkspace} className="mt-6 grid gap-4 md:grid-cols-2 disabled:opacity-60">
-                <label className="space-y-2">
-                  <span className="text-sm text-white/70">Core services</span>
-                  <input value={form.coreServices.join(", ")} onChange={(e) => setForm((current) => ({ ...current, coreServices: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Branding, campaigns, content" />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm text-white/70">Preferred sectors</span>
-                  <input value={form.preferredSectors.join(", ")} onChange={(e) => setForm((current) => ({ ...current, preferredSectors: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Sports, government, consumer" />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm text-white/70">Minimum budget floor</span>
-                  <input value={form.minimumBudget} onChange={(e) => setForm((current) => ({ ...current, minimumBudget: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="250000 SAR" />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm text-white/70">Team size</span>
-                  <input value={form.teamSize} onChange={(e) => setForm((current) => ({ ...current, teamSize: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="10-25" />
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm text-white/70">Pitch effort tolerance</span>
-                  <select value={form.pitchEffortTolerance} onChange={(e) => setForm((current) => ({ ...current, pitchEffortTolerance: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed">
-                    <option value="low">Low</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="high">High</option>
-                  </select>
-                </label>
-                <label className="space-y-2">
-                  <span className="text-sm text-white/70">Saudi/GCC compliance importance</span>
-                  <select value={form.saudiComplianceSensitivity} onChange={(e) => setForm((current) => ({ ...current, saudiComplianceSensitivity: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed">
-                    <option value="low">Low</option>
-                    <option value="moderate">Moderate</option>
-                    <option value="high">High</option>
-                  </select>
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm text-white/70">Deal-breakers</span>
-                  <input value={form.riskRedLines.join(", ")} onChange={(e) => setForm((current) => ({ ...current, riskRedLines: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Unlimited revisions, exclusivity, no budget disclosed" />
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className="text-sm text-white/70">Preferred client types</span>
-                  <input value={form.preferredClientTypes.join(", ")} onChange={(e) => setForm((current) => ({ ...current, preferredClientTypes: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Semi-government, challenger brands, retained accounts" />
-                </label>
-              </fieldset>
-
-              <div className="mt-6 flex items-center justify-between gap-4">
-                <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/40">{readinessSummary}</p>
-                <button
-                  onClick={() => saveProfile.mutate()}
-                  disabled={saveProfile.isPending || !canManageWorkspace}
-                  className="inline-flex items-center gap-2 bg-white px-5 py-3 text-sm font-bold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
-                >
-                  {saveProfile.isPending ? "Saving..." : "Save calibration"}
-                </button>
-              </div>
-              {!canManageWorkspace && (
-                <p className="mt-3 text-xs text-white/45">
-                  Only workspace owners and admins can update shared calibration rules.
+        {/* AI Assistant toggle */}
+        <AnimatePresence mode="wait">
+          {showChat ? (
+            <div className="mb-4" key="chat">
+              <OnboardingChat
+                onCalibrationReady={handleCalibrationFromChat}
+                onClose={() => setShowChat(false)}
+              />
+            </div>
+          ) : (
+            <motion.button
+              key="chat-trigger"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              onClick={() => setShowChat(true)}
+              className="mb-4 w-full border border-dashed border-white/[0.1] bg-[#050505] px-5 py-3.5 flex items-center gap-3 text-left hover:border-[#ff5a36]/30 transition-colors group"
+            >
+              <Sparkles className="h-4 w-4 text-[#ff5a36]/60 group-hover:text-[#ff5a36] transition-colors" />
+              <div className="flex-1">
+                <p className="text-sm font-medium text-white/70 group-hover:text-white transition-colors">
+                  {isCalibrated ? "Re-run AI setup" : "Set up with AI assistant"}
                 </p>
-              )}
-            </section>
-
-            <section className="border border-white/[0.08] bg-[#050505] p-6">
-              <div className="flex items-center gap-3">
-                <LibraryBig className="h-4 w-4 text-[#ff5a36]" />
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Past work</p>
-                  <h2 className="text-lg font-semibold">Case studies your team can reference</h2>
-                </div>
+                <p className="text-[11px] text-white/30">
+                  Answer a few questions and we'll fill in the fields for you.
+                </p>
               </div>
+              <MessageCircle className="h-4 w-4 text-white/20 group-hover:text-white/50 transition-colors" />
+            </motion.button>
+          )}
+        </AnimatePresence>
 
-              <fieldset disabled={!canManageWorkspace} className="mt-6 grid gap-4 md:grid-cols-2 disabled:opacity-60">
-                <input value={credentialDraft.title} onChange={(e) => setCredentialDraft((current) => ({ ...current, title: e.target.value }))} className="border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Credential title" />
-                <input value={credentialDraft.services} onChange={(e) => setCredentialDraft((current) => ({ ...current, services: e.target.value }))} className="border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Services (comma separated)" />
-                <input value={credentialDraft.sectors} onChange={(e) => setCredentialDraft((current) => ({ ...current, sectors: e.target.value }))} className="border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Sectors (comma separated)" />
-                <input value={credentialDraft.tags} onChange={(e) => setCredentialDraft((current) => ({ ...current, tags: e.target.value }))} className="border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="Tags (comma separated)" />
-                <textarea value={credentialDraft.caseStudyText} onChange={(e) => setCredentialDraft((current) => ({ ...current, caseStudyText: e.target.value }))} className="min-h-[120px] md:col-span-2 border border-white/[0.08] bg-black px-4 py-3 text-sm disabled:cursor-not-allowed" placeholder="What did the agency do, for whom, and what kind of outcome or format is reusable here?" />
-              </fieldset>
-              <div className="mt-4 flex justify-end">
-                <button onClick={() => addCredential.mutate()} disabled={addCredential.isPending || !credentialDraft.title || !credentialDraft.caseStudyText || !canManageWorkspace} className="bg-[#ff5a36] px-5 py-3 text-sm font-bold text-white disabled:opacity-60">
-                  {addCredential.isPending ? "Adding..." : "Add credential"}
-                </button>
-              </div>
-
-              <div className="mt-6 space-y-2">
-                {(data?.credentials || []).map((credential) => (
-                  <div key={credential.id} className="border border-white/[0.06] bg-black/40 px-4 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">{credential.title}</p>
-                        <p className="mt-1 text-[11px] text-white/45">
-                          {(credential.services || []).map((s: any) => typeof s === "string" ? s : s?.name || s?.id || "").filter(Boolean).join(", ") || "No service tags yet"}
-                        </p>
-                      </div>
-                      <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-emerald-400">
-                        {credential.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+        {/* Profile form */}
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="border border-white/[0.08] bg-[#050505] p-6"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <p className="text-[11px] font-mono uppercase tracking-wide text-white/40">
+                {completedCount}/5 fields filled
+              </p>
+            </div>
+            <button
+              onClick={() => saveProfile.mutate()}
+              disabled={saveProfile.isPending}
+              className="bg-white px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
+            >
+              {saveProfile.isPending ? "Saving..." : "Save"}
+            </button>
           </div>
 
-          <div className="space-y-3">
-            <section className="border border-white/[0.08] bg-[#050505] p-6">
-              <div className="flex items-center gap-3">
-                <Users2 className="h-4 w-4 text-[#ff5a36]" />
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Workspace status</p>
-                  <h2 className="text-lg font-semibold">{data?.workspace?.primaryDomain || workspace?.slug}</h2>
-                </div>
-              </div>
-              <div className="mt-5 space-y-3 text-sm text-white/60">
-                <p>Your role: <span className="text-white capitalize">{data?.membership?.role || workspace?.role || "member"}</span></p>
-                <p>Profile: <span className="text-white">{(data?.calibrationState || onboarding?.calibrationState) === "full" ? "Complete" : (data?.calibrationState || onboarding?.calibrationState) === "partial" ? "Partially set up" : "Not set up yet"}</span></p>
-                <p className="text-white/40">Anyone with a <span className="text-white/60">@{data?.workspace?.primaryDomain || workspace?.slug}</span> email who signs up will automatically join this workspace.</p>
-              </div>
-            </section>
-
-            <section className="border border-white/[0.08] bg-[#050505] p-6">
-              <div className="flex items-center gap-3">
-                <FolderKanban className="h-4 w-4 text-[#ff5a36]" />
-                <div>
-                  <p className="font-mono text-[11px] uppercase tracking-[0.15em] text-white/45">Client history</p>
-                  <h2 className="text-lg font-semibold">What your team knows about past clients</h2>
-                </div>
-              </div>
-
-              <div className="mt-5 space-y-2">
-                {(data?.clientMemory || []).length > 0 ? (
-                  data?.clientMemory.map((item) => (
-                    <div key={item.id} className="border border-white/[0.06] bg-black/40 px-4 py-3">
-                      <p className="text-sm font-semibold">{item.normalizedClientKey}</p>
-                      <p className="mt-1 text-[11px] text-white/50">
-                        {item.qualityRating} · {item.badFitFlag ? "bad-fit flagged" : "active"}
-                      </p>
-                      {item.notes && <p className="mt-2 text-[11px] leading-relaxed text-white/60">{item.notes}</p>}
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-white/45">
-                    No client notes yet. Record a bid outcome on an analysis to start building your team's memory.
-                  </p>
-                )}
-              </div>
-
-              {(data?.credentialSuggestions || []).filter((s: any) => s.approvalStatus === "draft").length > 0 && (
-                <div className="mt-6 border-t border-white/[0.06] pt-4">
-                  <div className="flex items-center gap-2 text-sm text-white">
-                    <CheckCircle2 className="h-4 w-4 text-[#ff5a36]" />
-                    Add to your case studies
-                  </div>
-                  <p className="mt-1 text-[11px] text-white/40">
-                    These were extracted from RFPs you marked as won. Approve to add them to your credentials.
-                  </p>
-                  <div className="mt-3 space-y-2">
-                    {data?.credentialSuggestions.filter((s: any) => s.approvalStatus === "draft").map((suggestion) => (
-                      <div key={suggestion.id} className="border border-white/[0.06] bg-black/40 px-4 py-3">
-                        <p className="text-sm leading-relaxed">{suggestion.extractedSummary}</p>
-                        <div className="mt-3 flex justify-end">
-                          <button
-                            onClick={() => approveSuggestion.mutate(suggestion)}
-                            disabled={approveSuggestion.isPending || !canManageWorkspace}
-                            className="border border-white/[0.08] px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-white disabled:opacity-40"
-                          >
-                            Add to case studies
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </section>
+          <div className="grid gap-5 md:grid-cols-2">
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Core services</span>
+              <input value={form.coreServices.join(", ")} onChange={(e) => setForm((c) => ({ ...c, coreServices: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Branding, campaigns, content" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Preferred sectors</span>
+              <input value={form.preferredSectors.join(", ")} onChange={(e) => setForm((c) => ({ ...c, preferredSectors: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Government, tourism, sports" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Minimum budget (SAR)</span>
+              <input value={form.minimumBudget} onChange={(e) => setForm((c) => ({ ...c, minimumBudget: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="250000" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Team size</span>
+              <input value={form.teamSize} onChange={(e) => setForm((c) => ({ ...c, teamSize: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="10-25" />
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Pitch effort tolerance</span>
+              <select value={form.pitchEffortTolerance} onChange={(e) => setForm((c) => ({ ...c, pitchEffortTolerance: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm">
+                <option value="low">Low</option>
+                <option value="moderate">Moderate</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label className="space-y-1.5">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Saudi/GCC compliance importance</span>
+              <select value={form.saudiComplianceSensitivity} onChange={(e) => setForm((c) => ({ ...c, saudiComplianceSensitivity: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm">
+                <option value="low">Low</option>
+                <option value="moderate">Moderate</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+            <label className="space-y-1.5 md:col-span-2">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Deal-breakers</span>
+              <input value={form.riskRedLines.join(", ")} onChange={(e) => setForm((c) => ({ ...c, riskRedLines: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Unlimited revisions, exclusivity, no budget disclosed" />
+            </label>
+            <label className="space-y-1.5 md:col-span-2">
+              <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Preferred client types</span>
+              <input value={form.preferredClientTypes.join(", ")} onChange={(e) => setForm((c) => ({ ...c, preferredClientTypes: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Semi-government, challenger brands, retained accounts" />
+            </label>
           </div>
+        </motion.section>
+
+        {/* Workspace info — compact footer */}
+        <div className="mt-6 flex items-center justify-between text-[11px] text-white/30 font-mono">
+          <span>@{data?.workspace?.primaryDomain || workspace?.slug}</span>
+          <span className="capitalize">{data?.membership?.role || workspace?.role || "member"}</span>
         </div>
       </div>
     </div>
