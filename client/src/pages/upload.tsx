@@ -131,10 +131,12 @@ export default function UploadPage() {
   });
 
   const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async (files: File[]) => {
       const formData = new FormData();
-      formData.append("file", file);
-      document.title = "Uploading... | angle/RFP";
+      for (const file of files) {
+        formData.append("files", file);
+      }
+      document.title = `Uploading ${files.length > 1 ? `${files.length} files` : ""}... | angle/RFP`;
       const res = await fetch("/api/analyses/upload", {
         method: "POST",
         body: formData,
@@ -149,7 +151,14 @@ export default function UploadPage() {
     onSuccess: (data) => {
       document.title = "angle/RFP";
       queryClient.invalidateQueries({ queryKey: ["/api/analyses"] });
-      setLocation(`/analysis/${data.id}`);
+      // Single file: navigate to analysis; multiple: stay on upload page
+      if (data.id) {
+        setLocation(`/analysis/${data.id}`);
+      } else if (data.analyses?.length === 1 && data.analyses[0].id) {
+        setLocation(`/analysis/${data.analyses[0].id}`);
+      } else {
+        toast({ title: `${data.analyses?.length || 0} files uploaded`, description: "Analyses are running. Check back in a few minutes." });
+      }
     },
     onError: (error: Error) => {
       document.title = "angle/RFP";
@@ -162,28 +171,34 @@ export default function UploadPage() {
   });
 
   const validateAndUpload = useCallback(
-    (file: File) => {
+    (files: FileList | File[]) => {
       const validTypes = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ];
-      if (!validTypes.includes(file.type)) {
-        toast({
-          title: "Invalid file type",
-          description: "Please upload a PDF or DOCX file.",
-          variant: "destructive",
-        });
-        return;
+      const valid: File[] = [];
+      for (const file of Array.from(files)) {
+        if (!validTypes.includes(file.type)) {
+          toast({
+            title: `Skipped ${file.name}`,
+            description: "Only PDF and DOCX files are accepted.",
+            variant: "destructive",
+          });
+          continue;
+        }
+        if (file.size > 50 * 1024 * 1024) {
+          toast({
+            title: `Skipped ${file.name}`,
+            description: "Maximum file size is 50MB.",
+            variant: "destructive",
+          });
+          continue;
+        }
+        valid.push(file);
       }
-      if (file.size > 20 * 1024 * 1024) {
-        toast({
-          title: "File too large",
-          description: "Maximum file size is 20MB.",
-          variant: "destructive",
-        });
-        return;
+      if (valid.length > 0) {
+        uploadMutation.mutate(valid);
       }
-      uploadMutation.mutate(file);
     },
     [uploadMutation, toast]
   );
@@ -205,16 +220,18 @@ export default function UploadPage() {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) validateAndUpload(file);
+      if (e.dataTransfer.files.length > 0) {
+        validateAndUpload(e.dataTransfer.files);
+      }
     },
     [validateAndUpload]
   );
 
   const handleFileChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) validateAndUpload(file);
+      if (e.target.files && e.target.files.length > 0) {
+        validateAndUpload(e.target.files);
+      }
     },
     [validateAndUpload]
   );
@@ -275,7 +292,7 @@ export default function UploadPage() {
 
           <div className="grid gap-px bg-white/[0.06] sm:grid-cols-3 lg:grid-cols-1">
             {[
-              ["Formats", "PDF and DOCX files, up to 20 MB."],
+              ["Formats", "PDF and DOCX files, up to 50 MB each."],
               ["Privacy", "Your uploads and results are private to your account."],
               ["Processing", "Analysis usually takes around 7 minutes depending on document length."],
             ].map(([label, copy]) => (
@@ -326,6 +343,7 @@ export default function UploadPage() {
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               onChange={handleFileChange}
               className="hidden"
@@ -382,10 +400,10 @@ export default function UploadPage() {
                   </motion.div>
                   <div>
                     <p className="text-lg font-bold tracking-tight text-white">
-                      Drop your RFP document
+                      Drop your RFP documents
                     </p>
                     <p className="mt-1 font-mono text-[11px] tracking-[0.15em] text-white/40">
-                      PDF or DOCX &middot; max 20 MB
+                      PDF or DOCX &middot; up to 50 MB each
                     </p>
                   </div>
                   <motion.button

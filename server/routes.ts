@@ -20,7 +20,7 @@ async function getUploadMiddleware() {
     uploadMiddlewarePromise = import("multer").then(({ default: multer }) =>
       multer({
         storage: multer.memoryStorage(),
-        limits: { fileSize: 20 * 1024 * 1024 },
+        limits: { fileSize: 50 * 1024 * 1024 },
       }),
     );
   }
@@ -650,53 +650,67 @@ Only include the calibration block when you're confident you have enough info. T
     try {
       const upload = await getUploadMiddleware();
       await new Promise<void>((resolve, reject) => {
-        upload.single("file")(req, res, (error: any) => {
+        upload.array("files", 10)(req, res, (error: any) => {
           if (error) reject(error);
           else resolve();
         });
       });
 
-      const file = (req as any).file;
-      if (!file) {
-        return res.status(400).json({ message: "No file uploaded" });
+      const files = (req as any).files as Express.Multer.File[] | undefined;
+      // Backwards-compatible: also check .file for single-file uploads
+      const singleFile = (req as any).file as Express.Multer.File | undefined;
+      const allFiles = files?.length ? files : singleFile ? [singleFile] : [];
+
+      if (allFiles.length === 0) {
+        return res.status(400).json({ message: "No files uploaded" });
       }
 
       const allowedTypes = [
         "application/pdf",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ];
-      if (!allowedTypes.includes(file.mimetype)) {
-        return res
-          .status(400)
-          .json({ message: "Only PDF and DOCX files are accepted" });
+
+      const results = [];
+      for (const file of allFiles) {
+        if (!allowedTypes.includes(file.mimetype)) {
+          results.push({ fileName: file.originalname, error: "Only PDF and DOCX files are accepted" });
+          continue;
+        }
+
+        const analysis = await storage.createAnalysis({
+          userId: req.authUser!.id,
+          workspaceId: req.authUser!.workspaceId,
+          fileName: sanitizeUploadedFileName(file.originalname || "uploaded-document"),
+          fileSize: file.size,
+          analysisVersion: "live-v1",
+          status: "uploading",
+        });
+
+        await enqueueOrRunAnalysis({
+          analysisId: analysis.id,
+          fileName: file.originalname,
+          mimeType: file.mimetype,
+          fileBuffer: file.buffer,
+          trigger: "upload",
+        });
+
+        results.push(analysis);
       }
 
-      const analysis = await storage.createAnalysis({
-        userId: req.authUser!.id,
-        workspaceId: req.authUser!.workspaceId,
-        fileName: sanitizeUploadedFileName(file.originalname || "uploaded-document"),
-        fileSize: file.size,
-        analysisVersion: "live-v1",
-        status: "uploading",
-      });
+      // If single file, return the analysis directly for backwards compatibility
+      if (allFiles.length === 1 && results.length === 1 && !("error" in results[0])) {
+        return res.status(202).json(results[0]);
+      }
 
-      await enqueueOrRunAnalysis({
-        analysisId: analysis.id,
-        fileName: file.originalname,
-        mimeType: file.mimetype,
-        fileBuffer: file.buffer,
-        trigger: "upload",
-      });
-
-      return res.status(202).json(analysis);
+      return res.status(202).json({ analyses: results });
     } catch (error: any) {
       console.error("Upload error:", error);
       if (error?.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({ message: "File too large. Maximum file size is 20MB." });
+        return res.status(400).json({ message: "File too large. Maximum size is 50MB per file." });
       }
       return res
         .status(error?.statusCode || 500)
-        .json({ message: error.message || "Failed to upload file" });
+        .json({ message: error.message || "Failed to upload files" });
     }
   });
 
