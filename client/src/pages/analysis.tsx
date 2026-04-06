@@ -907,6 +907,63 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
         </div>
       </div>
 
+      {/* ── Decision Bar ── */}
+      {analysis && (
+        <div className="bg-[#050505] border-b border-white/[0.06] print:hidden">
+          <div className="max-w-[1600px] mx-auto px-6 lg:px-12 py-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-white/40">Decision</span>
+                <select
+                  value={decisionValue}
+                  onChange={(event) => setDecisionValue(event.target.value)}
+                  className="border border-white/[0.08] bg-black px-3 py-1.5 text-sm min-w-[140px]"
+                >
+                  <option value="">Select</option>
+                  <option value="bid">Bid</option>
+                  <option value="no-bid">No-bid</option>
+                  <option value="bid-with-conditions">Bid with conditions</option>
+                </select>
+                <input
+                  value={decisionReason}
+                  onChange={(event) => setDecisionReason(event.target.value)}
+                  placeholder="Reason (optional)"
+                  className="flex-1 border border-white/[0.08] bg-black px-3 py-1.5 text-sm max-w-[300px] hidden sm:block"
+                />
+                <button
+                  onClick={() => saveDecision.mutate()}
+                  disabled={!decisionValue || saveDecision.isPending}
+                  className="bg-white px-3 py-1.5 text-sm font-bold text-black disabled:opacity-40 whitespace-nowrap"
+                >
+                  {saveDecision.isPending ? "..." : pursuitDecision ? "Saved" : "Save"}
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-white/40">Outcome</span>
+                <select
+                  value={outcomeValue}
+                  onChange={(event) => setOutcomeValue(event.target.value)}
+                  className="border border-white/[0.08] bg-black px-3 py-1.5 text-sm min-w-[120px]"
+                >
+                  <option value="">Select</option>
+                  <option value="won">Won</option>
+                  <option value="lost">Lost</option>
+                  <option value="declined">Declined</option>
+                  <option value="no_submission">No submission</option>
+                </select>
+                <button
+                  onClick={() => saveOutcome.mutate()}
+                  disabled={!outcomeValue || saveOutcome.isPending}
+                  className="border border-white/[0.08] px-3 py-1.5 text-sm font-bold text-white disabled:opacity-40 whitespace-nowrap"
+                >
+                  {saveOutcome.isPending ? "..." : pursuitOutcome ? "Saved" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Main Content ── */}
       <div className="max-w-[1600px] mx-auto px-6 lg:px-12 pt-4 pb-8">
         {/* ── Two-column: side nav + content ── */}
@@ -1189,95 +1246,6 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
 
           {/* ── RIGHT COLUMN (5 cols) ── */}
           <motion.div className="lg:col-span-5 flex flex-col gap-3" variants={staggerContainer}>
-            <motion.div variants={staggerItemScale}>
-              <div className="border border-white/[0.06] bg-[#050505] px-5 py-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <p className="panel-heading">Agency Calibration</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Result is currently using <span className="text-white">{calibrationState}</span> calibration.
-                    </p>
-                  </div>
-                  <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-[#ff5a36]">
-                    {calibrationState}
-                  </span>
-                </div>
-
-                {calibrationDrivers.length > 0 && (
-                  <div className="mt-3 space-y-1.5">
-                    {calibrationDrivers.map((driver: string, index: number) => (
-                      <p key={`${driver}-${index}`} className="text-[11px] leading-relaxed text-muted-foreground">
-                        {driver}
-                      </p>
-                    ))}
-                  </div>
-                )}
-
-                <div className="mt-4 border-t border-white/[0.06] pt-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-                    Workspace decision
-                  </p>
-                  <div className="mt-2 grid gap-2">
-                    <select
-                      value={decisionValue}
-                      onChange={(event) => setDecisionValue(event.target.value)}
-                      className="border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
-                    >
-                      <option value="">Select decision</option>
-                      <option value="bid">Bid</option>
-                      <option value="no-bid">No-bid</option>
-                      <option value="bid-with-conditions">Bid with conditions</option>
-                    </select>
-                    <textarea
-                      value={decisionReason}
-                      onChange={(event) => setDecisionReason(event.target.value)}
-                      placeholder="Why override or accept the recommendation?"
-                      className="min-h-[88px] border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
-                    />
-                    <button
-                      onClick={() => saveDecision.mutate()}
-                      disabled={!decisionValue || saveDecision.isPending}
-                      className="bg-white px-4 py-2.5 text-sm font-bold text-black disabled:opacity-60"
-                    >
-                      {saveDecision.isPending ? "Saving..." : pursuitDecision ? "Update decision" : "Save decision"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-4 border-t border-white/[0.06] pt-4">
-                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground/60">
-                    Pursuit outcome
-                  </p>
-                  <div className="mt-2 grid gap-2">
-                    <select
-                      value={outcomeValue}
-                      onChange={(event) => setOutcomeValue(event.target.value)}
-                      className="border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
-                    >
-                      <option value="">Select outcome</option>
-                      <option value="won">Won</option>
-                      <option value="lost">Lost</option>
-                      <option value="declined">Declined</option>
-                      <option value="no_submission">No submission</option>
-                    </select>
-                    <textarea
-                      value={outcomeNotes}
-                      onChange={(event) => setOutcomeNotes(event.target.value)}
-                      placeholder="Anything the workspace should remember about this client or pursuit?"
-                      className="min-h-[88px] border border-white/[0.08] bg-black px-3 py-2.5 text-sm"
-                    />
-                    <button
-                      onClick={() => saveOutcome.mutate()}
-                      disabled={!outcomeValue || saveOutcome.isPending}
-                      className="border border-white/[0.08] bg-black px-4 py-2.5 text-sm font-bold text-white disabled:opacity-60"
-                    >
-                      {saveOutcome.isPending ? "Saving..." : pursuitOutcome ? "Update outcome" : "Save outcome"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-
             <motion.div variants={staggerItemScale}>
               <div id="sec-risks">
               <Suspense fallback={<PageSectionFallback />}>
