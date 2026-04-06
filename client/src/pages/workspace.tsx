@@ -179,6 +179,8 @@ export default function WorkspacePage() {
   const { user, workspace, onboarding, isAuthenticated, isLoading } = useIsAuthenticated();
   const [form, setForm] = useState(calibrationDefaults);
   const [showChat, setShowChat] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [savedForm, setSavedForm] = useState(calibrationDefaults);
 
   const { data, isLoading: workspaceLoading } = useQuery<WorkspaceResponse>({
     queryKey: ["/api/workspace"],
@@ -192,16 +194,27 @@ export default function WorkspacePage() {
   useEffect(() => {
     const calibration = data?.profile?.calibration;
     if (calibration && typeof calibration === "object") {
-      setForm({
+      const loaded = {
         ...calibrationDefaults,
         ...calibration,
         coreServices: Array.isArray(calibration.coreServices) ? calibration.coreServices : [],
         preferredSectors: Array.isArray(calibration.preferredSectors) ? calibration.preferredSectors : [],
         riskRedLines: Array.isArray(calibration.riskRedLines) ? calibration.riskRedLines : [],
         preferredClientTypes: Array.isArray(calibration.preferredClientTypes) ? calibration.preferredClientTypes : [],
-      });
+      };
+      setForm(loaded);
+      setSavedForm(loaded);
+      setHasUnsavedChanges(false);
     }
   }, [data]);
+
+  const updateForm = useCallback((updater: (prev: typeof calibrationDefaults) => typeof calibrationDefaults) => {
+    setForm((prev) => {
+      const next = updater(prev);
+      setHasUnsavedChanges(true);
+      return next;
+    });
+  }, []);
 
   const saveProfile = useMutation({
     mutationFn: async () => {
@@ -211,6 +224,8 @@ export default function WorkspacePage() {
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["/api/workspace"] });
       await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      setSavedForm(form);
+      setHasUnsavedChanges(false);
       toast({ title: "Profile saved" });
     },
     onError: (error: Error) => {
@@ -323,40 +338,59 @@ export default function WorkspacePage() {
           className="border border-white/[0.08] bg-[#050505] p-6"
         >
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <p className="text-[11px] font-mono uppercase tracking-wide text-white/40">
-                {completedCount}/5 fields filled
-              </p>
+            <div className="flex items-center gap-2">
+              {isCalibrated && !hasUnsavedChanges ? (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                  <p className="text-[11px] font-mono uppercase tracking-wide text-emerald-400/70">
+                    Profile saved · {completedCount}/5 fields
+                  </p>
+                </>
+              ) : (
+                <p className="text-[11px] font-mono uppercase tracking-wide text-white/40">
+                  {completedCount}/5 fields filled
+                </p>
+              )}
             </div>
-            <button
-              onClick={() => saveProfile.mutate()}
-              disabled={saveProfile.isPending}
-              className="bg-white px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
-            >
-              {saveProfile.isPending ? "Saving..." : "Save"}
-            </button>
+            {hasUnsavedChanges ? (
+              <button
+                onClick={() => saveProfile.mutate()}
+                disabled={saveProfile.isPending}
+                className="bg-white px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
+              >
+                {saveProfile.isPending ? "Saving..." : "Save changes"}
+              </button>
+            ) : !isCalibrated ? (
+              <button
+                onClick={() => saveProfile.mutate()}
+                disabled={saveProfile.isPending || completedCount === 0}
+                className="bg-white px-5 py-2 text-sm font-bold text-black transition-colors hover:bg-white/90 disabled:opacity-60"
+              >
+                {saveProfile.isPending ? "Saving..." : "Save"}
+              </button>
+            ) : null}
           </div>
 
           <div className="grid gap-5 md:grid-cols-2">
             <label className="space-y-1.5">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Core services</span>
-              <input value={form.coreServices.join(", ")} onChange={(e) => setForm((c) => ({ ...c, coreServices: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Branding, campaigns, content" />
+              <input value={form.coreServices.join(", ")} onChange={(e) => updateForm((c) => ({ ...c, coreServices: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Branding, campaigns, content" />
             </label>
             <label className="space-y-1.5">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Preferred sectors</span>
-              <input value={form.preferredSectors.join(", ")} onChange={(e) => setForm((c) => ({ ...c, preferredSectors: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Government, tourism, sports" />
+              <input value={form.preferredSectors.join(", ")} onChange={(e) => updateForm((c) => ({ ...c, preferredSectors: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Government, tourism, sports" />
             </label>
             <label className="space-y-1.5">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Minimum budget (SAR)</span>
-              <input value={form.minimumBudget} onChange={(e) => setForm((c) => ({ ...c, minimumBudget: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="250000" />
+              <input value={form.minimumBudget} onChange={(e) => updateForm((c) => ({ ...c, minimumBudget: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="250000" />
             </label>
             <label className="space-y-1.5">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Team size</span>
-              <input value={form.teamSize} onChange={(e) => setForm((c) => ({ ...c, teamSize: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="10-25" />
+              <input value={form.teamSize} onChange={(e) => updateForm((c) => ({ ...c, teamSize: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="10-25" />
             </label>
             <label className="space-y-1.5">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Pitch effort tolerance</span>
-              <select value={form.pitchEffortTolerance} onChange={(e) => setForm((c) => ({ ...c, pitchEffortTolerance: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm">
+              <select value={form.pitchEffortTolerance} onChange={(e) => updateForm((c) => ({ ...c, pitchEffortTolerance: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm">
                 <option value="low">Low</option>
                 <option value="moderate">Moderate</option>
                 <option value="high">High</option>
@@ -364,7 +398,7 @@ export default function WorkspacePage() {
             </label>
             <label className="space-y-1.5">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Saudi/GCC compliance importance</span>
-              <select value={form.saudiComplianceSensitivity} onChange={(e) => setForm((c) => ({ ...c, saudiComplianceSensitivity: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm">
+              <select value={form.saudiComplianceSensitivity} onChange={(e) => updateForm((c) => ({ ...c, saudiComplianceSensitivity: e.target.value }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm">
                 <option value="low">Low</option>
                 <option value="moderate">Moderate</option>
                 <option value="high">High</option>
@@ -372,11 +406,11 @@ export default function WorkspacePage() {
             </label>
             <label className="space-y-1.5 md:col-span-2">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Deal-breakers</span>
-              <input value={form.riskRedLines.join(", ")} onChange={(e) => setForm((c) => ({ ...c, riskRedLines: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Unlimited revisions, exclusivity, no budget disclosed" />
+              <input value={form.riskRedLines.join(", ")} onChange={(e) => updateForm((c) => ({ ...c, riskRedLines: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Unlimited revisions, exclusivity, no budget disclosed" />
             </label>
             <label className="space-y-1.5 md:col-span-2">
               <span className="text-[11px] font-mono uppercase tracking-wide text-white/50">Preferred client types</span>
-              <input value={form.preferredClientTypes.join(", ")} onChange={(e) => setForm((c) => ({ ...c, preferredClientTypes: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Semi-government, challenger brands, retained accounts" />
+              <input value={form.preferredClientTypes.join(", ")} onChange={(e) => updateForm((c) => ({ ...c, preferredClientTypes: parseCsv(e.target.value) }))} className="w-full border border-white/[0.08] bg-black px-4 py-3 text-sm" placeholder="Semi-government, challenger brands, retained accounts" />
             </label>
           </div>
         </motion.section>
