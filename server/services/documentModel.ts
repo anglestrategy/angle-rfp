@@ -243,7 +243,11 @@ export async function extractDocumentModel(
     mimeType === "application/pdf" ? "pdf_text" : "docx_text";
   let rawText = "";
 
-  if (mimeType === "application/pdf") {
+  if (mimeType === "text/plain") {
+    // Pre-extracted text from multi-file merge — use directly
+    rawText = fileBuffer.toString("utf-8");
+    parseMethod = "pdf_text"; // Treat as if parsed from PDF for downstream compat
+  } else if (mimeType === "application/pdf") {
     const pdfParse = await loadPdfParse();
     const parser = new pdfParse.PDFParse(new Uint8Array(fileBuffer));
     await parser.load();

@@ -657,7 +657,6 @@ Only include the calibration block when you're confident you have enough info. T
       });
 
       const files = (req as any).files as Express.Multer.File[] | undefined;
-      // Backwards-compatible: also check .file for single-file uploads
       const singleFile = (req as any).file as Express.Multer.File | undefined;
       const allFiles = files?.length ? files : singleFile ? [singleFile] : [];
 
@@ -670,39 +669,92 @@ Only include the calibration block when you're confident you have enough info. T
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ];
 
-      const results = [];
-      for (const file of allFiles) {
-        if (!allowedTypes.includes(file.mimetype)) {
-          results.push({ fileName: file.originalname, error: "Only PDF and DOCX files are accepted" });
-          continue;
+      const validFiles = allFiles.filter((f) => allowedTypes.includes(f.mimetype));
+      if (validFiles.length === 0) {
+        return res.status(400).json({ message: "Only PDF and DOCX files are accepted" });
+      }
+
+      // Multiple files feed into a single analysis — combine them
+      let combinedBuffer: Buffer;
+      let combinedMimeType: string;
+      let combinedFileName: string;
+      let combinedSize: number;
+
+      if (validFiles.length === 1) {
+        combinedBuffer = validFiles[0].buffer;
+        combinedMimeType = validFiles[0].mimetype;
+        combinedFileName = sanitizeUploadedFileName(validFiles[0].originalname || "uploaded-document");
+        combinedSize = validFiles[0].size;
+      } else {
+        // Extract text from each file and merge into a single PDF-like buffer
+        // The pipeline's documentModel will parse the primary file; we concatenate
+        // the text from additional files by extracting them here
+        const { extractDocumentModel } = await import("./services/documentModel");
+        const textParts: string[] = [];
+        let primaryBuffer = validFiles[0].buffer;
+        let primaryMime = validFiles[0].mimetype;
+
+        for (const file of validFiles) {
+          const model = await extractDocumentModel(file.buffer, file.mimetype);
+          textParts.push(
+            `\n\n--- ${file.originalname || "Document"} ---\n\n${model.documentText}`,
+          );
         }
 
-        const analysis = await storage.createAnalysis({
-          userId: req.authUser!.id,
-          workspaceId: req.authUser!.workspaceId,
-          fileName: sanitizeUploadedFileName(file.originalname || "uploaded-document"),
-          fileSize: file.size,
-          analysisVersion: "live-v1",
-          status: "uploading",
-        });
+        // Create a combined text buffer that the pipeline will parse
+        const combinedText = textParts.join("\n\n").trim();
+        combinedBuffer = Buffer.from(combinedText, "utf-8");
+        combinedMimeType = "text/plain";
+        combinedFileName = validFiles.map((f) => sanitizeUploadedFileName(f.originalname || "document")).join(" + ");
+        combinedSize = validFiles.reduce((sum, f) => sum + f.size, 0);
 
+        // Override: pass the primary file so PDF metadata is preserved,
+        // but prepend text from other files into the pipeline input
+        combinedBuffer = primaryBuffer;
+        combinedMimeType = primaryMime;
+        // We'll pass the extra text via a special approach below
+      }
+
+      const analysis = await storage.createAnalysis({
+        userId: req.authUser!.id,
+        workspaceId: req.authUser!.workspaceId,
+        fileName: combinedFileName,
+        fileSize: combinedSize,
+        analysisVersion: "live-v1",
+        status: "uploading",
+      });
+
+      if (validFiles.length > 1) {
+        // Extract all file texts and combine, then feed as a single text buffer
+        const { extractDocumentModel } = await import("./services/documentModel");
+        const textParts: string[] = [];
+        for (const file of validFiles) {
+          const model = await extractDocumentModel(file.buffer, file.mimetype);
+          textParts.push(
+            `--- ${file.originalname || "Document"} ---\n\n${model.documentText}`,
+          );
+        }
+        const mergedText = textParts.join("\n\n\n");
+        // Feed the merged text as a plain text buffer — documentModel will
+        // treat it as pre-extracted text
         await enqueueOrRunAnalysis({
           analysisId: analysis.id,
-          fileName: file.originalname,
-          mimeType: file.mimetype,
-          fileBuffer: file.buffer,
+          fileName: combinedFileName,
+          mimeType: "text/plain",
+          fileBuffer: Buffer.from(mergedText, "utf-8"),
           trigger: "upload",
         });
-
-        results.push(analysis);
+      } else {
+        await enqueueOrRunAnalysis({
+          analysisId: analysis.id,
+          fileName: combinedFileName,
+          mimeType: combinedMimeType,
+          fileBuffer: combinedBuffer,
+          trigger: "upload",
+        });
       }
 
-      // If single file, return the analysis directly for backwards compatibility
-      if (allFiles.length === 1 && results.length === 1 && !("error" in results[0])) {
-        return res.status(202).json(results[0]);
-      }
-
-      return res.status(202).json({ analyses: results });
+      return res.status(202).json(analysis);
     } catch (error: any) {
       console.error("Upload error:", error);
       if (error?.code === "LIMIT_FILE_SIZE") {

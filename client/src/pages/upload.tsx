@@ -151,13 +151,8 @@ export default function UploadPage() {
     onSuccess: (data) => {
       document.title = "angle/RFP";
       queryClient.invalidateQueries({ queryKey: ["/api/analyses"] });
-      // Single file: navigate to analysis; multiple: stay on upload page
       if (data.id) {
         setLocation(`/analysis/${data.id}`);
-      } else if (data.analyses?.length === 1 && data.analyses[0].id) {
-        setLocation(`/analysis/${data.analyses[0].id}`);
-      } else {
-        toast({ title: `${data.analyses?.length || 0} files uploaded`, description: "Analyses are running. Check back in a few minutes." });
       }
     },
     onError: (error: Error) => {
