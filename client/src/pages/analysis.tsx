@@ -1160,20 +1160,14 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
         </div>{/* /sec-deliverables */}
 
         {/* ═══════════════════════════════════════════════════
-            ROW 4 — MAIN GRID: 7/5 two-column dashboard
+            ROW 4 — MASONRY PANEL GRID
+            Uses CSS columns for automatic balancing
         ═══════════════════════════════════════════════════ */}
         <div id="sec-grid">
-        <motion.div
-          className="grid grid-cols-1 lg:grid-cols-12 gap-3"
-          variants={dashboardRow}
-          initial="hidden"
-          whileInView="visible"
-          viewport={viewportOnce}
-        >
-          {/* ── LEFT COLUMN (7 cols) ── */}
-          <motion.div className="lg:col-span-7 space-y-3" variants={staggerContainer}>
-            <motion.div variants={staggerItem}>
-              <div id="sec-scope">
+        <div className="lg:columns-2 gap-4 space-y-4 [&>*]:break-inside-avoid">
+
+            {/* Scope Analysis */}
+            <div id="sec-scope">
               <Suspense fallback={<PageSectionFallback />}>
                 <ScopePanel
                   hasScope={hasScope}
@@ -1186,19 +1180,24 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   outputCounts={outputCounts}
                 />
               </Suspense>
-              </div>
-            </motion.div>
+            </div>
 
-            <motion.div variants={staggerItem}>
-              <div id="sec-scoring">
+            {/* Risk Register */}
+            <div id="sec-risks">
+              <Suspense fallback={<PageSectionFallback />}>
+                <RiskRegister redFlagList={redFlagList} riskSummary={riskSummary} />
+              </Suspense>
+            </div>
+
+            {/* Scoring Breakdown */}
+            <div id="sec-scoring">
               <Suspense fallback={<PageSectionFallback />}>
                 <ScoringBreakdown factors={factors} financial={financial} />
               </Suspense>
-              </div>
-            </motion.div>
+            </div>
 
-            <motion.div variants={staggerItem}>
-              <div id="sec-timeline">
+            {/* Key Dates */}
+            <div id="sec-timeline">
               <Suspense fallback={<PageSectionFallback />}>
                 <TimelinePanel
                   dates={dates}
@@ -1208,35 +1207,10 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   submissionDeadline={deadlineStr}
                 />
               </Suspense>
-              </div>
-            </motion.div>
+            </div>
 
-            <motion.div variants={staggerItem}>
-              <div id="sec-client">
-              <Suspense fallback={<PageSectionFallback />}>
-                <ClientIntel
-                  clientInfo={clientInfo}
-                  clientName={core?.clientName}
-                  industry={core?.industry}
-                  hasData={hasClient || hasExtracted}
-                />
-              </Suspense>
-              </div>
-            </motion.div>
-          </motion.div>
-
-          {/* ── RIGHT COLUMN (5 cols) ── */}
-          <motion.div className="lg:col-span-5 flex flex-col gap-3" variants={staggerContainer}>
-            <motion.div variants={staggerItemScale}>
-              <div id="sec-risks">
-              <Suspense fallback={<PageSectionFallback />}>
-                <RiskRegister redFlagList={redFlagList} riskSummary={riskSummary} />
-              </Suspense>
-              </div>
-            </motion.div>
-
-            <motion.div variants={staggerItemScale}>
-              <div id="sec-clarifications">
+            {/* Clarifications */}
+            <div id="sec-clarifications">
               <Suspense fallback={<PageSectionFallback />}>
                 <ClarificationSection
                   clarificationQuestions={clarificationQuestions}
@@ -1244,125 +1218,102 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   contradictions={contradictions}
                 />
               </Suspense>
-              </div>
-            </motion.div>
+            </div>
 
-            <motion.div variants={staggerItemScale}>
-              <div id="sec-submission">
+            {/* Submission Requirements */}
+            <div id="sec-submission">
               <Suspense fallback={<PageSectionFallback />}>
                 <SubmissionPanel submission={submission} />
               </Suspense>
-              </div>
-            </motion.div>
+            </div>
 
-            <motion.div variants={staggerItemScale}>
-              <div id="sec-contract">
+            {/* Contract Terms */}
+            <div id="sec-contract">
               <Suspense fallback={<PageSectionFallback />}>
                 <ContractTermsPanel contractTerms={contractTerms} />
               </Suspense>
-              </div>
-            </motion.div>
+            </div>
 
             {/* Evaluation Criteria */}
             {Array.isArray(evalCriteria) && evalCriteria.length > 0 && (
-              <motion.div variants={staggerItemScale}>
-                <div className="dash-panel">
-                  <div className="dash-panel-header">
-                    <span className="dash-panel-title">Evaluation Criteria</span>
-                  </div>
-                  <div className="dash-panel-body">
-                    {/* Header row */}
-                    <div className="dash-data-header" style={{ gridTemplateColumns: "1fr 60px" }}>
-                      <span>Criterion</span>
-                      <span className="text-right">Weight</span>
-                    </div>
-                    {evalCriteria.map((crit: any, i: number) => {
-                      const name =
-                        typeof crit === "string"
-                          ? crit
-                          : crit.criterion || crit.name || `Criterion ${i + 1}`;
-                      const weight = typeof crit === "object" ? crit.weight : null;
-                      const desc = typeof crit === "object" ? crit.description : null;
-                      return (
-                        <div key={i} className="dash-data-row" style={{ gridTemplateColumns: "1fr 60px" }}>
-                          <div>
-                            <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{name}</span>
-                            {weight && (
-                              <div className="mt-2 w-full">
-                                <div className="h-[3px] w-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
-                                  <div className="h-full bg-primary" style={{ width: `${Math.min(weight, 100)}%` }} />
-                                </div>
-                              </div>
-                            )}
-                            {desc && <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>{desc}</p>}
-                          </div>
-                          {weight && (
-                            <span className="text-sm font-mono tabular-nums font-bold text-right" style={{ color: "rgba(255,255,255,0.9)" }}>
-                              {weight}%
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Evaluation Criteria</span>
                 </div>
-              </motion.div>
+                <div className="dash-panel-body">
+                  <div className="dash-data-header" style={{ gridTemplateColumns: "1fr 60px" }}>
+                    <span>Criterion</span>
+                    <span className="text-right">Weight</span>
+                  </div>
+                  {evalCriteria.map((crit: any, i: number) => {
+                    const name = typeof crit === "string" ? crit : crit.criterion || crit.name || `Criterion ${i + 1}`;
+                    const weight = typeof crit === "object" ? crit.weight : null;
+                    const desc = typeof crit === "object" ? crit.description : null;
+                    return (
+                      <div key={i} className="dash-data-row" style={{ gridTemplateColumns: "1fr 60px" }}>
+                        <div>
+                          <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{name}</span>
+                          {weight && (
+                            <div className="mt-2 h-[3px] w-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                              <div className="h-full bg-primary" style={{ width: `${Math.min(weight, 100)}%` }} />
+                            </div>
+                          )}
+                          {desc && <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>{desc}</p>}
+                        </div>
+                        {weight && (
+                          <span className="text-sm font-mono tabular-nums font-bold text-right" style={{ color: "rgba(255,255,255,0.9)" }}>{weight}%</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             )}
 
             {/* Team Requirements */}
-            {(teamReqs?.keyRoles?.length > 0 ||
-              teamReqs?.certifications?.length > 0 ||
-              teamReqs?.localContentRequirements) && (
-              <motion.div variants={staggerItemScale}>
-                <div className="dash-panel">
-                  <div className="dash-panel-header">
-                    <span className="dash-panel-title">Team Requirements</span>
-                  </div>
-                  <div className="dash-panel-body">
-                    {Array.isArray(teamReqs.keyRoles) && teamReqs.keyRoles.length > 0 && (
-                      <div className="mb-6">
-                        <p className="dash-metric-label mb-3">Key Roles</p>
-                        <div className="space-y-0">
-                          {teamReqs.keyRoles.map((role: any, i: number) => (
-                            <div key={i} className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
-                              <div className="flex items-baseline justify-between gap-2">
-                                <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{role.role}</p>
-                                {role.experienceYears && (
-                                  <span className="font-mono text-[10px] shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>
-                                    {role.experienceYears}+ yr
-                                  </span>
-                                )}
-                              </div>
-                              {role.qualifications && (
-                                <p className="text-xs leading-relaxed mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>{role.qualifications}</p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {Array.isArray(teamReqs.certifications) && teamReqs.certifications.length > 0 && (
-                      <div className="mb-4">
-                        <p className="dash-metric-label mb-3">Certifications</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {teamReqs.certifications.map((cert: string, i: number) => (
-                            <span key={i} className="dash-panel-badge">{cert}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {teamReqs.localContentRequirements && (
-                      <div>
-                        <p className="dash-metric-label mb-1">Local Content</p>
-                        <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{teamReqs.localContentRequirements}</p>
-                      </div>
-                    )}
-                  </div>
+            {(teamReqs?.keyRoles?.length > 0 || teamReqs?.certifications?.length > 0 || teamReqs?.localContentRequirements) && (
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Team Requirements</span>
                 </div>
-              </motion.div>
+                <div className="dash-panel-body">
+                  {Array.isArray(teamReqs.keyRoles) && teamReqs.keyRoles.length > 0 && (
+                    <div className="mb-6">
+                      <p className="dash-metric-label mb-3">Key Roles</p>
+                      {teamReqs.keyRoles.map((role: any, i: number) => (
+                        <div key={i} className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{role.role}</p>
+                            {role.experienceYears && (
+                              <span className="font-mono text-[10px] shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>{role.experienceYears}+ yr</span>
+                            )}
+                          </div>
+                          {role.qualifications && <p className="text-xs leading-relaxed mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>{role.qualifications}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {Array.isArray(teamReqs.certifications) && teamReqs.certifications.length > 0 && (
+                    <div className="mb-4">
+                      <p className="dash-metric-label mb-3">Certifications</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {teamReqs.certifications.map((cert: string, i: number) => (
+                          <span key={i} className="dash-panel-badge">{cert}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {teamReqs.localContentRequirements && (
+                    <div>
+                      <p className="dash-metric-label mb-1">Local Content</p>
+                      <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{teamReqs.localContentRequirements}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
-          </motion.div>
-        </motion.div>
+
+        </div>
         </div>{/* /sec-grid */}
 
         {/* Evidence Trail — collapsed at bottom */}
