@@ -11,6 +11,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useIsAuthenticated } from "@/hooks/use-auth";
+import { Masonry } from "@/components/ui/masonry";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -1154,14 +1155,14 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
         </div>{/* /sec-deliverables */}
 
         {/* ═══════════════════════════════════════════════════
-            ROW 4 — MASONRY PANEL GRID
-            Uses CSS columns for automatic balancing
+            ROW 4 — JS MASONRY PANEL GRID
+            Measures panels once, assigns to shortest column
         ═══════════════════════════════════════════════════ */}
         <div id="sec-grid">
-        <div className="lg:columns-2 gap-4 space-y-4 [&>*]:break-inside-avoid">
-
-            {/* Scope Analysis */}
-            <div id="sec-scope">
+        <Masonry columns={2} gap={16} className="hidden lg:block">
+          {[
+            /* Scope Analysis */
+            <div key="scope" id="sec-scope">
               <Suspense fallback={<PageSectionFallback />}>
                 <ScopePanel
                   hasScope={hasScope}
@@ -1174,24 +1175,24 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   outputCounts={outputCounts}
                 />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Risk Register */}
-            <div id="sec-risks">
+            /* Risk Register */
+            <div key="risks" id="sec-risks">
               <Suspense fallback={<PageSectionFallback />}>
                 <RiskRegister redFlagList={redFlagList} riskSummary={riskSummary} />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Scoring Breakdown */}
-            <div id="sec-scoring">
+            /* Scoring Breakdown */
+            <div key="scoring" id="sec-scoring">
               <Suspense fallback={<PageSectionFallback />}>
                 <ScoringBreakdown factors={factors} financial={financial} />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Key Dates */}
-            <div id="sec-timeline">
+            /* Key Dates */
+            <div key="timeline" id="sec-timeline">
               <Suspense fallback={<PageSectionFallback />}>
                 <TimelinePanel
                   dates={dates}
@@ -1201,10 +1202,10 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   submissionDeadline={deadlineStr}
                 />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Clarifications */}
-            <div id="sec-clarifications">
+            /* Clarifications */
+            <div key="clarifications" id="sec-clarifications">
               <Suspense fallback={<PageSectionFallback />}>
                 <ClarificationSection
                   clarificationQuestions={clarificationQuestions}
@@ -1212,25 +1213,25 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                   contradictions={contradictions}
                 />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Submission Requirements */}
-            <div id="sec-submission">
+            /* Submission Requirements */
+            <div key="submission" id="sec-submission">
               <Suspense fallback={<PageSectionFallback />}>
                 <SubmissionPanel submission={submission} />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Contract Terms */}
-            <div id="sec-contract">
+            /* Contract Terms */
+            <div key="contract" id="sec-contract">
               <Suspense fallback={<PageSectionFallback />}>
                 <ContractTermsPanel contractTerms={contractTerms} />
               </Suspense>
-            </div>
+            </div>,
 
-            {/* Evaluation Criteria */}
-            {Array.isArray(evalCriteria) && evalCriteria.length > 0 && (
-              <div className="dash-panel">
+            /* Evaluation Criteria */
+            ...(Array.isArray(evalCriteria) && evalCriteria.length > 0 ? [
+              <div key="eval" className="dash-panel">
                 <div className="dash-panel-header">
                   <span className="dash-panel-title">Evaluation Criteria</span>
                   <span className="dash-panel-badge">{evalCriteria.length} criteria</span>
@@ -1245,9 +1246,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                         <CollapsibleTrigger className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
                           <div className="flex items-center justify-between flex-1 text-left gap-3">
                             <span className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.8)" }}>{name}</span>
-                            {weight && (
-                              <span className="font-mono text-sm tabular-nums font-bold shrink-0" style={{ color: "rgba(255,255,255,0.9)" }}>{weight}%</span>
-                            )}
+                            {weight && <span className="font-mono text-sm tabular-nums font-bold shrink-0" style={{ color: "rgba(255,255,255,0.9)" }}>{weight}%</span>}
                           </div>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
@@ -1264,12 +1263,12 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                     );
                   })}
                 </div>
-              </div>
-            )}
+              </div>,
+            ] : []),
 
-            {/* Team Requirements */}
-            {(teamReqs?.keyRoles?.length > 0 || teamReqs?.certifications?.length > 0 || teamReqs?.localContentRequirements) && (
-              <div className="dash-panel">
+            /* Team Requirements */
+            ...((teamReqs?.keyRoles?.length > 0 || teamReqs?.certifications?.length > 0 || teamReqs?.localContentRequirements) ? [
+              <div key="team" className="dash-panel">
                 <div className="dash-panel-header">
                   <span className="dash-panel-title">Team Requirements</span>
                 </div>
@@ -1281,9 +1280,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                         <div key={i} className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
                           <div className="flex items-baseline justify-between gap-2">
                             <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{role.role}</p>
-                            {role.experienceYears && (
-                              <span className="font-mono text-[10px] shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>{role.experienceYears}+ yr</span>
-                            )}
+                            {role.experienceYears && <span className="font-mono text-[10px] shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>{role.experienceYears}+ yr</span>}
                           </div>
                           {role.qualifications && <p className="text-xs leading-relaxed mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>{role.qualifications}</p>}
                         </div>
@@ -1294,9 +1291,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                     <div className="mb-4">
                       <p className="dash-metric-label mb-3">Certifications</p>
                       <div className="flex flex-wrap gap-1.5">
-                        {teamReqs.certifications.map((cert: string, i: number) => (
-                          <span key={i} className="dash-panel-badge">{cert}</span>
-                        ))}
+                        {teamReqs.certifications.map((cert: string, i: number) => <span key={i} className="dash-panel-badge">{cert}</span>)}
                       </div>
                     </div>
                   )}
@@ -1307,9 +1302,20 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+              </div>,
+            ] : []),
+          ]}
+        </Masonry>
 
+        {/* Mobile: single column fallback */}
+        <div className="lg:hidden space-y-4">
+          <div id="sec-scope-m"><Suspense fallback={<PageSectionFallback />}><ScopePanel hasScope={hasScope} fullMatches={fullMatches} partialMatches={partialMatches} gaps={gaps} agencyServicePct={agencyServicePct} matches={scopeMatches} scopeCategories={scopeCategories} outputCounts={outputCounts} /></Suspense></div>
+          <div id="sec-risks-m"><Suspense fallback={<PageSectionFallback />}><RiskRegister redFlagList={redFlagList} riskSummary={riskSummary} /></Suspense></div>
+          <div id="sec-scoring-m"><Suspense fallback={<PageSectionFallback />}><ScoringBreakdown factors={factors} financial={financial} /></Suspense></div>
+          <div id="sec-timeline-m"><Suspense fallback={<PageSectionFallback />}><TimelinePanel dates={dates} overallDuration={durationStr} startDate={core?.timeline?.startDate} endDate={core?.timeline?.endDate} submissionDeadline={deadlineStr} /></Suspense></div>
+          <div id="sec-clarifications-m"><Suspense fallback={<PageSectionFallback />}><ClarificationSection clarificationQuestions={clarificationQuestions} missingInfo={missingInfo} contradictions={contradictions} /></Suspense></div>
+          <div id="sec-submission-m"><Suspense fallback={<PageSectionFallback />}><SubmissionPanel submission={submission} /></Suspense></div>
+          <div id="sec-contract-m"><Suspense fallback={<PageSectionFallback />}><ContractTermsPanel contractTerms={contractTerms} /></Suspense></div>
         </div>
         </div>{/* /sec-grid */}
 
