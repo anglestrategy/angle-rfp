@@ -1,20 +1,17 @@
-import { useMemo } from "react";
 import { cn } from "@/lib/utils";
-import { motion } from "framer-motion";
 import { humanize } from "@/lib/format-evidence";
 import {
   CollapsibleSection,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible-section";
-import { staggerFast, staggerItemLeft } from "@/lib/motion";
 
 interface ScopeMatch {
   scopeItem?: string;
   matchType?: string;
   matchedService?: string;
   confidence?: number;
-  explanation?: string;
+  category?: string;
   [key: string]: any;
 }
 
@@ -38,16 +35,11 @@ interface ScopePanelProps {
   outputCounts?: Record<string, any>;
 }
 
-const matchTypeConfig: Record<string, { label: string; badge: string; symbol: string }> = {
-  full: { label: "Full Match", badge: "bg-emerald-500 text-white", symbol: "✓" },
-  partial: { label: "Partial", badge: "bg-amber-500 text-white", symbol: "~" },
-  gap: { label: "Gap", badge: "bg-red-500 text-white", symbol: "✕" },
+const typeStyles: Record<string, { dot: string; text: string }> = {
+  full: { dot: "bg-emerald-500", text: "text-emerald-400" },
+  partial: { dot: "bg-amber-500", text: "text-amber-400" },
+  gap: { dot: "bg-red-500", text: "text-red-400" },
 };
-
-function formatConfidence(value: number): string {
-  const normalized = value <= 1 ? value * 100 : value;
-  return `${Math.round(Math.max(0, Math.min(100, normalized)))}%`;
-}
 
 export function ScopePanel({
   hasScope,
@@ -62,226 +54,113 @@ export function ScopePanel({
   if (!hasScope) {
     return (
       <div className="dash-panel">
-        <div className="dash-panel-body" data-testid="section-scope">
-          <p className="section-heading">SCOPE ANALYSIS</p>
-          <p className="text-sm text-muted-foreground italic">Scope analysis data not available</p>
+        <div className="dash-panel-header">
+          <span className="dash-panel-title">Scope Analysis</span>
+        </div>
+        <div className="dash-panel-body">
+          <p className="text-sm text-white/40">Scope analysis data not available.</p>
         </div>
       </div>
     );
   }
 
   const total = fullMatches + partialMatches + gaps;
-  const fullPct = total > 0 ? (fullMatches / total) * 100 : 0;
-  const partialPct = total > 0 ? (partialMatches / total) * 100 : 0;
-  const gapPct = total > 0 ? (gaps / total) * 100 : 0;
-
+  const hasCategories = scopeCategories && scopeCategories.length > 0;
   const outputKeys = outputCounts ? Object.keys(outputCounts) : [];
 
-  // Determine if we have categories to use as primary grouping
-  const hasCategories = scopeCategories && scopeCategories.length > 0;
-
   return (
-    <div className="dash-panel">
-      <div className="dash-panel-body" data-testid="section-scope">
-        <div className="flex items-center justify-between mb-3">
-          <p className="panel-heading">Scope Analysis</p>
-          <span className="font-mono text-lg font-bold text-primary">{agencyServicePct}%</span>
-        </div>
+    <div className="dash-panel" data-testid="section-scope">
+      {/* Header */}
+      <div className="dash-panel-header">
+        <span className="dash-panel-title">Scope Analysis</span>
+        <span className="dash-panel-badge">{agencyServicePct}% match</span>
+      </div>
 
-        {/* Summary bar chart — animated with sharp ends */}
-        {total > 0 ? (
-          <div className="h-3 overflow-hidden flex bg-foreground/[0.04]">
-            <motion.div
-              className="bg-emerald-500"
-              style={{ boxShadow: "0 0 8px rgba(34,197,94,0.3)" }}
-              initial={{ width: 0 }}
-              whileInView={{ width: `${fullPct}%` }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
-            />
-            <motion.div
-              className="bg-amber-500"
-              initial={{ width: 0 }}
-              whileInView={{ width: `${partialPct}%` }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.1, ease: [0.25, 0.1, 0.25, 1] }}
-            />
-            <motion.div
-              className="bg-red-500"
-              initial={{ width: 0 }}
-              whileInView={{ width: `${gapPct}%` }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
-            />
+      <div className="dash-panel-body">
+        {/* Summary stats row */}
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div>
+            <p className="text-2xl font-bold text-emerald-400">{fullMatches}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Full match</p>
           </div>
-        ) : (
-          <div className="h-3 bg-foreground/[0.04]" />
-        )}
-
-        {/* Legend — sharp badges */}
-        <div className="flex items-center gap-3 mt-3">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 border border-emerald-500/20 bg-emerald-500/10">
-            <span className="h-1.5 w-1.5 bg-emerald-500" />
-            <span className="text-xs font-bold text-emerald-500">Full: {fullMatches}</span>
+          <div>
+            <p className="text-2xl font-bold text-amber-400">{partialMatches}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Partial</p>
           </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 border border-amber-500/20 bg-amber-500/10">
-            <span className="h-1.5 w-1.5 bg-amber-500" />
-            <span className="text-xs font-bold text-amber-500">Partial: {partialMatches}</span>
-          </div>
-          <div className="flex items-center gap-1.5 px-2.5 py-1 border border-red-500/20 bg-red-500/10">
-            <span className="h-1.5 w-1.5 bg-red-500" />
-            <span className="text-xs font-bold text-red-500">Gap: {gaps}</span>
+          <div>
+            <p className="text-2xl font-bold text-red-400">{gaps}</p>
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/40">Gap</p>
           </div>
         </div>
 
-        {/* Category accordion (primary view when categories available) */}
-        {hasCategories && (
-          <div className="mt-5">
-            <div className="space-y-0">
-              {scopeCategories!.map((cat, idx) => {
-                const catName = cat.name || cat.category || `Category ${idx + 1}`;
-                const catFull = cat.fullMatches || 0;
-                const catPartial = cat.partialMatches || 0;
-                const catGap = cat.gaps || 0;
-                const catTotal = catFull + catPartial + catGap;
-                const catFullPct = catTotal > 0 ? (catFull / catTotal) * 100 : 0;
-                const catPartialPct = catTotal > 0 ? (catPartial / catTotal) * 100 : 0;
-
-                return (
-                  <CollapsibleSection key={idx} value={`cat-${idx}`}>
-                    <CollapsibleTrigger className="py-3 hover:no-underline">
-                      <div className="flex items-center gap-3 flex-1 mr-2">
-                        <span className="text-sm font-bold flex-1 text-left">{catName}</span>
-                        <span className="text-xs font-mono text-muted-foreground shrink-0">
-                          {catTotal} items
-                        </span>
-                      </div>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      {/* Category mini bar */}
-                      <div className="mb-3">
-                        <div className="h-2 rounded-full overflow-hidden flex bg-foreground/[0.04]">
-                          <div className="bg-emerald-500 transition-all" style={{ width: `${catFullPct}%` }} />
-                          <div className="bg-amber-500 transition-all" style={{ width: `${catPartialPct}%` }} />
-                        </div>
-                        <div className="flex items-center gap-3 mt-1.5 text-[10px] font-mono text-muted-foreground">
-                          <span>F:{catFull}</span>
-                          <span>P:{catPartial}</span>
-                          <span>G:{catGap}</span>
-                        </div>
-                      </div>
-
-                      {/* Match items that belong to this category (if matches available) */}
-                      {matches && matches.length > 0 && (() => {
-                        const catMatches = matches.filter((m) => {
-                          const ms = m.matchedService;
-                          const mCat = m.category || (typeof ms === "object" && ms !== null ? (ms as any).category : undefined);
-                          if (mCat) return mCat === catName || mCat === cat.category;
-                          return false;
-                        });
-
-                        if (catMatches.length > 0) {
-                          return (
-                            <motion.div className="space-y-0" variants={staggerFast} initial="hidden" animate="visible">
-                              {catMatches.map((item, mIdx) => {
-                                const type = item.matchType || "gap";
-                                const cfg = matchTypeConfig[type] || matchTypeConfig.gap;
-                                return (
-                                  <motion.div
-                                    key={mIdx}
-                                    variants={staggerItemLeft}
-                                    className="flex items-center gap-3 py-1.5 border-b border-foreground/8 last:border-0 row-hover rounded-md"
-                                  >
-                                    <span className={cn("h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0", cfg.badge)}>
-                                      {cfg.symbol}
-                                    </span>
-                                    <span className="text-sm flex-1">{item.scopeItem || "Unnamed item"}</span>
-                                    {item.confidence != null && (
-                                      <span className="font-mono text-[10px] text-muted-foreground">{formatConfidence(item.confidence)}</span>
-                                    )}
-                                  </motion.div>
-                                );
-                              })}
-                            </motion.div>
-                          );
-                        }
-                        return null;
-                      })()}
-                    </CollapsibleContent>
-                  </CollapsibleSection>
-                );
-              })}
-            </div>
+        {/* Summary bar */}
+        {total > 0 && (
+          <div className="h-2 overflow-hidden flex bg-white/[0.04] mb-6">
+            <div className="bg-emerald-500" style={{ width: `${(fullMatches / total) * 100}%` }} />
+            <div className="bg-amber-500" style={{ width: `${(partialMatches / total) * 100}%` }} />
+            <div className="bg-red-500" style={{ width: `${(gaps / total) * 100}%` }} />
           </div>
         )}
 
-        {/* Flat match list (shown when no categories, or as supplementary detail) */}
-        {matches && matches.length > 0 && !hasCategories && (
-          <div className="mt-5">
-            <div className="space-y-0">
-              {["full", "partial", "gap"].map((groupKey) => {
-                const items = matches.filter((m) => (m.matchType || "gap") === groupKey);
-                if (items.length === 0) return null;
-                const cfg = matchTypeConfig[groupKey] || matchTypeConfig.gap;
-                const groupLabels: Record<string, string> = { full: "Full Matches", partial: "Partial Matches", gap: "Gaps" };
-                const groupTextColors: Record<string, string> = { full: "text-green-600", partial: "text-yellow-600", gap: "text-red-600" };
-                return (
-                  <CollapsibleSection key={groupKey} value={groupKey}>
-                    <CollapsibleTrigger className="py-3 hover:no-underline">
-                      <div className="flex items-center gap-2.5 text-sm">
-                        <span className={cn("h-3 w-3 rounded-full", cfg.badge.split(" ")[0])} />
-                        <span className={cn("font-bold", groupTextColors[groupKey])}>{groupLabels[groupKey]}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground/60">
-                          {items.length}
-                        </span>
-                      </div>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <motion.div className="space-y-0" variants={staggerFast} initial="hidden" animate="visible">
-                        {items.map((item, idx) => (
-                          <motion.div
-                            key={idx}
-                            variants={staggerItemLeft}
-                            className="flex items-center gap-3 py-1.5 border-b border-foreground/8 last:border-0 row-hover rounded-md"
-                          >
-                            <span className={cn("h-5 w-5 flex items-center justify-center text-[10px] font-bold shrink-0", cfg.badge)}>
-                              {cfg.symbol}
-                            </span>
-                            <span className="text-sm font-medium flex-1">{item.scopeItem || "Unnamed item"}</span>
-                            {item.matchedService && (
-                              <span className="font-mono text-[10px] text-muted-foreground">{typeof item.matchedService === 'string' ? item.matchedService : ''}</span>
-                            )}
-                          </motion.div>
-                        ))}
-                      </motion.div>
-                    </CollapsibleContent>
-                  </CollapsibleSection>
-                );
-              })}
-            </div>
+        {/* Match list */}
+        {matches && matches.length > 0 && (
+          <div className="border-t border-white/[0.06] pt-4">
+            {["full", "partial", "gap"].map((groupKey) => {
+              const items = matches.filter((m) => (m.matchType || "gap") === groupKey);
+              if (items.length === 0) return null;
+              const style = typeStyles[groupKey] || typeStyles.gap;
+              const labels: Record<string, string> = { full: "Full matches", partial: "Partial matches", gap: "Gaps" };
+
+              return (
+                <CollapsibleSection key={groupKey} value={groupKey}>
+                  <CollapsibleTrigger className="py-2.5">
+                    <div className="flex items-center gap-2 text-sm flex-1">
+                      <span className={cn("h-2 w-2 rounded-full shrink-0", style.dot)} />
+                      <span className={cn("font-semibold", style.text)}>{labels[groupKey]}</span>
+                      <span className="font-mono text-[10px] text-white/30 ml-auto">{items.length}</span>
+                    </div>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="pl-4 mb-2">
+                      {items.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-3 py-2 border-b border-dashed border-white/[0.06] last:border-0 text-sm"
+                        >
+                          <span className="font-mono text-[10px] text-white/25 w-4 text-right shrink-0 pt-0.5 tabular-nums">
+                            {idx + 1}
+                          </span>
+                          <span className="flex-1 text-white/80">{item.scopeItem || "Unnamed"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </CollapsibleSection>
+              );
+            })}
           </div>
         )}
 
-        {/* Output counts — only non-zero values */}
+        {/* Output counts */}
         {outputKeys.length > 0 && (() => {
-          const nonZeroEntries = outputKeys
+          const entries = outputKeys
             .map((key) => {
               const val = outputCounts![key];
-              const displayVal = typeof val === "object" ? val.count || val.value || 0 : val;
-              const numVal = typeof displayVal === "number" ? displayVal : parseInt(String(displayVal), 10);
-              return { key, displayVal, numVal };
+              const num = typeof val === "number" ? val : typeof val === "object" ? val.count || val.value || 0 : parseInt(String(val), 10);
+              return { key, num };
             })
-            .filter(({ numVal }) => !isNaN(numVal) && numVal > 0);
+            .filter(({ num }) => !isNaN(num) && num > 0);
 
-          if (nonZeroEntries.length === 0) return null;
+          if (entries.length === 0) return null;
 
           return (
-            <div className="mt-5 border-t border-foreground/10 pt-4">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                {nonZeroEntries.map(({ key, displayVal }) => (
-                  <div key={key}>
-                    <p className="text-2xl font-bold">{displayVal}</p>
-                    <p className="font-mono text-[10px] text-muted-foreground uppercase tracking-wider">{humanize(key)}</p>
+            <div className="border-t border-white/[0.06] pt-4 mt-4">
+              <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-3">Output counts</p>
+              <div className="grid grid-cols-2 gap-3">
+                {entries.map(({ key, num }) => (
+                  <div key={key} className="flex items-baseline justify-between border-b border-dashed border-white/[0.06] pb-2">
+                    <span className="text-sm text-white/60">{humanize(key)}</span>
+                    <span className="text-lg font-bold tabular-nums">{num}</span>
                   </div>
                 ))}
               </div>

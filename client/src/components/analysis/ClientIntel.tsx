@@ -1,6 +1,4 @@
-import { motion } from "framer-motion";
 import { humanize } from "@/lib/format-evidence";
-import { staggerFast, staggerItemLeft } from "@/lib/motion";
 
 interface ClientIntelProps {
   clientInfo: Record<string, any>;
@@ -58,9 +56,11 @@ export function ClientIntel({
   if (!hasData) {
     return (
       <div className="dash-panel">
+        <div className="dash-panel-header">
+          <span className="dash-panel-title">CLIENT INTELLIGENCE</span>
+        </div>
         <div className="dash-panel-body" data-testid="section-client-profile">
-          <p className="section-heading">CLIENT INTELLIGENCE</p>
-          <p className="text-sm text-muted-foreground italic">
+          <p className="text-sm text-white/40 italic">
             Client intelligence data not available
           </p>
         </div>
@@ -109,7 +109,6 @@ export function ClientIntel({
     },
   ];
 
-  // Split into short (grid) and long (full-width) fields
   const shortFields = fields.filter((f) => !f.long);
   const longFields = fields.filter((f) => f.long);
   const confidenceScores = clientInfo.confidenceScores as Record<string, number> | undefined;
@@ -125,28 +124,23 @@ export function ClientIntel({
 
   return (
     <div className="dash-panel">
-      <div className="dash-panel-body" data-testid="section-client-profile">
-        <div className="flex items-center justify-between mb-2">
-          <p className="panel-heading">Client Intelligence</p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 mb-3">
-          <span className="px-2.5 py-1 border border-white/[0.06] text-[10px] font-mono uppercase tracking-[0.08em] text-muted-foreground">
-            {sourceType}
-          </span>
+      <div className="dash-panel-header">
+        <span className="dash-panel-title">CLIENT INTELLIGENCE</span>
+        <div className="flex items-center gap-2">
+          <span className="dash-panel-badge">{sourceType}</span>
           {avgConfidence != null && (
-            <span className="px-2.5 py-1 border border-primary/20 bg-primary/10 text-[10px] font-mono uppercase tracking-[0.08em] text-primary">
-              {avgConfidence}% avg confidence
-            </span>
+            <span className="dash-panel-badge">{avgConfidence}% confidence</span>
           )}
           {sourceCount > 0 && (
-            <span className="px-2.5 py-1 border border-emerald-500/20 bg-emerald-500/10 text-[10px] font-mono uppercase tracking-[0.08em] text-emerald-500">
+            <span className="dash-panel-badge">
               {sourceCount} source{sourceCount === 1 ? "" : "s"}
             </span>
           )}
         </div>
-
-        <motion.div className="grid grid-cols-2 gap-x-6 gap-y-3" variants={staggerFast} initial="hidden" animate="visible">
+      </div>
+      <div className="dash-panel-body" data-testid="section-client-profile">
+        {/* Short fields in a 2-col grid */}
+        <div className="grid grid-cols-2 gap-x-6 gap-y-0">
           {shortFields.map((field) => {
             const raw = resolveValue(field.value);
             const confidenceKey = field.label === "Company"
@@ -164,26 +158,29 @@ export function ClientIntel({
                         : undefined;
             const confidence = confidenceKey ? confidenceScores?.[confidenceKey] : undefined;
             return (
-              <motion.div key={field.label} variants={staggerItemLeft} className="border-b border-foreground/8 pb-2 row-hover rounded-md">
+              <div
+                key={field.label}
+                className="py-3 border-b border-dashed border-white/[0.06]"
+              >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="swiss-data-label">{field.label}</p>
+                  <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">{field.label}</p>
                   {typeof confidence === "number" && (
-                    <span className="font-mono text-[9px] text-muted-foreground/60">
+                    <span className="font-mono text-[9px] text-white/20">
                       {Math.round(confidence * 100)}%
                     </span>
                   )}
                 </div>
                 {raw ? (
-                  <p className="swiss-data-value">{humanize(raw)}</p>
+                  <p className="text-sm text-white/70 mt-0.5">{humanize(raw)}</p>
                 ) : (
-                  <p className="text-sm text-muted-foreground/40">&mdash;</p>
+                  <p className="text-sm text-white/20 mt-0.5">&mdash;</p>
                 )}
-              </motion.div>
+              </div>
             );
           })}
-        </motion.div>
+        </div>
 
-        {/* Long-text fields rendered full-width below the grid */}
+        {/* Long-text fields rendered full-width */}
         {longFields.map((field) => {
           const raw = resolveValue(field.value);
           if (!raw) return null;
@@ -199,38 +196,39 @@ export function ClientIntel({
                 })
               : null;
           return (
-            <div key={field.label} className="border-b border-foreground/8 pb-2 mt-3 row-hover rounded-md">
+            <div key={field.label} className="py-3 border-b border-dashed border-white/[0.06]">
               <div className="flex items-center justify-between gap-2">
-                <p className="swiss-data-label">{field.label}</p>
+                <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">{field.label}</p>
                 {confidence != null && (
-                  <span className="font-mono text-[9px] text-muted-foreground/60">
+                  <span className="font-mono text-[9px] text-white/20">
                     {confidence}%
                   </span>
                 )}
               </div>
-              <p className="text-sm text-muted-foreground leading-relaxed line-clamp-3">
+              <p className="text-sm text-white/70 leading-relaxed mt-0.5 line-clamp-3">
                 {humanize(raw)}
               </p>
             </div>
           );
         })}
 
+        {/* External Sources */}
         {displayedSources.length > 0 && (
-          <div className="mt-4 border-t border-foreground/8 pt-3">
-            <p className="swiss-data-label mb-2">External Sources</p>
-            <div className="space-y-2">
+          <div className="pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">External Sources</p>
+            <div className="space-y-0">
               {displayedSources.map((source: any) => (
                 <a
                   key={`${source.url}-${source.title}`}
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block border border-foreground/8 px-3 py-2 transition-colors hover:border-foreground/16 hover:bg-foreground/[0.02]"
+                  className="block py-2 border-b border-dashed border-white/[0.06] last:border-0 hover:bg-white/[0.02] transition-colors"
                 >
-                  <p className="text-sm font-medium text-foreground line-clamp-1">
+                  <p className="text-sm text-white/70 line-clamp-1">
                     {source.title || source.url}
                   </p>
-                  <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground/70 line-clamp-1">
+                  <p className="font-mono text-[10px] text-white/20 line-clamp-1 mt-0.5">
                     {source.url}
                   </p>
                 </a>
@@ -239,14 +237,15 @@ export function ClientIntel({
           </div>
         )}
 
+        {/* Research Notes */}
         {displayedNotes.length > 0 && (
-          <div className="mt-4 border-t border-foreground/8 pt-3">
-            <p className="swiss-data-label mb-2">Research Notes</p>
-            <div className="space-y-2">
+          <div className="pt-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">Research Notes</p>
+            <div className="space-y-0">
               {displayedNotes.map((note: string, index: number) => (
                 <p
                   key={`${index}-${note.slice(0, 24)}`}
-                  className="border border-foreground/8 px-3 py-2 text-sm leading-relaxed text-muted-foreground"
+                  className="py-2 border-b border-dashed border-white/[0.06] last:border-0 text-sm text-white/70 leading-relaxed"
                 >
                   {note}
                 </p>

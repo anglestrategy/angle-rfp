@@ -1,13 +1,4 @@
-import { motion } from "framer-motion";
-import { formatEvidence } from "@/lib/format-evidence";
 import { cn } from "@/lib/utils";
-import { ShimmerBar } from "@/components/ui/shimmer-bar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 
 interface ScoringFactor {
   name?: string;
@@ -21,13 +12,6 @@ interface ScoringFactor {
   evidence?: string;
 }
 
-interface RedFlagBreakdownItem {
-  title?: string;
-  flag?: string;
-  penalty?: number;
-  category?: string;
-}
-
 interface ScoringBreakdownProps {
   factors: ScoringFactor[];
   financial: {
@@ -35,191 +19,84 @@ interface ScoringBreakdownProps {
     incompletePenalty?: number;
     qualityGateTriggered?: boolean;
     qualityGateReason?: string;
-    redFlagBreakdown?: RedFlagBreakdownItem[];
-    budgetAdequacy?: {
-      status?: string;
-      summary?: string;
-    };
-    pitchCostEstimate?: {
-      effortLevel?: string;
-      estimatedHoursRange?: string;
-      summary?: string;
-    };
-    agencyRiskFlags?: Array<{
-      title?: string;
-      severity?: string;
-      category?: string;
-      summary?: string;
-    }>;
-    submissionComplexity?: {
-      level?: string;
-      requirementsCount?: number;
-      summary?: string;
-    };
-    credentialsMatch?: {
-      status?: string;
-      summary?: string;
-    };
-    clientQualityNotes?: {
-      signal?: string;
-      summary?: string;
-      notes?: string[];
-    };
-    saudiComplianceReadiness?: {
-      status?: string;
-      summary?: string;
-      signals?: string[];
-    };
+    [key: string]: any;
   };
 }
 
-function getBarColor(pct: number): string {
+function barColor(pct: number): string {
   if (pct >= 80) return "bg-emerald-500";
-  if (pct >= 60) return "bg-primary";
+  if (pct >= 60) return "bg-white/60";
   if (pct >= 40) return "bg-amber-500";
   return "bg-red-500";
-}
-
-function getBarGlow(pct: number): string {
-  if (pct >= 80) return "shadow-[0_0_8px_rgba(34,197,94,0.3)]";
-  if (pct >= 60) return "shadow-[0_0_8px_rgba(232,121,59,0.2)]";
-  if (pct >= 40) return "shadow-[0_0_8px_rgba(245,158,11,0.2)]";
-  return "shadow-[0_0_8px_rgba(239,68,68,0.2)]";
 }
 
 export function ScoringBreakdown({ factors, financial }: ScoringBreakdownProps) {
   const hasRedFlag = (financial.redFlagPenalty ?? 0) > 0;
   const hasIncomplete = (financial.incompletePenalty ?? 0) > 0;
   const hasPenalties = hasRedFlag || hasIncomplete;
-  const totalPenalty =
-    (financial.redFlagPenalty || 0) + (financial.incompletePenalty || 0);
-  const qualificationCards = [
-    {
-      label: "Budget adequacy",
-      value:
-        financial.budgetAdequacy?.status === "likely_viable"
-          ? "Likely viable"
-          : financial.budgetAdequacy?.status === "under_scoped"
-            ? "Under-scoped"
-            : "Unclear",
-      detail: financial.budgetAdequacy?.summary,
-    },
-    {
-      label: "Pursuit cost",
-      value:
-        financial.pitchCostEstimate?.estimatedHoursRange ||
-        financial.pitchCostEstimate?.effortLevel ||
-        "Not estimated",
-      detail: financial.pitchCostEstimate?.summary,
-    },
-    {
-      label: "Submission complexity",
-      value:
-        financial.submissionComplexity?.level
-          ? `${financial.submissionComplexity.level}${typeof financial.submissionComplexity.requirementsCount === "number" ? ` · ${financial.submissionComplexity.requirementsCount} reqs` : ""}`
-          : "Not assessed",
-      detail: financial.submissionComplexity?.summary,
-    },
-    {
-      label: "Credentials match",
-      value:
-        financial.credentialsMatch?.status === "strong"
-          ? "Strong"
-          : financial.credentialsMatch?.status === "partial"
-            ? "Partial"
-            : "Weak",
-      detail: financial.credentialsMatch?.summary,
-    },
-  ];
-  const clientNotes = Array.isArray(financial.clientQualityNotes?.notes)
-    ? financial.clientQualityNotes?.notes ?? []
-    : [];
-  const riskFlags = Array.isArray(financial.agencyRiskFlags)
-    ? financial.agencyRiskFlags.slice(0, 4)
-    : [];
-  const saudiSignals = Array.isArray(financial.saudiComplianceReadiness?.signals)
-    ? financial.saudiComplianceReadiness?.signals ?? []
-    : [];
+  const totalPenalty = (financial.redFlagPenalty || 0) + (financial.incompletePenalty || 0);
 
   return (
-    <div className="dash-panel">
-      <div className="dash-panel-body" data-testid="section-financial">
-        <div className="flex items-center justify-between mb-3">
-          <p className="panel-heading">Scoring Breakdown</p>
-        </div>
+    <div className="dash-panel" data-testid="section-financial">
+      {/* Header */}
+      <div className="dash-panel-header">
+        <span className="dash-panel-title">Scoring Breakdown</span>
+        {hasPenalties && (
+          <span className="dash-panel-badge text-red-400">-{totalPenalty} penalty</span>
+        )}
+      </div>
 
+      <div className="dash-panel-body">
         {Array.isArray(factors) && factors.length > 0 ? (
-          <div className="space-y-1">
+          <div>
+            {/* Table header */}
+            <div className="grid grid-cols-[1fr_60px_60px] gap-2 pb-2 mb-1 border-b border-white/[0.08]">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-white/30">Factor</span>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-white/30 text-right">Score</span>
+              <span className="font-mono text-[10px] uppercase tracking-wider text-white/30 text-right">Max</span>
+            </div>
+
+            {/* Factor rows */}
             {factors.map((f, i) => {
               const name = f.name || f.factor || `Factor ${i + 1}`;
               const factorScore = f.actualScore ?? f.score ?? f.value ?? 0;
               const maxWeight = f.maxWeight ?? f.max ?? f.maxScore ?? 10;
               const pct = maxWeight > 0 ? (factorScore / maxWeight) * 100 : 0;
 
-              const factorContent = (
-                <div className="group row-hover rounded-md px-3 py-1.5 -mx-3">
-                  <div className="flex items-baseline justify-between gap-2 mb-1">
-                    <span className="text-sm font-semibold">{name}</span>
-                    <span className="text-sm font-mono tabular-nums font-bold">
-                      {factorScore}
-                      <span className="text-muted-foreground/60">/{maxWeight}</span>
-                    </span>
+              return (
+                <div key={i} className="grid grid-cols-[1fr_60px_60px] gap-2 items-center py-2.5 border-b border-dashed border-white/[0.06]">
+                  <div>
+                    <span className="text-sm text-white/80">{name}</span>
+                    <div className="mt-1.5 h-[3px] bg-white/[0.04] overflow-hidden">
+                      <div
+                        className={cn("h-full transition-all", barColor(pct))}
+                        style={{ width: `${Math.min(pct, 100)}%` }}
+                      />
+                    </div>
                   </div>
-                  <ShimmerBar
-                    value={Math.min(pct, 100)}
-                    delay={i * 0.04}
-                    color={cn(getBarColor(pct))}
-                    height="h-1.5"
-                  />
+                  <span className="text-right text-sm font-bold tabular-nums">{factorScore}</span>
+                  <span className="text-right text-sm tabular-nums text-white/30">{maxWeight}</span>
                 </div>
               );
-
-              if (f.evidence) {
-                return (
-                  <TooltipProvider key={i}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div className="cursor-default">{factorContent}</div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-xs text-xs leading-relaxed">
-                        {formatEvidence(f.evidence, name)}
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                );
-              }
-              return <div key={i}>{factorContent}</div>;
             })}
+
+            {/* Penalties */}
+            {hasPenalties && (
+              <div className="pt-3 mt-1 flex items-center justify-between text-sm">
+                <span className="text-white/40">Penalties applied</span>
+                <span className="font-bold text-red-400 tabular-nums">-{totalPenalty}</span>
+              </div>
+            )}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground italic">No scoring factors available</p>
-        )}
-
-        {hasPenalties && (
-          <div className="border-t border-foreground/8 mt-3 pt-3">
-            <div className="flex items-center gap-4 text-xs">
-              {hasRedFlag && hasIncomplete ? (
-                <>
-                  <span className="font-mono font-bold text-red-500/80">Red Flags: -{financial.redFlagPenalty}</span>
-                  <span className="font-mono font-bold text-red-500/80">Incomplete: -{financial.incompletePenalty}</span>
-                  <span className="font-mono font-bold text-red-500 ml-auto">Total: -{totalPenalty}</span>
-                </>
-              ) : (
-                <span className="font-mono font-bold text-red-500/80">
-                  {hasRedFlag ? "Red Flag" : "Incomplete Data"} Penalty: -{totalPenalty}
-                </span>
-              )}
-            </div>
-          </div>
+          <p className="text-sm text-white/40">No scoring factors available.</p>
         )}
 
         {financial.qualityGateTriggered && (
-          <p className="text-xs text-amber-500 font-semibold mt-2">
-            Quality gate triggered: {financial.qualityGateReason}
+          <p className="text-[11px] text-amber-400 mt-3 border-t border-white/[0.06] pt-3">
+            {financial.qualityGateReason}
           </p>
         )}
-
-
       </div>
     </div>
   );

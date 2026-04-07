@@ -1,12 +1,3 @@
-import { motion } from "framer-motion";
-import {
-  CollapsibleGroup,
-  CollapsibleGroupSection,
-  CollapsibleTrigger,
-  CollapsibleContent,
-} from "@/components/ui/collapsible-section";
-import { staggerFast, staggerItemLeft } from "@/lib/motion";
-
 interface SubmissionPanelProps {
   submission: Record<string, any>;
 }
@@ -48,41 +39,35 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
 
   return (
     <div className="dash-panel">
+      <div className="dash-panel-header">
+        <span className="dash-panel-title">SUBMISSION REQUIREMENTS</span>
+      </div>
       <div className="dash-panel-body">
-        <div className="flex items-center justify-between mb-3">
-          <p className="panel-heading">Submission Requirements</p>
-        </div>
-
         {deadline && (
-          <div className="border-l-2 border-l-primary pl-3 py-2 mb-4 bg-primary/5">
-            <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60 mb-0.5">Deadline</p>
-            <p className="text-sm font-semibold text-primary">
-              {String(deadline)}
-            </p>
+          <div className="py-3 border-b border-dashed border-white/[0.06]">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Deadline</p>
+            <p className="text-sm font-bold text-white/90">{String(deadline)}</p>
           </div>
         )}
 
-        {(format || method) && (
-          <div className="grid grid-cols-1 gap-2 mb-4">
-            {format && (
-              <div className="px-3 py-2 bg-foreground/[0.03] border border-foreground/6">
-                <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60 mb-0.5">Format</p>
-                <p className="text-xs leading-relaxed">{String(format)}</p>
-              </div>
-            )}
-            {method && (
-              <div className="px-3 py-2 bg-foreground/[0.03] border border-foreground/6">
-                <p className="font-mono text-[9px] uppercase tracking-[0.08em] text-muted-foreground/60 mb-0.5">Method</p>
-                <p className="text-xs leading-relaxed">{String(method)}</p>
-              </div>
-            )}
+        {format && (
+          <div className="py-3 border-b border-dashed border-white/[0.06]">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Format</p>
+            <p className="text-sm text-white/70">{String(format)}</p>
+          </div>
+        )}
+
+        {method && (
+          <div className="py-3 border-b border-dashed border-white/[0.06]">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Method</p>
+            <p className="text-sm text-white/70">{String(method)}</p>
           </div>
         )}
 
         {(contact || contactEmail) && (
-          <div className="mb-4 border-b border-foreground/8 pb-3">
-            <p className="swiss-data-label">Contact</p>
-            <p className="text-sm font-medium">
+          <div className="py-3 border-b border-dashed border-white/[0.06]">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Contact</p>
+            <p className="text-sm text-white/70">
               {contact && typeof contact === "object"
                 ? contact.name || JSON.stringify(contact)
                 : contact || ""}
@@ -92,72 +77,55 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
           </div>
         )}
 
-        {/* Collapsible sections for long lists */}
-        {(requiredDocuments.length > 0 || specialInstructions.length > 0) && (
-          <CollapsibleGroup type="multiple" defaultValue={["documents"]}>
-            {requiredDocuments.length > 0 && (
-              <CollapsibleGroupSection value="documents" className="border-b border-foreground/8">
-                <CollapsibleTrigger className="py-2.5 hover:no-underline">
-                  <span className="flex items-center gap-2">
-                    <span className="swiss-data-label !mb-0">Required Documents</span>
-                    <span className="font-mono text-[10px] text-muted-foreground/60">
-                      {requiredDocuments.length}
+        {requiredDocuments.length > 0 && (
+          <div className="py-3 border-b border-dashed border-white/[0.06]">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">
+              Required Documents
+              <span className="ml-2 text-white/20">{requiredDocuments.length}</span>
+            </p>
+            <div className="space-y-0">
+              {requiredDocuments.map((doc: any, idx: number) => {
+                const docText =
+                  typeof doc === "string"
+                    ? doc
+                    : doc.name || doc.document || doc.title || String(doc);
+                return (
+                  <div key={idx} className="flex items-start gap-2.5 py-1.5">
+                    <span className="font-mono text-[10px] text-white/20 w-4 text-right shrink-0 tabular-nums pt-[2px]">
+                      {idx + 1}
                     </span>
-                  </span>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <motion.div data-lenis-prevent className="max-h-[340px] overflow-y-auto overscroll-contain space-y-0" variants={staggerFast} initial="hidden" animate="visible">
-                    {requiredDocuments.map((doc: any, idx: number) => {
-                      const docText =
-                        typeof doc === "string"
-                          ? doc
-                          : doc.name || doc.document || doc.title || String(doc);
-                      return (
-                        <motion.div key={idx} variants={staggerItemLeft} className="flex items-start gap-2.5 py-1.5 border-b border-foreground/6 last:border-0 row-hover">
-                          <span className="font-mono text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 tabular-nums pt-[2px]">
-                            {idx + 1}
-                          </span>
-                          <span className="text-xs leading-relaxed">{docText}</span>
-                        </motion.div>
-                      );
-                    })}
-                  </motion.div>
-                </CollapsibleContent>
-              </CollapsibleGroupSection>
-            )}
+                    <span className="text-sm text-white/70 leading-relaxed">{docText}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
-            {specialInstructions.length > 0 && (
-              <CollapsibleGroupSection value="instructions" className="border-b-0">
-                <CollapsibleTrigger className="py-2.5 hover:no-underline">
-                  <span className="flex items-center gap-2">
-                    <span className="swiss-data-label !mb-0">Special Instructions</span>
-                    <span className="font-mono text-[10px] text-muted-foreground/60">
-                      {specialInstructions.length}
-                    </span>
-                  </span>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <motion.div data-lenis-prevent className="max-h-[340px] overflow-y-auto overscroll-contain space-y-0" variants={staggerFast} initial="hidden" animate="visible">
-                    {specialInstructions.map((inst: any, idx: number) => {
-                      const instText =
-                        typeof inst === "string"
-                          ? inst
-                          : inst.instruction ||
-                            inst.description ||
-                            inst.text ||
-                            String(inst);
-                      return (
-                        <motion.div key={idx} variants={staggerItemLeft} className="flex items-start gap-2.5 py-1.5 border-b border-foreground/6 last:border-0 row-hover">
-                          <span className="w-1 h-1 bg-amber-500 shrink-0 mt-[6px]" />
-                          <span className="text-xs leading-relaxed">{instText}</span>
-                        </motion.div>
-                      );
-                    })}
-                  </motion.div>
-                </CollapsibleContent>
-              </CollapsibleGroupSection>
-            )}
-          </CollapsibleGroup>
+        {specialInstructions.length > 0 && (
+          <div className="py-3">
+            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">
+              Special Instructions
+              <span className="ml-2 text-white/20">{specialInstructions.length}</span>
+            </p>
+            <div className="space-y-0">
+              {specialInstructions.map((inst: any, idx: number) => {
+                const instText =
+                  typeof inst === "string"
+                    ? inst
+                    : inst.instruction ||
+                      inst.description ||
+                      inst.text ||
+                      String(inst);
+                return (
+                  <div key={idx} className="flex items-start gap-2.5 py-1.5">
+                    <span className="w-1 h-1 bg-white/20 shrink-0 mt-[6px]" />
+                    <span className="text-sm text-white/70 leading-relaxed">{instText}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
     </div>
