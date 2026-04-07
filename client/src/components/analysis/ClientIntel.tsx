@@ -57,16 +57,18 @@ export function ClientIntel({
     return (
       <div className="dash-panel">
         <div className="dash-panel-header">
-          <span className="dash-panel-title">CLIENT INTELLIGENCE</span>
+          <span className="dash-panel-title">Client Profile</span>
         </div>
         <div className="dash-panel-body" data-testid="section-client-profile">
-          <p className="text-sm text-white/40 italic">
+          <p className="text-sm italic" style={{ color: "rgba(255,255,255,0.4)" }}>
             Client intelligence data not available
           </p>
         </div>
       </div>
     );
   }
+
+  const entityType = clientInfo.entityType || null;
 
   const fields: FieldDef[] = [
     {
@@ -122,25 +124,32 @@ export function ClientIntel({
     ? clientInfo.researchNotes.filter((note: unknown): note is string => typeof note === "string" && note.trim().length > 0).slice(0, 4)
     : [];
 
+  const entityBadge = entityType ? resolveValue(entityType) : sourceType;
+
   return (
     <div className="dash-panel">
       <div className="dash-panel-header">
-        <span className="dash-panel-title">CLIENT INTELLIGENCE</span>
-        <div className="flex items-center gap-2">
-          <span className="dash-panel-badge">{sourceType}</span>
-          {avgConfidence != null && (
-            <span className="dash-panel-badge">{avgConfidence}% confidence</span>
-          )}
-          {sourceCount > 0 && (
-            <span className="dash-panel-badge">
-              {sourceCount} source{sourceCount === 1 ? "" : "s"}
-            </span>
-          )}
-        </div>
+        <span className="dash-panel-title">Client Profile</span>
+        {entityBadge && (
+          <span className="dash-panel-badge">{entityBadge}</span>
+        )}
       </div>
+
       <div className="dash-panel-body" data-testid="section-client-profile">
-        {/* Short fields in a 2-col grid */}
-        <div className="grid grid-cols-2 gap-x-6 gap-y-0">
+        {/* Source meta badges */}
+        {(avgConfidence != null || sourceCount > 0) && (
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            {avgConfidence != null && (
+              <span className="dash-panel-badge">{avgConfidence}% avg confidence</span>
+            )}
+            {sourceCount > 0 && (
+              <span className="dash-panel-badge">{sourceCount} source{sourceCount === 1 ? "" : "s"}</span>
+            )}
+          </div>
+        )}
+
+        {/* 2-column key-value grid with dashed dividers */}
+        <div className="grid grid-cols-2 gap-x-8">
           {shortFields.map((field) => {
             const raw = resolveValue(field.value);
             const confidenceKey = field.label === "Company"
@@ -160,27 +169,28 @@ export function ClientIntel({
             return (
               <div
                 key={field.label}
-                className="py-3 border-b border-dashed border-white/[0.06]"
+                className="py-3.5"
+                style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">{field.label}</p>
+                  <p className="dash-metric-label !mb-1">{field.label}</p>
                   {typeof confidence === "number" && (
-                    <span className="font-mono text-[9px] text-white/20">
+                    <span className="font-mono text-[9px]" style={{ color: "rgba(255,255,255,0.25)" }}>
                       {Math.round(confidence * 100)}%
                     </span>
                   )}
                 </div>
                 {raw ? (
-                  <p className="text-sm text-white/70 mt-0.5">{humanize(raw)}</p>
+                  <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{humanize(raw)}</p>
                 ) : (
-                  <p className="text-sm text-white/20 mt-0.5">&mdash;</p>
+                  <p className="text-sm" style={{ color: "rgba(255,255,255,0.2)" }}>&mdash;</p>
                 )}
               </div>
             );
           })}
         </div>
 
-        {/* Long-text fields rendered full-width */}
+        {/* Long-text fields rendered full-width below the grid */}
         {longFields.map((field) => {
           const raw = resolveValue(field.value);
           if (!raw) return null;
@@ -196,39 +206,44 @@ export function ClientIntel({
                 })
               : null;
           return (
-            <div key={field.label} className="py-3 border-b border-dashed border-white/[0.06]">
+            <div
+              key={field.label}
+              className="py-3.5 mt-2"
+              style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
+            >
               <div className="flex items-center justify-between gap-2">
-                <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">{field.label}</p>
+                <p className="dash-metric-label !mb-1">{field.label}</p>
                 {confidence != null && (
-                  <span className="font-mono text-[9px] text-white/20">
+                  <span className="font-mono text-[9px]" style={{ color: "rgba(255,255,255,0.25)" }}>
                     {confidence}%
                   </span>
                 )}
               </div>
-              <p className="text-sm text-white/70 leading-relaxed mt-0.5 line-clamp-3">
+              <p className="text-sm leading-relaxed line-clamp-3" style={{ color: "rgba(255,255,255,0.5)" }}>
                 {humanize(raw)}
               </p>
             </div>
           );
         })}
 
-        {/* External Sources */}
+        {/* External sources */}
         {displayedSources.length > 0 && (
-          <div className="pt-3">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">External Sources</p>
-            <div className="space-y-0">
+          <div className="mt-6 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+            <p className="dash-metric-label mb-3">External Sources</p>
+            <div className="space-y-2">
               {displayedSources.map((source: any) => (
                 <a
                   key={`${source.url}-${source.title}`}
                   href={source.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block py-2 border-b border-dashed border-white/[0.06] last:border-0 hover:bg-white/[0.02] transition-colors"
+                  className="block px-3 py-2 transition-colors"
+                  style={{ border: "1px solid rgba(255,255,255,0.06)" }}
                 >
-                  <p className="text-sm text-white/70 line-clamp-1">
+                  <p className="text-sm font-medium line-clamp-1" style={{ color: "rgba(255,255,255,0.9)" }}>
                     {source.title || source.url}
                   </p>
-                  <p className="font-mono text-[10px] text-white/20 line-clamp-1 mt-0.5">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.08em] line-clamp-1" style={{ color: "rgba(255,255,255,0.3)" }}>
                     {source.url}
                   </p>
                 </a>
@@ -237,15 +252,16 @@ export function ClientIntel({
           </div>
         )}
 
-        {/* Research Notes */}
+        {/* Research notes */}
         {displayedNotes.length > 0 && (
-          <div className="pt-3">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">Research Notes</p>
-            <div className="space-y-0">
+          <div className="mt-6 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+            <p className="dash-metric-label mb-3">Research Notes</p>
+            <div className="space-y-2">
               {displayedNotes.map((note: string, index: number) => (
                 <p
                   key={`${index}-${note.slice(0, 24)}`}
-                  className="py-2 border-b border-dashed border-white/[0.06] last:border-0 text-sm text-white/70 leading-relaxed"
+                  className="px-3 py-2 text-sm leading-relaxed"
+                  style={{ border: "1px solid rgba(255,255,255,0.06)", color: "rgba(255,255,255,0.5)" }}
                 >
                   {note}
                 </p>

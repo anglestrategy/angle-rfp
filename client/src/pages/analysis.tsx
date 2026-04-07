@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
   Trash2,
-  CheckCircle2,
   Loader2,
   FileText,
   Download,
@@ -13,7 +12,6 @@ import {
 } from "lucide-react";
 import { useIsAuthenticated } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   CollapsibleSection,
@@ -71,9 +69,6 @@ const ClarificationSection = lazy(() =>
 const ShadowComparePanel = lazy(() =>
   import("@/components/analysis/ShadowComparePanel").then((module) => ({ default: module.ShadowComparePanel })),
 );
-const ShimmerBar = lazy(() =>
-  import("@/components/ui/shimmer-bar").then((module) => ({ default: module.ShimmerBar })),
-);
 import type { RfpAnalysis } from "@shared/schema";
 import type {
   AnalysisDocumentQuality,
@@ -89,7 +84,7 @@ type AnalysisWithRuns = RfpAnalysis & {
 
 function PageSectionFallback({ height = "min-h-[160px]" }: { height?: string }) {
   return (
-    <div className={`border border-white/[0.06] bg-[#050505] p-4 ${height}`}>
+    <div className={`dash-panel p-4 ${height}`}>
       <div className="space-y-3">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-20 w-full" />
@@ -850,18 +845,6 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
 
   return (
     <div className="min-h-screen print:min-h-0 relative bg-black text-white">
-      {/* ── Subtle grain texture ── */}
-      <svg className="hidden" aria-hidden="true">
-        <filter id="dashboard-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-      </svg>
-      <div
-        className="fixed inset-0 pointer-events-none z-0 opacity-[0.025] print:hidden"
-        style={{ filter: "url(#dashboard-grain)" }}
-      />
-
       {/* ── Sticky Header ── */}
       <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-sm border-b border-white/[0.06] print:hidden">
         <div className="max-w-[1600px] mx-auto px-6 lg:px-12 py-2.5 flex items-center justify-between gap-4 flex-wrap">
@@ -1089,48 +1072,48 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             whileInView="visible"
             viewport={viewportOnce}
           >
-            <div className="border border-white/[0.06] bg-[#050505]">
-              <div className="pt-4 pb-4 px-5">
-                <div className="flex items-center justify-between mb-3">
-                  <p className="panel-heading">Deliverables</p>
-                  <span className="font-mono text-[10px] text-muted-foreground/70">
-                    {phases.length} phase{phases.length !== 1 ? "s" : ""} · {totalDeliverableCount} items
-                  </span>
-                </div>
+            <div className="dash-panel">
+              <div className="dash-panel-header">
+                <span className="dash-panel-title">Deliverables</span>
+                <span className="dash-panel-badge">
+                  {phases.length} phase{phases.length !== 1 ? "s" : ""} · {totalDeliverableCount} items
+                </span>
+              </div>
+              <div className="dash-panel-body">
                 <div className="space-y-0">
                   {phases.map((phase: any, idx: number) => {
                     const phaseDeliverables = Array.isArray(phase.deliverables) ? phase.deliverables : [];
                     return (
-                      <CollapsibleSection key={idx} value={`phase-${idx}`} className="border-b border-foreground/6">
-                        <CollapsibleTrigger className="py-2 row-hover">
+                      <CollapsibleSection key={idx} value={`phase-${idx}`}>
+                        <CollapsibleTrigger className="py-2">
                           <div className="flex items-center gap-3 text-sm flex-1 mr-2">
-                            <span className="font-mono text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 tabular-nums">
+                            <span className="font-mono text-[10px] w-4 text-right shrink-0 tabular-nums" style={{ color: "rgba(255,255,255,0.25)" }}>
                               {idx + 1}
                             </span>
                             <span className="font-medium text-left text-sm">{phase.name || `Phase ${idx + 1}`}</span>
-                            <span className="font-mono text-[10px] text-muted-foreground/60 ml-auto">{phaseDeliverables.length}</span>
+                            <span className="font-mono text-[10px] ml-auto" style={{ color: "rgba(255,255,255,0.25)" }}>{phaseDeliverables.length}</span>
                             {phase.timeline && (
-                              <span className="font-mono text-[10px] text-muted-foreground/50">{phase.timeline}</span>
+                              <span className="font-mono text-[10px]" style={{ color: "rgba(255,255,255,0.2)" }}>{phase.timeline}</span>
                             )}
                           </div>
                         </CollapsibleTrigger>
                         <CollapsibleContent>
                           <div className="pl-6">
                             {phase.description && (
-                              <p className="text-[11px] text-muted-foreground/70 mb-2 leading-relaxed">{phase.description}</p>
+                              <p className="text-[11px] mb-2 leading-relaxed" style={{ color: "rgba(255,255,255,0.4)" }}>{phase.description}</p>
                             )}
                             {phaseDeliverables.map((d: any, di: number) => {
                               const name = typeof d === "string" ? d : d.name || d.description || "";
                               const qty = typeof d === "object" ? d.quantity : null;
                               const fmt = typeof d === "object" ? d.format : null;
                               return (
-                                <div key={di} className="flex items-start gap-2 py-1 text-xs border-b border-foreground/6 last:border-0 row-hover">
-                                  <span className="font-mono text-[9px] text-muted-foreground/40 w-3 text-right shrink-0 tabular-nums pt-[1px]">{di + 1}</span>
-                                  <span className="flex-1 leading-relaxed">{name}</span>
+                                <div key={di} className="flex items-start gap-2 py-2 text-xs" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
+                                  <span className="font-mono text-[9px] w-3 text-right shrink-0 tabular-nums pt-[1px]" style={{ color: "rgba(255,255,255,0.2)" }}>{di + 1}</span>
+                                  <span className="flex-1 leading-relaxed" style={{ color: "rgba(255,255,255,0.9)" }}>{name}</span>
                                   {qty && qty > 1 && (
-                                    <span className="font-mono text-[9px] text-muted-foreground/60 shrink-0">×{qty}</span>
+                                    <span className="font-mono text-[9px] shrink-0" style={{ color: "rgba(255,255,255,0.3)" }}>x{qty}</span>
                                   )}
-                                  {fmt && <span className="font-mono text-[9px] text-muted-foreground/50 shrink-0">{fmt}</span>}
+                                  {fmt && <span className="font-mono text-[9px] shrink-0" style={{ color: "rgba(255,255,255,0.2)" }}>{fmt}</span>}
                                 </div>
                               );
                             })}
@@ -1156,19 +1139,17 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
               viewport={{ once: true, margin: "-40px" }}
               transition={{ duration: 0.4, delay: 0.08 }}
             >
-              <div className="border border-white/[0.06] bg-[#050505]">
-                <div className="pt-4 pb-4 px-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="panel-heading">Deliverables</p>
-                    <span className="font-mono text-[10px] text-muted-foreground/70">
-                      {flatDeliverables.length} items
-                    </span>
-                  </div>
+              <div className="dash-panel">
+                <div className="dash-panel-header">
+                  <span className="dash-panel-title">Deliverables</span>
+                  <span className="dash-panel-badge">{flatDeliverables.length} items</span>
+                </div>
+                <div className="dash-panel-body">
                   <div className="space-y-0">
                     {flatDeliverables.map((d: any, i: number) => (
-                      <div key={i} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-foreground/6 last:border-0 row-hover">
-                        <span className="font-mono text-[10px] text-muted-foreground/50 w-4 text-right shrink-0 tabular-nums">{i + 1}</span>
-                        <span className="leading-relaxed">{typeof d === "string" ? d : d.name || JSON.stringify(d)}</span>
+                      <div key={i} className="flex items-start gap-2.5 py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
+                        <span className="font-mono text-[10px] w-4 text-right shrink-0 tabular-nums" style={{ color: "rgba(255,255,255,0.25)" }}>{i + 1}</span>
+                        <span className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.9)" }}>{typeof d === "string" ? d : d.name || JSON.stringify(d)}</span>
                       </div>
                     ))}
                   </div>
@@ -1285,43 +1266,44 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             {/* Evaluation Criteria */}
             {Array.isArray(evalCriteria) && evalCriteria.length > 0 && (
               <motion.div variants={staggerItemScale}>
-                <div className="border border-white/[0.06] bg-[#050505]">
-                  <div className="pt-4 pb-4 px-5">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="panel-heading">Evaluation Criteria</p>
+                <div className="dash-panel">
+                  <div className="dash-panel-header">
+                    <span className="dash-panel-title">Evaluation Criteria</span>
+                  </div>
+                  <div className="dash-panel-body">
+                    {/* Header row */}
+                    <div className="dash-data-header" style={{ gridTemplateColumns: "1fr 60px" }}>
+                      <span>Criterion</span>
+                      <span className="text-right">Weight</span>
                     </div>
-                    <div className="space-y-1">
-                      {evalCriteria.map((crit: any, i: number) => {
-                        const name =
-                          typeof crit === "string"
-                            ? crit
-                            : crit.criterion || crit.name || `Criterion ${i + 1}`;
-                        const weight = typeof crit === "object" ? crit.weight : null;
-                        const desc = typeof crit === "object" ? crit.description : null;
-                        return (
-                          <div key={i} className="row-hover px-3 py-1.5 -mx-3">
-                            <div className="flex items-baseline justify-between gap-2">
-                              <span className="text-xs font-medium">{name}</span>
-                              {weight && (
-                                <span className="text-xs font-mono tabular-nums font-semibold">
-                                  {weight}<span className="text-muted-foreground/50 text-[10px]">%</span>
-                                </span>
-                              )}
-                            </div>
+                    {evalCriteria.map((crit: any, i: number) => {
+                      const name =
+                        typeof crit === "string"
+                          ? crit
+                          : crit.criterion || crit.name || `Criterion ${i + 1}`;
+                      const weight = typeof crit === "object" ? crit.weight : null;
+                      const desc = typeof crit === "object" ? crit.description : null;
+                      return (
+                        <div key={i} className="dash-data-row" style={{ gridTemplateColumns: "1fr 60px" }}>
+                          <div>
+                            <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{name}</span>
                             {weight && (
-                              <ShimmerBar
-                                value={Math.min(weight, 100)}
-                                delay={i * 0.03}
-                                height="h-1"
-                                className="mt-1"
-                                showGlow={false}
-                              />
+                              <div className="mt-2 w-full">
+                                <div className="h-[3px] w-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                                  <div className="h-full bg-primary" style={{ width: `${Math.min(weight, 100)}%` }} />
+                                </div>
+                              </div>
                             )}
-                            {desc && <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>}
+                            {desc && <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>{desc}</p>}
                           </div>
-                        );
-                      })}
-                    </div>
+                          {weight && (
+                            <span className="text-sm font-mono tabular-nums font-bold text-right" style={{ color: "rgba(255,255,255,0.9)" }}>
+                              {weight}%
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </motion.div>
@@ -1332,27 +1314,27 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
               teamReqs?.certifications?.length > 0 ||
               teamReqs?.localContentRequirements) && (
               <motion.div variants={staggerItemScale}>
-                <div className="border border-white/[0.06] bg-[#050505]">
-                  <div className="pt-4 pb-4 px-5">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="panel-heading">Team Requirements</p>
-                    </div>
+                <div className="dash-panel">
+                  <div className="dash-panel-header">
+                    <span className="dash-panel-title">Team Requirements</span>
+                  </div>
+                  <div className="dash-panel-body">
                     {Array.isArray(teamReqs.keyRoles) && teamReqs.keyRoles.length > 0 && (
-                      <div className="mb-3">
-                        <p className="swiss-data-label mb-2">Key Roles</p>
-                        <div className="space-y-1">
+                      <div className="mb-6">
+                        <p className="dash-metric-label mb-3">Key Roles</p>
+                        <div className="space-y-0">
                           {teamReqs.keyRoles.map((role: any, i: number) => (
-                            <div key={i} className="row-hover px-3 py-1.5 -mx-3">
+                            <div key={i} className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
                               <div className="flex items-baseline justify-between gap-2">
-                                <p className="text-xs font-medium">{role.role}</p>
+                                <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{role.role}</p>
                                 {role.experienceYears && (
-                                  <span className="font-mono text-[9px] text-muted-foreground/60 shrink-0">
+                                  <span className="font-mono text-[10px] shrink-0" style={{ color: "rgba(255,255,255,0.25)" }}>
                                     {role.experienceYears}+ yr
                                   </span>
                                 )}
                               </div>
                               {role.qualifications && (
-                                <p className="text-[10px] text-muted-foreground/70 leading-relaxed mt-0.5">{role.qualifications}</p>
+                                <p className="text-xs leading-relaxed mt-0.5" style={{ color: "rgba(255,255,255,0.4)" }}>{role.qualifications}</p>
                               )}
                             </div>
                           ))}
@@ -1360,21 +1342,19 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
                       </div>
                     )}
                     {Array.isArray(teamReqs.certifications) && teamReqs.certifications.length > 0 && (
-                      <div className="mb-2">
-                        <p className="swiss-data-label mb-2">Certifications</p>
+                      <div className="mb-4">
+                        <p className="dash-metric-label mb-3">Certifications</p>
                         <div className="flex flex-wrap gap-1.5">
                           {teamReqs.certifications.map((cert: string, i: number) => (
-                            <Badge key={i} variant="outline" className="text-[9px] no-default-hover-elevate">
-                              {cert}
-                            </Badge>
+                            <span key={i} className="dash-panel-badge">{cert}</span>
                           ))}
                         </div>
                       </div>
                     )}
                     {teamReqs.localContentRequirements && (
                       <div>
-                        <p className="swiss-data-label mb-1">Local Content</p>
-                        <p className="text-xs">{teamReqs.localContentRequirements}</p>
+                        <p className="dash-metric-label mb-1">Local Content</p>
+                        <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{teamReqs.localContentRequirements}</p>
                       </div>
                     )}
                   </div>

@@ -1,3 +1,9 @@
+import { cn } from "@/lib/utils";
+import {
+  CollapsibleSection,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible-section";
 import { humanize } from "@/lib/format-evidence";
 
 interface ContractTermsPanelProps {
@@ -57,72 +63,81 @@ export function ContractTermsPanel({
 
   if (visibleTerms.length === 0 && otherTerms.length === 0) return null;
 
+  const termCount = visibleTerms.length + otherTerms.length;
+
   return (
     <div className="dash-panel">
       <div className="dash-panel-header">
-        <span className="dash-panel-title">CONTRACT TERMS</span>
-        <span className="dash-panel-badge">
-          {visibleTerms.length + otherTerms.length} terms
-        </span>
+        <span className="dash-panel-title">Contract Terms</span>
+        <span className="dash-panel-badge">{termCount} terms</span>
       </div>
+
       <div className="dash-panel-body">
+        {/* Term/value rows with dashed dividers */}
         {visibleTerms.map((term) => {
           const val = formatTermValue(contractTerms[term.key]);
-          const isWarn = term.warn && val !== "Not specified";
           return (
             <div
               key={term.key}
-              className="py-3 border-b border-dashed border-white/[0.06]"
+              className="py-3.5"
+              style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
             >
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-mono text-[10px] uppercase tracking-wider text-white/30">
+                <span className="text-sm font-bold" style={{ color: "rgba(255,255,255,0.9)" }}>
                   {term.label}
                 </span>
-                {isWarn && (
-                  <span className="font-mono text-[9px] uppercase tracking-wider text-white/40">
+                {term.warn && val !== "Not specified" && (
+                  <span className="dash-panel-badge" style={{ borderColor: "rgba(255,90,54,0.3)", color: "#ff5a36" }}>
                     WARN
                   </span>
                 )}
               </div>
-              <p className="text-sm text-white/70">{val}</p>
+              <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>{val}</p>
             </div>
           );
         })}
 
+        {/* Other terms */}
         {otherTerms.length > 0 && (
-          <>
-            <div className="py-3 border-b border-dashed border-white/[0.06]">
-              <p className="font-mono text-[10px] uppercase tracking-wider text-white/30">
-                Other Terms
-                <span className="ml-2 text-white/20">{otherTerms.length}</span>
-              </p>
-            </div>
-            {otherTerms.map((term: any, idx: number) => {
-              const termName =
-                term.name || term.term || term.title || `Term ${idx + 1}`;
-              const termVal =
-                term.description ||
-                term.value ||
-                term.details ||
-                term.content ||
-                "";
-              return (
-                <div
-                  key={idx}
-                  className="py-3 border-b border-dashed border-white/[0.06] last:border-0"
-                >
-                  <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">
-                    {typeof termName === "string"
-                      ? humanize(termName)
-                      : termName}
-                  </p>
-                  {termVal && (
-                    <p className="text-sm text-white/70">{String(termVal)}</p>
-                  )}
+          <div className="mt-4 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
+            <CollapsibleSection value="other-terms">
+              <CollapsibleTrigger className="hover:no-underline py-2">
+                <span className="dash-metric-sub" style={{ cursor: "pointer" }}>
+                  Other Terms ({otherTerms.length})
+                </span>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div data-lenis-prevent className="max-h-[340px] overflow-y-auto overscroll-contain">
+                  {otherTerms.map((term: any, idx: number) => {
+                    const termName =
+                      term.name || term.term || term.title || `Term ${idx + 1}`;
+                    const termVal =
+                      term.description ||
+                      term.value ||
+                      term.details ||
+                      term.content ||
+                      "";
+                    return (
+                      <div
+                        key={idx}
+                        className="py-3.5"
+                        style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
+                      >
+                        <p className="dash-metric-label">
+                          {typeof termName === "string"
+                            ? humanize(termName)
+                            : termName}
+                        </p>
+                        {termVal && (
+                          <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{String(termVal)}</p>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </>
+              </CollapsibleContent>
+            </CollapsibleSection>
+          </div>
         )}
       </div>
     </div>

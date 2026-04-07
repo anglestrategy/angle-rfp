@@ -1,3 +1,10 @@
+import {
+  CollapsibleGroup,
+  CollapsibleGroupSection,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from "@/components/ui/collapsible-section";
+
 interface SubmissionPanelProps {
   submission: Record<string, any>;
 }
@@ -40,92 +47,117 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
   return (
     <div className="dash-panel">
       <div className="dash-panel-header">
-        <span className="dash-panel-title">SUBMISSION REQUIREMENTS</span>
+        <span className="dash-panel-title">Submission Requirements</span>
       </div>
+
       <div className="dash-panel-body">
+        {/* Labeled rows with dashed dividers */}
         {deadline && (
-          <div className="py-3 border-b border-dashed border-white/[0.06]">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Deadline</p>
-            <p className="text-sm font-bold text-white/90">{String(deadline)}</p>
+          <div className="dash-data-row" style={{ display: "block" }}>
+            <p className="dash-metric-label">Deadline</p>
+            <p className="text-sm font-semibold" style={{ color: "#ff5a36" }}>
+              {String(deadline)}
+            </p>
           </div>
         )}
 
         {format && (
-          <div className="py-3 border-b border-dashed border-white/[0.06]">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Format</p>
-            <p className="text-sm text-white/70">{String(format)}</p>
+          <div className="dash-data-row" style={{ display: "block" }}>
+            <p className="dash-metric-label">Format</p>
+            <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{String(format)}</p>
           </div>
         )}
 
         {method && (
-          <div className="py-3 border-b border-dashed border-white/[0.06]">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Method</p>
-            <p className="text-sm text-white/70">{String(method)}</p>
+          <div className="dash-data-row" style={{ display: "block" }}>
+            <p className="dash-metric-label">Method</p>
+            <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{String(method)}</p>
           </div>
         )}
 
         {(contact || contactEmail) && (
-          <div className="py-3 border-b border-dashed border-white/[0.06]">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-1">Contact</p>
-            <p className="text-sm text-white/70">
+          <div className="dash-data-row" style={{ display: "block" }}>
+            <p className="dash-metric-label">Contact</p>
+            <p className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>
               {contact && typeof contact === "object"
                 ? contact.name || JSON.stringify(contact)
                 : contact || ""}
-              {contact && contactEmail ? " — " : ""}
+              {contact && contactEmail ? " \u2014 " : ""}
               {contactEmail ? String(contactEmail) : ""}
             </p>
           </div>
         )}
 
-        {requiredDocuments.length > 0 && (
-          <div className="py-3 border-b border-dashed border-white/[0.06]">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">
-              Required Documents
-              <span className="ml-2 text-white/20">{requiredDocuments.length}</span>
-            </p>
-            <div className="space-y-0">
-              {requiredDocuments.map((doc: any, idx: number) => {
-                const docText =
-                  typeof doc === "string"
-                    ? doc
-                    : doc.name || doc.document || doc.title || String(doc);
-                return (
-                  <div key={idx} className="flex items-start gap-2.5 py-1.5">
-                    <span className="font-mono text-[10px] text-white/20 w-4 text-right shrink-0 tabular-nums pt-[2px]">
-                      {idx + 1}
-                    </span>
-                    <span className="text-sm text-white/70 leading-relaxed">{docText}</span>
+        {/* Collapsible sections for long lists */}
+        {(requiredDocuments.length > 0 || specialInstructions.length > 0) && (
+          <CollapsibleGroup type="multiple" defaultValue={["documents"]}>
+            {requiredDocuments.length > 0 && (
+              <CollapsibleGroupSection value="documents">
+                <CollapsibleTrigger className="py-3 hover:no-underline">
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-bold" style={{ color: "rgba(255,255,255,0.9)" }}>Required Documents</span>
+                    <span className="dash-panel-badge">{requiredDocuments.length}</span>
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div data-lenis-prevent className="max-h-[340px] overflow-y-auto overscroll-contain">
+                    {requiredDocuments.map((doc: any, idx: number) => {
+                      const docText =
+                        typeof doc === "string"
+                          ? doc
+                          : doc.name || doc.document || doc.title || String(doc);
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-2.5 py-3"
+                          style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
+                        >
+                          <span className="font-mono text-[10px] w-4 text-right shrink-0 tabular-nums pt-[2px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                            {idx + 1}
+                          </span>
+                          <span className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.9)" }}>{docText}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                </CollapsibleContent>
+              </CollapsibleGroupSection>
+            )}
 
-        {specialInstructions.length > 0 && (
-          <div className="py-3">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-white/30 mb-2">
-              Special Instructions
-              <span className="ml-2 text-white/20">{specialInstructions.length}</span>
-            </p>
-            <div className="space-y-0">
-              {specialInstructions.map((inst: any, idx: number) => {
-                const instText =
-                  typeof inst === "string"
-                    ? inst
-                    : inst.instruction ||
-                      inst.description ||
-                      inst.text ||
-                      String(inst);
-                return (
-                  <div key={idx} className="flex items-start gap-2.5 py-1.5">
-                    <span className="w-1 h-1 bg-white/20 shrink-0 mt-[6px]" />
-                    <span className="text-sm text-white/70 leading-relaxed">{instText}</span>
+            {specialInstructions.length > 0 && (
+              <CollapsibleGroupSection value="instructions">
+                <CollapsibleTrigger className="py-3 hover:no-underline">
+                  <span className="flex items-center gap-2">
+                    <span className="text-sm font-bold" style={{ color: "rgba(255,255,255,0.9)" }}>Special Instructions</span>
+                    <span className="dash-panel-badge">{specialInstructions.length}</span>
+                  </span>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div data-lenis-prevent className="max-h-[340px] overflow-y-auto overscroll-contain">
+                    {specialInstructions.map((inst: any, idx: number) => {
+                      const instText =
+                        typeof inst === "string"
+                          ? inst
+                          : inst.instruction ||
+                            inst.description ||
+                            inst.text ||
+                            String(inst);
+                      return (
+                        <div
+                          key={idx}
+                          className="flex items-start gap-2.5 py-3"
+                          style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
+                        >
+                          <span className="w-1 h-1 bg-amber-400 shrink-0 mt-[6px]" />
+                          <span className="text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.9)" }}>{instText}</span>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-          </div>
+                </CollapsibleContent>
+              </CollapsibleGroupSection>
+            )}
+          </CollapsibleGroup>
         )}
       </div>
     </div>

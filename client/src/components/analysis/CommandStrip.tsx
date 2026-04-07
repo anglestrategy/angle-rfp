@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import { SpringCounter } from "@/components/ui/spring-counter";
 
@@ -8,6 +9,13 @@ function getScoreColor(s: number) {
   return "hsl(0 72% 51%)";
 }
 
+function getRiskColor(risk: string): string {
+  const lower = risk.toLowerCase();
+  if (lower.includes("high") || lower.includes("critical")) return "text-red-400";
+  if (lower.includes("moderate") || lower.includes("medium")) return "text-amber-400";
+  return "text-emerald-400";
+}
+
 interface CommandStripProps {
   score: number;
   recommendation: string;
@@ -16,6 +24,7 @@ interface CommandStripProps {
   budget?: string;
   industry?: string;
   riskLevel?: string;
+  /** "hero" = score element for the top-right; "strip" = flat KPI data row */
   layout?: "hero" | "strip";
 }
 
@@ -31,6 +40,10 @@ export function CommandStrip({
 }: CommandStripProps) {
   const riskText = riskLevel || "Low";
 
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     HERO LAYOUT — Editorial typographic score
+     Large number + thin bar + verdict label
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
   if (layout === "hero") {
     const color = getScoreColor(score);
     const pct = Math.min(score, 100);
@@ -42,9 +55,12 @@ export function CommandStrip({
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.5, delay: 0.15 }}
       >
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-white/40 mb-1.5">
+        {/* Label */}
+        <span className="dash-metric-label mb-1.5">
           Fit Score
         </span>
+
+        {/* Large typographic score */}
         <div className="flex items-baseline gap-1">
           <span
             className="text-[3.2rem] font-extrabold leading-none tracking-tighter tabular-nums"
@@ -53,12 +69,14 @@ export function CommandStrip({
           >
             <SpringCounter value={score} stiffness={120} damping={28} delay={200} />
           </span>
-          <span className="text-base font-medium text-white/25 tracking-tight mb-1">
+          <span className="text-base font-medium tracking-tight mb-1" style={{ color: "rgba(255,255,255,0.3)" }}>
             /100
           </span>
         </div>
+
+        {/* Thin progress bar */}
         <div className="w-full mt-2 mb-1.5">
-          <div className="h-[2px] w-full bg-white/[0.06] overflow-hidden">
+          <div className="h-[2px] w-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
             <motion.div
               className="h-full"
               style={{ backgroundColor: color }}
@@ -68,8 +86,10 @@ export function CommandStrip({
             />
           </div>
         </div>
+
+        {/* Verdict */}
         <motion.span
-          className="text-[10px] font-bold tracking-[0.1em] uppercase"
+          className="dash-metric-sub"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.7 }}
@@ -81,55 +101,47 @@ export function CommandStrip({
     );
   }
 
-  /* ── STRIP LAYOUT ── */
+  /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+     STRIP LAYOUT — 4-cell metric grid
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
   const deadlineDisplay = deadline || "Not specified";
   const hasBudget = budget && budget.toLowerCase() !== "not specified";
-
-  const cells = [
-    {
-      label: "Client",
-      value: clientName || "Unknown",
-      sub: industry || undefined,
-    },
-    {
-      label: "Deadline",
-      value: deadlineDisplay,
-    },
-    {
-      label: "Budget",
-      value: hasBudget ? budget! : "Not disclosed",
-    },
-    {
-      label: "Risk level",
-      value: riskText,
-    },
-  ];
+  const budgetDisplay = hasBudget ? budget : "\u2014";
+  const industryDisplay = industry || "\u2014";
 
   return (
-    <motion.div
-      className="dash-panel"
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4 }}
-    >
-      <div className="grid grid-cols-2 md:grid-cols-4">
-        {cells.map((cell, i) => (
-          <div
-            key={cell.label}
-            className={`px-5 py-4 ${i < cells.length - 1 ? "border-r border-white/[0.06]" : ""} ${i < 2 ? "border-b md:border-b-0 border-white/[0.06]" : ""}`}
-          >
-            <p className="font-mono text-[10px] uppercase tracking-[0.12em] text-white/35 mb-1.5">
-              {cell.label}
-            </p>
-            <p className="text-sm font-semibold tracking-tight leading-snug text-white">
-              {cell.value}
-            </p>
-            {cell.sub && (
-              <p className="text-[11px] text-white/40 mt-1">{cell.sub}</p>
-            )}
-          </div>
-        ))}
+    <div className="dash-panel">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-0">
+        {/* ── Cell 1: Client ── */}
+        <div className="px-7 py-6 md:border-r border-b md:border-b-0" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
+          <p className="dash-metric-label">Client</p>
+          <p className="dash-metric-value !text-xl">{clientName || "\u2014"}</p>
+          <p className="dash-metric-sub">{industryDisplay}</p>
+        </div>
+
+        {/* ── Cell 2: Deadline ── */}
+        <div className="px-7 py-6 md:border-r border-b md:border-b-0" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
+          <p className="dash-metric-label">Deadline</p>
+          <p className="dash-metric-value !text-xl">{deadlineDisplay}</p>
+          <p className="dash-metric-sub">Submission deadline</p>
+        </div>
+
+        {/* ── Cell 3: Budget ── */}
+        <div className="px-7 py-6 md:border-r border-b md:border-b-0" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
+          <p className="dash-metric-label">Budget</p>
+          <p className="dash-metric-value !text-xl">{budgetDisplay}</p>
+          <p className="dash-metric-sub">{hasBudget ? "Total budget" : "Not specified"}</p>
+        </div>
+
+        {/* ── Cell 4: Risk ── */}
+        <div className="px-7 py-6">
+          <p className="dash-metric-label">Risk Level</p>
+          <p className={cn("dash-metric-value !text-xl font-bold uppercase", getRiskColor(riskText))}>
+            {riskText}
+          </p>
+          <p className="dash-metric-sub">Overall risk assessment</p>
+        </div>
       </div>
-    </motion.div>
+    </div>
   );
 }
