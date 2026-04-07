@@ -254,9 +254,9 @@ export function ScopePanel({
 
           return (
             <div className="mt-6 pt-6" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-6">
+              <div className="flex flex-wrap gap-x-8 gap-y-5">
                 {nonZeroEntries.map(({ key, displayVal }) => (
-                  <div key={key} className="dash-metric-group">
+                  <div key={key} className="dash-metric-group min-w-[100px] flex-1">
                     <p className="dash-metric-label">{humanize(key)}</p>
                     <p className="dash-metric-value">{displayVal}</p>
                   </div>
