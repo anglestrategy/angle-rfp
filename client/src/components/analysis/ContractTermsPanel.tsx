@@ -1,4 +1,3 @@
-import { cn } from "@/lib/utils";
 import {
   CollapsibleSection,
   CollapsibleTrigger,
@@ -19,11 +18,7 @@ interface TermDef {
 const TERMS: TermDef[] = [
   { key: "paymentTerms", label: "Payment Terms", warn: false },
   { key: "delayPenalties", label: "Delay Penalties", warn: true },
-  {
-    key: "performanceGuarantees",
-    label: "Performance Guarantees",
-    warn: true,
-  },
+  { key: "performanceGuarantees", label: "Performance Guarantees", warn: true },
   { key: "confidentiality", label: "Confidentiality", warn: false },
   { key: "ipOwnership", label: "IP Ownership", warn: true },
   { key: "governingLaw", label: "Governing Law", warn: false },
@@ -40,19 +35,13 @@ function formatTermValue(val: any): string | null {
     return JSON.stringify(val);
   }
   const str = String(val).trim();
-  if (str === "") return null;
-  return str;
+  return str === "" ? null : str;
 }
 
-export function ContractTermsPanel({
-  contractTerms,
-}: ContractTermsPanelProps) {
+export function ContractTermsPanel({ contractTerms }: ContractTermsPanelProps) {
   if (!contractTerms) return null;
 
-  const visibleTerms = TERMS.filter((t) => {
-    const val = contractTerms[t.key];
-    return formatTermValue(val) !== null;
-  });
+  const visibleTerms = TERMS.filter((t) => formatTermValue(contractTerms[t.key]) !== null);
 
   const rawOther = contractTerms.otherTerms;
   const otherTerms: any[] = Array.isArray(rawOther)
@@ -61,84 +50,53 @@ export function ContractTermsPanel({
       ? [{ name: "Other", description: rawOther }]
       : [];
 
-  if (visibleTerms.length === 0 && otherTerms.length === 0) return null;
+  // Merge all terms into one flat list
+  const allTerms = [
+    ...visibleTerms.map((t) => ({
+      label: t.label,
+      value: formatTermValue(contractTerms[t.key])!,
+      warn: t.warn && formatTermValue(contractTerms[t.key]) !== "Not specified",
+    })),
+    ...otherTerms.map((t: any, idx: number) => ({
+      label: typeof (t.name || t.term || t.title) === "string"
+        ? humanize(t.name || t.term || t.title)
+        : `Term ${idx + 1}`,
+      value: String(t.description || t.value || t.details || t.content || ""),
+      warn: false,
+    })),
+  ].filter((t) => t.value);
 
-  const termCount = visibleTerms.length + otherTerms.length;
+  if (allTerms.length === 0) return null;
 
   return (
     <div className="dash-panel">
       <div className="dash-panel-header">
         <span className="dash-panel-title">Contract Terms</span>
-        <span className="dash-panel-badge">{termCount} terms</span>
+        <span className="dash-panel-badge">{allTerms.length} terms</span>
       </div>
 
       <div className="dash-panel-body">
-        {/* Term/value rows with dashed dividers */}
-        {visibleTerms.map((term) => {
-          const val = formatTermValue(contractTerms[term.key]);
-          return (
-            <div
-              key={term.key}
-              className="py-3.5"
-              style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-sm font-bold" style={{ color: "rgba(255,255,255,0.9)" }}>
+        {allTerms.map((term, i) => (
+          <CollapsibleSection key={i} value={`term-${i}`}>
+            <CollapsibleTrigger className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-2 flex-1 text-left">
+                <span className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.8)" }}>
                   {term.label}
                 </span>
-                {term.warn && val !== "Not specified" && (
+                {term.warn && (
                   <span className="dash-panel-badge" style={{ borderColor: "rgba(255,90,54,0.3)", color: "#ff5a36" }}>
                     WARN
                   </span>
                 )}
               </div>
-              <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.5)" }}>{val}</p>
-            </div>
-          );
-        })}
-
-        {/* Other terms */}
-        {otherTerms.length > 0 && (
-          <div className="mt-4 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }}>
-            <CollapsibleSection value="other-terms">
-              <CollapsibleTrigger className="hover:no-underline py-2">
-                <span className="dash-metric-sub" style={{ cursor: "pointer" }}>
-                  Other Terms ({otherTerms.length})
-                </span>
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                <div data-lenis-prevent className="max-h-[340px] overflow-y-auto overscroll-contain">
-                  {otherTerms.map((term: any, idx: number) => {
-                    const termName =
-                      term.name || term.term || term.title || `Term ${idx + 1}`;
-                    const termVal =
-                      term.description ||
-                      term.value ||
-                      term.details ||
-                      term.content ||
-                      "";
-                    return (
-                      <div
-                        key={idx}
-                        className="py-3.5"
-                        style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}
-                      >
-                        <p className="dash-metric-label">
-                          {typeof termName === "string"
-                            ? humanize(termName)
-                            : termName}
-                        </p>
-                        {termVal && (
-                          <p className="text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>{String(termVal)}</p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </CollapsibleContent>
-            </CollapsibleSection>
-          </div>
-        )}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <p className="text-sm leading-relaxed pb-3" style={{ color: "rgba(255,255,255,0.45)" }}>
+                {term.value}
+              </p>
+            </CollapsibleContent>
+          </CollapsibleSection>
+        ))}
       </div>
     </div>
   );
