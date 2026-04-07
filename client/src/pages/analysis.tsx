@@ -949,13 +949,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
 
       {/* ── Main Content ── */}
       <div className="max-w-[1600px] mx-auto px-6 lg:px-12 pt-4 pb-8">
-        {/* ── Two-column: side nav + content ── */}
-        <div className="flex gap-0 xl:gap-6">
-
-          {/* ── Side nav (xl+ only) ── */}
-          <DashboardSideNav />
-
-          {/* ── Scrollable content ── */}
+        <div>
           <div className="flex-1 min-w-0">
 
         {/* ═══════════════════════════════════════════════════
