@@ -1233,31 +1233,34 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
               <div className="dash-panel">
                 <div className="dash-panel-header">
                   <span className="dash-panel-title">Evaluation Criteria</span>
+                  <span className="dash-panel-badge">{evalCriteria.length} criteria</span>
                 </div>
                 <div className="dash-panel-body">
-                  <div className="dash-data-header" style={{ gridTemplateColumns: "1fr 60px" }}>
-                    <span>Criterion</span>
-                    <span className="text-right">Weight</span>
-                  </div>
                   {evalCriteria.map((crit: any, i: number) => {
                     const name = typeof crit === "string" ? crit : crit.criterion || crit.name || `Criterion ${i + 1}`;
                     const weight = typeof crit === "object" ? crit.weight : null;
                     const desc = typeof crit === "object" ? crit.description : null;
                     return (
-                      <div key={i} className="dash-data-row" style={{ gridTemplateColumns: "1fr 60px" }}>
-                        <div>
-                          <span className="text-sm font-medium" style={{ color: "rgba(255,255,255,0.9)" }}>{name}</span>
-                          {weight && (
-                            <div className="mt-2 h-[3px] w-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
-                              <div className="h-full bg-primary" style={{ width: `${Math.min(weight, 100)}%` }} />
-                            </div>
-                          )}
-                          {desc && <p className="text-xs mt-1" style={{ color: "rgba(255,255,255,0.4)" }}>{desc}</p>}
-                        </div>
-                        {weight && (
-                          <span className="text-sm font-mono tabular-nums font-bold text-right" style={{ color: "rgba(255,255,255,0.9)" }}>{weight}%</span>
-                        )}
-                      </div>
+                      <CollapsibleSection key={i} value={`eval-${i}`}>
+                        <CollapsibleTrigger className="py-3" style={{ borderBottom: "1px dashed rgba(255,255,255,0.06)" }}>
+                          <div className="flex items-center justify-between flex-1 text-left gap-3">
+                            <span className="text-sm font-semibold" style={{ color: "rgba(255,255,255,0.8)" }}>{name}</span>
+                            {weight && (
+                              <span className="font-mono text-sm tabular-nums font-bold shrink-0" style={{ color: "rgba(255,255,255,0.9)" }}>{weight}%</span>
+                            )}
+                          </div>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <div className="pb-3">
+                            {weight && (
+                              <div className="h-[3px] w-full overflow-hidden mb-2" style={{ background: "rgba(255,255,255,0.04)" }}>
+                                <div className="h-full bg-primary" style={{ width: `${Math.min(weight, 100)}%` }} />
+                              </div>
+                            )}
+                            {desc && <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.45)" }}>{desc}</p>}
+                          </div>
+                        </CollapsibleContent>
+                      </CollapsibleSection>
                     );
                   })}
                 </div>
