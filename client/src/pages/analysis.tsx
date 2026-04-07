@@ -89,7 +89,7 @@ type AnalysisWithRuns = RfpAnalysis & {
 
 function PageSectionFallback({ height = "min-h-[160px]" }: { height?: string }) {
   return (
-    <div className={`border border-white/[0.06] bg-[#050505] p-4 ${height}`}>
+    <div className={`dash-panel p-4 ${height}`}>
       <div className="space-y-3">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-20 w-full" />
@@ -850,17 +850,6 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
 
   return (
     <div className="min-h-screen print:min-h-0 relative bg-black text-white">
-      {/* ── Subtle grain texture ── */}
-      <svg className="hidden" aria-hidden="true">
-        <filter id="dashboard-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-      </svg>
-      <div
-        className="fixed inset-0 pointer-events-none z-0 opacity-[0.025] print:hidden"
-        style={{ filter: "url(#dashboard-grain)" }}
-      />
 
       {/* ── Sticky Header ── */}
       <div className="sticky top-0 z-50 bg-black/90 backdrop-blur-sm border-b border-white/[0.06] print:hidden">
@@ -1089,8 +1078,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             whileInView="visible"
             viewport={viewportOnce}
           >
-            <div className="border border-white/[0.06] bg-[#050505]">
-              <div className="pt-4 pb-4 px-5">
+            <div className="dash-panel">
+              <div className="dash-panel-body">
                 <div className="flex items-center justify-between mb-3">
                   <p className="panel-heading">Deliverables</p>
                   <span className="font-mono text-[10px] text-muted-foreground/70">
@@ -1156,8 +1145,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
               viewport={{ once: true, margin: "-40px" }}
               transition={{ duration: 0.4, delay: 0.08 }}
             >
-              <div className="border border-white/[0.06] bg-[#050505]">
-                <div className="pt-4 pb-4 px-5">
+              <div className="dash-panel">
+                <div className="dash-panel-body">
                   <div className="flex items-center justify-between mb-3">
                     <p className="panel-heading">Deliverables</p>
                     <span className="font-mono text-[10px] text-muted-foreground/70">
@@ -1183,14 +1172,14 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
         ═══════════════════════════════════════════════════ */}
         <div id="sec-grid">
         <motion.div
-          className="grid grid-cols-1 lg:grid-cols-12 gap-3"
+          className="grid grid-cols-1 lg:grid-cols-12 gap-4"
           variants={dashboardRow}
           initial="hidden"
           whileInView="visible"
           viewport={viewportOnce}
         >
           {/* ── LEFT COLUMN (7 cols) ── */}
-          <motion.div className="lg:col-span-7 space-y-3" variants={staggerContainer}>
+          <motion.div className="lg:col-span-6 space-y-3" variants={staggerContainer}>
             <motion.div variants={staggerItem}>
               <div id="sec-scope">
               <Suspense fallback={<PageSectionFallback />}>
@@ -1245,7 +1234,7 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
           </motion.div>
 
           {/* ── RIGHT COLUMN (5 cols) ── */}
-          <motion.div className="lg:col-span-5 flex flex-col gap-3" variants={staggerContainer}>
+          <motion.div className="lg:col-span-6 flex flex-col gap-3" variants={staggerContainer}>
             <motion.div variants={staggerItemScale}>
               <div id="sec-risks">
               <Suspense fallback={<PageSectionFallback />}>
@@ -1285,8 +1274,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
             {/* Evaluation Criteria */}
             {Array.isArray(evalCriteria) && evalCriteria.length > 0 && (
               <motion.div variants={staggerItemScale}>
-                <div className="border border-white/[0.06] bg-[#050505]">
-                  <div className="pt-4 pb-4 px-5">
+                <div className="dash-panel">
+                  <div className="dash-panel-body">
                     <div className="flex items-center justify-between mb-2">
                       <p className="panel-heading">Evaluation Criteria</p>
                     </div>
@@ -1332,8 +1321,8 @@ function DashboardView({ analysis }: { analysis: AnalysisWithRuns }) {
               teamReqs?.certifications?.length > 0 ||
               teamReqs?.localContentRequirements) && (
               <motion.div variants={staggerItemScale}>
-                <div className="border border-white/[0.06] bg-[#050505]">
-                  <div className="pt-4 pb-4 px-5">
+                <div className="dash-panel">
+                  <div className="dash-panel-body">
                     <div className="flex items-center justify-between mb-3">
                       <p className="panel-heading">Team Requirements</p>
                     </div>
@@ -1555,8 +1544,8 @@ export default function AnalysisPage() {
             <Skeleton className="h-64 w-full" />
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <Skeleton className="lg:col-span-7 h-64 w-full" />
-            <Skeleton className="lg:col-span-5 h-64 w-full" />
+            <Skeleton className="lg:col-span-6 h-64 w-full" />
+            <Skeleton className="lg:col-span-6 h-64 w-full" />
           </div>
         </div>
       </div>

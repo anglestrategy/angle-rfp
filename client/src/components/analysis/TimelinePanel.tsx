@@ -161,8 +161,8 @@ export function TimelinePanel({
 
   if (!hasAnything) {
     return (
-      <div className="border border-white/[0.06] bg-[#050505]">
-        <div className="pt-4 pb-4 px-5">
+      <div className="dash-panel">
+        <div className="dash-panel-body">
           <div className="mb-3">
             <p className="panel-heading">Key Dates</p>
           </div>
@@ -173,8 +173,8 @@ export function TimelinePanel({
   }
 
   return (
-    <div className="border border-white/[0.06] bg-[#050505]">
-      <div className="pt-4 pb-4 px-5">
+    <div className="dash-panel">
+      <div className="dash-panel-body">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Key Dates</p>
           {overallDuration && (

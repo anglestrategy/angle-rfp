@@ -61,8 +61,8 @@ export function ScopePanel({
 }: ScopePanelProps) {
   if (!hasScope) {
     return (
-      <div className="border border-white/[0.06] bg-[#050505]">
-        <div className="pt-4 pb-4 px-5" data-testid="section-scope">
+      <div className="dash-panel">
+        <div className="dash-panel-body" data-testid="section-scope">
           <p className="section-heading">SCOPE ANALYSIS</p>
           <p className="text-sm text-muted-foreground italic">Scope analysis data not available</p>
         </div>
@@ -81,8 +81,8 @@ export function ScopePanel({
   const hasCategories = scopeCategories && scopeCategories.length > 0;
 
   return (
-    <div className="border border-white/[0.06] bg-[#050505]">
-      <div className="pt-4 pb-4 px-5" data-testid="section-scope">
+    <div className="dash-panel">
+      <div className="dash-panel-body" data-testid="section-scope">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Scope Analysis</p>
           <span className="font-mono text-lg font-bold text-primary">{agencyServicePct}%</span>

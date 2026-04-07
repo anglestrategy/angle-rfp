@@ -142,8 +142,8 @@ export function ScoringBreakdown({ factors, financial }: ScoringBreakdownProps) 
     : [];
 
   return (
-    <div className="border border-white/[0.06] bg-[#050505]">
-      <div className="pt-4 pb-4 px-5" data-testid="section-financial">
+    <div className="dash-panel">
+      <div className="dash-panel-body" data-testid="section-financial">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Scoring Breakdown</p>
         </div>

@@ -57,8 +57,8 @@ export function ClientIntel({
 }: ClientIntelProps) {
   if (!hasData) {
     return (
-      <div className="border border-white/[0.06] bg-[#050505]">
-        <div className="pt-4 pb-4 px-5" data-testid="section-client-profile">
+      <div className="dash-panel">
+        <div className="dash-panel-body" data-testid="section-client-profile">
           <p className="section-heading">CLIENT INTELLIGENCE</p>
           <p className="text-sm text-muted-foreground italic">
             Client intelligence data not available
@@ -124,8 +124,8 @@ export function ClientIntel({
     : [];
 
   return (
-    <div className="border border-white/[0.06] bg-[#050505]">
-      <div className="pt-4 pb-4 px-5" data-testid="section-client-profile">
+    <div className="dash-panel">
+      <div className="dash-panel-body" data-testid="section-client-profile">
         <div className="flex items-center justify-between mb-2">
           <p className="panel-heading">Client Intelligence</p>
         </div>

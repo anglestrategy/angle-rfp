@@ -47,8 +47,8 @@ export function SubmissionPanel({ submission }: SubmissionPanelProps) {
   if (!hasContent) return null;
 
   return (
-    <div className="border border-white/[0.06] bg-[#050505]">
-      <div className="pt-4 pb-4 px-5">
+    <div className="dash-panel">
+      <div className="dash-panel-body">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Submission Requirements</p>
         </div>

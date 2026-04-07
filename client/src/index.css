@@ -647,7 +647,6 @@
 
   /* ── Typography Utilities ── */
 
-  /* Section heading: mono uppercase micro-label */
   .section-heading {
     font-family: var(--font-mono);
     font-size: 11px;
@@ -657,36 +656,32 @@
     color: hsl(var(--muted-foreground));
   }
 
-  /* Metric value: large display number */
   .metric-value {
     font-family: var(--font-sans);
-    font-size: 64px;
+    font-size: 56px;
     font-weight: 800;
     line-height: 0.9;
     letter-spacing: -0.03em;
     color: hsl(var(--foreground));
   }
 
-  /* Metric label: refined label beneath metric values */
   .metric-label {
     font-family: var(--font-mono);
     font-size: 10px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    color: hsl(var(--muted-foreground));
+    color: hsl(var(--muted-foreground) / 0.6);
   }
 
-  /* Panel section heading — unified across all dashboard cards */
   .panel-heading {
     font-family: var(--font-sans);
-    font-size: 13px;
-    font-weight: 650;
+    font-size: 15px;
+    font-weight: 700;
     letter-spacing: -0.01em;
     color: hsl(var(--foreground));
   }
 
-  /* Swiss data row: key-value pairs in panels */
   .swiss-data-label {
     font-family: var(--font-mono);
     font-size: 10px;
@@ -703,7 +698,50 @@
     color: hsl(var(--foreground));
   }
 
-  /* ── Grain Overlay (Swiss print-proof texture) ── */
+  /* ── Dashboard Panel System ── */
+  .dash-panel {
+    background: hsl(var(--background));
+    border: 1px solid hsl(var(--foreground) / 0.08);
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dash-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid hsl(var(--foreground) / 0.08);
+    padding: 14px 20px;
+  }
+
+  .dash-panel-title {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: hsl(var(--foreground) / 0.7);
+  }
+
+  .dash-panel-badge {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    border: 1px solid hsl(var(--foreground) / 0.12);
+    border-radius: 20px;
+    padding: 2px 10px;
+    color: hsl(var(--foreground) / 0.5);
+  }
+
+  .dash-panel-body {
+    padding: 20px;
+    flex: 1;
+  }
+
+  /* ── Grain Overlay ── */
   .grain-overlay {
     position: fixed;
     inset: 0;

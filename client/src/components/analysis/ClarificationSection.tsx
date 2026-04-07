@@ -51,8 +51,8 @@ export function ClarificationSection({
   if (qCount > 0) defaultOpen.push("questions");
 
   return (
-    <div className="border border-white/[0.06] bg-[#050505]">
-      <div className="pt-4 pb-4 px-5">
+    <div className="dash-panel">
+      <div className="dash-panel-body">
         <div className="flex items-center justify-between mb-3">
           <p className="panel-heading">Clarifications</p>
           <span className="font-mono text-[10px] text-muted-foreground/60">{totalItems} items</span>
