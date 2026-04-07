@@ -5,6 +5,9 @@ import { gsap } from "gsap";
 
 gsap.registerPlugin(ScrollTrigger);
 
+/** Pages where Lenis smooth scroll should be active */
+const LENIS_PATHS = ["/"];
+
 /**
  * Initialises Lenis smooth scroll synced with GSAP ScrollTrigger.
  *
@@ -31,7 +34,9 @@ export function useLenis() {
   const lenisRef = useRef<Lenis | null>(null);
 
   useEffect(() => {
-    // Create Lenis instance — autoRaf off so GSAP ticker drives it
+    // Only enable Lenis on pages that benefit from smooth scroll (landing)
+    if (!LENIS_PATHS.includes(window.location.pathname)) return;
+
     const lenis = new Lenis({
       autoRaf: false,
       // Always read live scrollHeight instead of cached dimensions.
